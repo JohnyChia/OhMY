@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#3266cc">
+  <title>CultureRoute · Place Tagging</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="map-panel" aria-label="Attraction map">
+      <header class="search-header">
+        <div class="brand" aria-label="CultureRoute home">
+          <span class="brand-mark">CR</span>
+          <span>CultureRoute</span>
+        </div>
+
+        <form id="search-form" class="search-form" role="search">
+          <label class="sr-only" for="search-input">Search attractions</label>
+          <input id="search-input" type="search" placeholder="Search attractions…" autocomplete="off">
+          <button type="submit" aria-label="Search">
+            <span class="material-icon">search</span>
+          </button>
+        </form>
+
+        <button id="nearby-button" class="nearby-button" type="button">
+          <span class="material-icon">my_location</span>
+          <span>Nearby matches</span>
+        </button>
+      </header>
+
+      <div id="map" class="map"></div>
+
+      <div id="search-results" class="search-results" hidden></div>
+
+      <div class="legend" aria-label="Map legend">
+        <span><i class="legend-dot current"></i>You</span>
+        <span><i class="legend-dot matched"></i>Preference match</span>
+        <span><i class="legend-dot tagged"></i>Tagged place</span>
+      </div>
+
+      <div id="map-status" class="map-status">Search for a Malaysian attraction to begin.</div>
+    </section>
+
+    <aside class="details-panel" aria-live="polite">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon"><span class="material-icon">location_on</span></div>
+        <p class="eyebrow">PLACE TAGGING TEST</p>
+        <h1>Explore cultural attractions</h1>
+        <p>Search for a place to fetch its Google reviews and automatically assign cultural and general tags.</p>
+        <div class="fixed-preferences">
+          <span>Museum</span>
+          <span>Heritage</span>
+          <span>Cultural Learning</span>
+          <span>Nature</span>
+          <span>Religious Heritage</span>
+        </div>
+      </div>
+
+      <div id="loading-state" class="loading-state" hidden>
+        <span class="spinner"></span>
+        <h2>Analysing reviews</h2>
+        <p>Fetching place details and assigning tags…</p>
+      </div>
+
+      <article id="place-details" hidden>
+        <div class="details-heading">
+          <div>
+            <p class="eyebrow">SELECTED ATTRACTION</p>
+            <h1 id="place-name"></h1>
+          </div>
+          <a id="maps-link" class="icon-link" target="_blank" rel="noreferrer" aria-label="Open in Google Maps">
+            <span class="material-icon">open_in_new</span>
+          </a>
+        </div>
+
+        <div class="place-meta">
+          <span><span class="material-icon">star</span><b id="place-rating">—</b></span>
+          <span><span class="material-icon">rate_review</span><b id="review-count">0</b> reviews analysed</span>
+          <span id="distance-meta" hidden><span class="material-icon">near_me</span><b id="place-distance">—</b> km</span>
+          <span id="ranking-meta" hidden><span class="material-icon">leaderboard</span><b id="place-rank">—</b> · <b id="place-similarity">—</b>% match</span>
+        </div>
+
+        <p id="place-address" class="address"></p>
+
+        <button id="destination-nearby-button" class="destination-nearby-button" type="button" hidden>
+          <span class="material-icon">explore</span>
+          Find similar places within 10 km
+        </button>
+
+        <section class="tag-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">RULE-BASED NLP</p>
+              <h2>Assigned tags</h2>
+            </div>
+            <span id="tagging-time" class="time-pill"></span>
+          </div>
+
+          <h3>General</h3>
+          <div id="general-tags" class="tag-list"></div>
+
+          <h3>Cultural value</h3>
+          <div id="cultural-tags" class="tag-list cultural"></div>
+
+          <h3>Matched preferences</h3>
+          <div id="matched-preferences" class="tag-list matched"></div>
+        </section>
+
+        <section class="evidence-section">
+          <h2>Tag evidence</h2>
+          <div id="tag-evidence" class="evidence-list"></div>
+        </section>
+      </article>
+    </aside>
+  </main>
+
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  <script src="app.js"></script>
+</body>
+</html>
