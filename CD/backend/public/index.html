@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#3266cc">
+  <title>ohMY · Place Tagging</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="map-panel" aria-label="Attraction map">
+      <header class="search-header">
+        <div class="brand" aria-label="ohMY home">
+          <span class="brand-mark">MY</span>
+          <span>ohMY</span>
+        </div>
+
+        <form id="search-form" class="search-form" role="search">
+          <label class="sr-only" for="search-input">Search attractions</label>
+          <input id="search-input" type="search" placeholder="Search attractions…" autocomplete="off">
+          <button type="submit" aria-label="Search">
+            <span class="material-icon">search</span>
+          </button>
+        </form>
+
+      </header>
+
+      <div id="map" class="map"></div>
+
+      <div class="condition-controls" aria-label="Trip conditions">
+        <button id="traffic-button" class="map-icon-button" type="button" aria-label="Traffic congestion detection" title="Traffic congestion detection">
+          <span class="material-icon">traffic</span>
+        </button>
+        <button id="weather-button" class="map-icon-button" type="button" aria-label="Weather conditions" title="Weather conditions">
+          <span class="material-icon">cloud</span>
+        </button>
+      </div>
+
+      <button id="nearby-button" class="nearby-button" type="button">
+        <span class="material-icon">my_location</span>
+        <span>Nearby matches</span>
+      </button>
+
+      <div id="search-results" class="search-results" hidden></div>
+
+      <div class="legend" aria-label="Map legend">
+        <span><i class="legend-dot current"></i>You</span>
+        <span><i class="legend-dot matched"></i>Preference match</span>
+        <span><i class="legend-dot tagged"></i>Tagged place</span>
+      </div>
+
+      <div id="map-status" class="map-status">Search for a Malaysian attraction to begin.</div>
+
+      <article id="selection-preview" class="selection-preview" hidden tabindex="0" role="button" aria-label="Open selected place details">
+        <button id="close-selection-preview" class="selection-preview-close" type="button" aria-label="Close selected place">
+          <span class="material-icon">close</span>
+        </button>
+        <div class="selection-preview-content">
+          <h2 id="selection-preview-name"></h2>
+          <p id="selection-preview-description"></p>
+          <div class="selection-preview-route">
+            <strong id="selection-preview-eta">Unavailable</strong>
+            <i></i>
+            <strong id="selection-preview-distance">Unavailable</strong>
+          </div>
+          <div id="selection-preview-tags" class="selection-preview-tags" aria-label="Assigned tags"></div>
+          <div class="selection-preview-actions">
+            <button id="selection-preview-directions" type="button">
+              <span class="material-icon">directions</span><span>Directions</span>
+            </button>
+            <button id="selection-preview-bookmark" type="button" aria-pressed="false">
+              <span class="material-icon">bookmark_border</span><span>Bookmark</span>
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <section id="recommendation-drawer" class="recommendation-drawer" hidden aria-label="Ranked recommendations">
+        <div class="recommendation-drawer-heading">
+          <div>
+            <p class="eyebrow">RANKED FOR YOU</p>
+            <h2 id="recommendation-title">Based on your preferences</h2>
+          </div>
+          <button id="close-recommendations" class="round-button" type="button" aria-label="Close recommendations">
+            <span class="material-icon">close</span>
+          </button>
+        </div>
+        <div id="recommendation-track" class="recommendation-track"></div>
+        <p class="swipe-hint">Swipe or scroll for more <span class="material-icon">arrow_forward</span></p>
+      </section>
+    </section>
+
+    <aside class="details-panel" aria-live="polite">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon"><span class="material-icon">location_on</span></div>
+        <p class="eyebrow">PLACE TAGGING TEST</p>
+        <h1>Explore cultural attractions</h1>
+        <p>Search for a place to fetch its Google reviews and automatically assign cultural and general tags.</p>
+        <div class="fixed-preferences">
+          <span>Museum</span>
+          <span>Heritage</span>
+          <span>Cultural Learning</span>
+          <span>Nature</span>
+          <span>Religious Heritage</span>
+        </div>
+      </div>
+
+      <div id="loading-state" class="loading-state" hidden>
+        <span class="spinner"></span>
+        <h2>Analysing reviews</h2>
+        <p>Fetching place details and assigning tags…</p>
+      </div>
+
+      <article id="place-details" hidden>
+        <div class="details-heading">
+          <div>
+            <p class="eyebrow">SELECTED ATTRACTION</p>
+            <h1 id="place-name"></h1>
+          </div>
+          <a id="maps-link" class="icon-link" target="_blank" rel="noreferrer" aria-label="Open in Google Maps">
+            <span class="material-icon">open_in_new</span>
+          </a>
+        </div>
+
+        <div class="place-meta">
+          <span><span class="material-icon">star</span><b id="place-rating">—</b></span>
+          <span><span class="material-icon">rate_review</span><b id="review-count">0</b> reviews analysed</span>
+          <span id="distance-meta" hidden><span class="material-icon">near_me</span><b id="place-distance">—</b> km</span>
+          <span id="ranking-meta" hidden><span class="material-icon">leaderboard</span><b id="place-rank">—</b> · <b id="place-similarity">—</b>% match</span>
+        </div>
+
+        <p id="place-address" class="address"></p>
+
+        <button id="destination-nearby-button" class="destination-nearby-button" type="button" hidden>
+          <span class="material-icon">explore</span>
+          Find similar places within 10 km
+        </button>
+
+        <section class="tag-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">RULE-BASED NLP</p>
+              <h2>Assigned tags</h2>
+            </div>
+            <span id="tagging-time" class="time-pill"></span>
+          </div>
+
+          <h3>General</h3>
+          <div id="general-tags" class="tag-list"></div>
+
+          <h3>Cultural value</h3>
+          <div id="cultural-tags" class="tag-list cultural"></div>
+
+          <h3>Matched preferences</h3>
+          <div id="matched-preferences" class="tag-list matched"></div>
+        </section>
+
+        <section class="evidence-section">
+          <h2>Tag evidence</h2>
+          <div id="tag-evidence" class="evidence-list"></div>
+        </section>
+      </article>
+    </aside>
+  </main>
+
+  <section id="place-detail-page" class="place-detail-page" hidden aria-live="polite">
+    <header class="detail-topbar">
+      <button id="detail-back-button" class="round-button" type="button" aria-label="Back to recommendations">
+        <span class="material-icon">arrow_back</span>
+      </button>
+      <h1 id="detail-page-name">Place details</h1>
+      <button id="bookmark-button" class="round-button" type="button" aria-label="Bookmark place" aria-pressed="false">
+        <span class="material-icon">bookmark_border</span>
+      </button>
+    </header>
+
+    <div class="detail-page-content">
+      <figure class="detail-photo-shell">
+        <div id="detail-photo-track" class="detail-photo-track"></div>
+        <div id="detail-photo-unavailable" class="photo-unavailable">
+          <span class="material-icon">image_not_supported</span>
+          <span>Picture unavailable</span>
+        </div>
+        <div id="detail-photo-indicator" class="detail-photo-indicator" hidden>
+          <span id="detail-photo-count">1 of 1</span>
+          <span>Swipe for more →</span>
+        </div>
+      </figure>
+
+      <section class="detail-about">
+        <p class="eyebrow">ABOUT THIS PLACE</p>
+        <h2 id="detail-about-name"></h2>
+        <p id="detail-description"></p>
+        <p id="detail-full-address" class="detail-address"></p>
+      </section>
+
+      <section class="journey-summary" aria-label="Journey summary">
+        <div>
+          <span>Estimated arrival</span>
+          <strong id="detail-eta">Unavailable</strong>
+        </div>
+        <div>
+          <span>Distance</span>
+          <strong id="detail-distance">Unavailable</strong>
+        </div>
+        <div>
+          <span>Preference match</span>
+          <strong id="detail-similarity">—</strong>
+        </div>
+      </section>
+
+      <section class="detail-tags-section">
+        <h2>Tags</h2>
+        <div id="detail-tags" class="tag-list"></div>
+      </section>
+    </div>
+
+    <footer class="detail-actions">
+      <button id="directions-button" type="button">
+        <span class="material-icon">directions</span>
+        Directions
+      </button>
+      <p id="detail-action-status" role="status"></p>
+    </footer>
+  </section>
+
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+  <script src="app.js"></script>
+</body>
+</html>
