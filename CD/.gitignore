@@ -1,5 +1,10 @@
 # Secrets
 backend/.env
+verification_backend/.env
+verification_backend/.venv/
+verification_backend/models/
+verification_backend/**/__pycache__/
+verification_backend/**/*.pyc
 flutter_app/android/local.properties
 *.jks
 *.keystore
