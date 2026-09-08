@@ -10,21 +10,25 @@ const {
     searchNearbyPlaces,
     getPlaceDetails,
     getPlacePhoto
-} = require("./googlePlacesService");
+} = require("./modules/preference_recommender/googlePlacesService");
 const {
     TaggingService,
     GENERAL_TAGS,
     CULTURAL_TAGS
-} = require("./tagging-service");
+} = require("./modules/preference_recommender/tagging-service");
 const {
     buildNearbySearchPlan
-} = require("./candidate-query-planner");
+} = require("./modules/preference_recommender/candidate-query-planner");
 const {
     calculateRecommendationScore,
     rankTaggedPlaces
-} = require("./ranking-service");
-const { getWeatherOverview } = require("./weather-service");
-const { computeDrivingRoutes } = require("./routing-service");
+} = require("./modules/preference_recommender/ranking-service");
+const {
+    getWeatherOverview
+} = require("./modules/weather_traffic/weather-service");
+const {
+    computeDrivingRoutes
+} = require("./modules/weather_traffic/routing-service");
 const app = express();
 
 app.use(cors());
@@ -883,7 +887,7 @@ app.post(
                 "postal_code"
             ]);
 
-            const places =
+            let places =
                 (data.places || []).map(
                     place => ({
                         ...place,
@@ -893,6 +897,14 @@ app.post(
                             )
                     })
                 );
+
+            // Route origin/destination pickers use the same Malaysia-scoped
+            // search as the main map, but do not need selectable area rows.
+            if (req.body.placesOnly === true) {
+                places = places.filter(
+                    place => !place.isArea
+                );
+            }
 
 
             res.json({
