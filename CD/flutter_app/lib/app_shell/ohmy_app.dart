@@ -126,7 +126,6 @@ class _OhMyShellState extends State<OhMyShell> {
         }
       },
       child: Scaffold(
-        extendBody: true,
         body: IndexedStack(
           index: _selectedIndex,
           children: List.generate(

@@ -148,7 +148,8 @@ async function searchNearbyPlaces({
                     "places.location",
                     "places.types",
                     "places.primaryType",
-                    "places.googleMapsUri"
+                    "places.googleMapsUri",
+                    "places.photos"
                 ].join(",")
             },
 

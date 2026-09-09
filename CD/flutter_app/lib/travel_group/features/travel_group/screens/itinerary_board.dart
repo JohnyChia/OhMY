@@ -147,8 +147,7 @@ class ItineraryBoard extends StatelessWidget {
   }
 
   Future<void> _openMap(BuildContext context) async {
-    await Navigator.push<void>(
-      context,
+    await Navigator.of(context, rootNavigator: true).push<void>(
       MaterialPageRoute(
         builder: (_) => ActiveItineraryMapScreen(controller: controller),
       ),

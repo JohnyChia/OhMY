@@ -3,6 +3,20 @@ import 'package:flutter_app/app_shell/ohmy_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('shared navigation does not cover module content', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
+    await tester.pump();
+
+    final contentBottom = tester.getBottomLeft(find.byType(IndexedStack)).dy;
+    final navigationTop = tester.getTopLeft(find.byType(NavigationBar)).dy;
+
+    expect(contentBottom, lessThanOrEqualTo(navigationTop));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+  });
+
   testWidgets('shared navigation opens every module root', (tester) async {
     await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
     await tester.pump();

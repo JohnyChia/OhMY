@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -8,6 +9,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
 import '../features/routes/route_feature.dart';
+import '../features/routes/navigation_sensor.dart';
 import '../features/weather/weather_feature.dart';
 
 const blue = Color(0xff3266cc),
@@ -44,10 +46,25 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   bool loading = false, showCarousel = false, bookmarked = false;
   bool trafficEnabled = false, showWeatherPanel = false, weatherLoading = false;
   WeatherOverview? weather;
+  Position? currentPosition;
+  bool locationPermissionGranted = false;
   String? message;
   String recommendationTitle = 'Based on your preferences';
   String? highlightedRecommendationId;
   final Set<String> bookmarkedRecommendations = {};
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(initializeCurrentLocation());
+  }
+
+  Future<void> initializeCurrentLocation() async {
+    final value = await position();
+    if (!mounted || value == null) return;
+    setState(() => currentPosition = value);
+    await moveMapTo(value, zoom: 16);
+  }
 
   String name(Map p) =>
       p['displayName']?['text']?.toString() ?? 'Selected place';
@@ -103,7 +120,20 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         p == LocationPermission.deniedForever) {
       return null;
     }
-    return Geolocator.getCurrentPosition();
+    if (mounted && !locationPermissionGranted) {
+      setState(() => locationPermissionGranted = true);
+    }
+    final value = await Geolocator.getCurrentPosition(
+      locationSettings: navigationLocationSettings,
+    );
+    if (mounted) currentPosition = value;
+    return value;
+  }
+
+  Future<void> moveMapTo(Position value, {double zoom = 15}) async {
+    await controller?.animateCamera(
+      CameraUpdate.newLatLngZoom(LatLng(value.latitude, value.longitude), zoom),
+    );
   }
 
   double km(Position a, Map b) {
@@ -392,12 +422,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       fail(Exception('Location permission is required.'));
       return;
     }
-    await controller?.animateCamera(
-      CameraUpdate.newLatLngZoom(
-        LatLng(currentPosition.latitude, currentPosition.longitude),
-        15,
-      ),
-    );
+    await moveMapTo(currentPosition);
   }
 
   Future<void> toggleWeather() async {
@@ -461,12 +486,17 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     body: Stack(
       children: [
         GoogleMap(
-          initialCameraPosition: const CameraPosition(
-            target: LatLng(3.139, 101.6869),
-            zoom: 13,
+          initialCameraPosition: CameraPosition(
+            target: currentPosition == null
+                ? const LatLng(0, 0)
+                : LatLng(currentPosition!.latitude, currentPosition!.longitude),
+            zoom: currentPosition == null ? 2 : 16,
           ),
           onMapCreated: (c) {
             controller = c;
+            if (currentPosition != null) {
+              unawaited(moveMapTo(currentPosition!, zoom: 16));
+            }
             poiChannel = MethodChannel('ohmy/google_map_poi/${c.mapId}');
             poiChannel!.setMethodCallHandler((call) async {
               if (call.method != 'onPoiTap') return;
@@ -479,7 +509,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           },
           markers: markers,
           trafficEnabled: trafficEnabled,
-          myLocationEnabled: true,
+          myLocationEnabled: locationPermissionGranted,
           myLocationButtonEnabled: false,
           buildingsEnabled: false,
           indoorViewEnabled: false,
@@ -492,23 +522,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
             child: Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: blue,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Text(
-                    'MY',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
                 Expanded(
                   child: Material(
                     elevation: 5,

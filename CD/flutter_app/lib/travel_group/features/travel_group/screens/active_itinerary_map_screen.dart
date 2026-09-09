@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../../preference_recommender/features/routes/navigation_sensor.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
@@ -47,6 +48,10 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   double _progress = 0;
   bool _paused = false;
   bool _locationUnavailable = false;
+  bool _locationPermissionGranted = false;
+  bool _followUser = true;
+  bool _movingCameraProgrammatically = false;
+  Position? _devicePosition;
 
   TravelGroupController get controller => widget.controller;
 
@@ -95,20 +100,34 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
         if (mounted) setState(() => _locationUnavailable = true);
         return;
       }
-      const settings = LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 8,
-      );
+      if (mounted) {
+        setState(() {
+          _locationPermissionGranted = true;
+          _locationUnavailable = false;
+        });
+      }
       _positionSubscription =
-          Geolocator.getPositionStream(locationSettings: settings).listen((
-            position,
-          ) {
+          Geolocator.getPositionStream(
+            locationSettings: navigationLocationSettings,
+          ).listen((position) {
+            _devicePosition = position;
             _liveLocationService.publishOwnLocation(
               latitude: position.latitude,
               longitude: position.longitude,
               accuracyMeters: position.accuracy,
             );
+            if (_followUser) unawaited(_focusOnUser(position));
           });
+      final initialPosition = await Geolocator.getCurrentPosition(
+        locationSettings: navigationLocationSettings,
+      );
+      _devicePosition = initialPosition;
+      _liveLocationService.publishOwnLocation(
+        latitude: initialPosition.latitude,
+        longitude: initialPosition.longitude,
+        accuracyMeters: initialPosition.accuracy,
+      );
+      if (_followUser) await _focusOnUser(initialPosition);
     } catch (_) {
       if (mounted) setState(() => _locationUnavailable = true);
     }
@@ -228,6 +247,22 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                 ),
               ),
             ),
+            Positioned(
+              right: 20,
+              bottom: 228,
+              child: FloatingActionButton.small(
+                heroTag: 'group-map-current-location',
+                backgroundColor: Colors.white,
+                foregroundColor: AppColors.primary,
+                onPressed: _devicePosition == null
+                    ? null
+                    : () {
+                        _followUser = true;
+                        unawaited(_focusOnUser(_devicePosition!));
+                      },
+                child: const Icon(Icons.my_location_rounded),
+              ),
+            ),
             Align(
               alignment: Alignment.bottomCenter,
               child: _RouteFooter(
@@ -249,26 +284,29 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   }
 
   Widget _buildMap(int currentIndex) {
-    final memberMarkers = _members.indexed.map((entry) {
-      final index = entry.$1;
-      final member = entry.$2;
-      return Marker(
-        markerId: MarkerId('member_${member.userId}'),
-        position: LatLng(
-          member.coordinate.latitude,
-          member.coordinate.longitude,
-        ),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          _markerHues[index % _markerHues.length],
-        ),
-        infoWindow: InfoWindow(
-          title: member.isCurrentUser
-              ? '${member.displayName} (you)'
-              : member.displayName,
-          snippet: member.isFresh ? 'Live now' : 'Location may be stale',
-        ),
-      );
-    });
+    final memberMarkers = _members
+        .where((member) => !member.isCurrentUser)
+        .indexed
+        .map((entry) {
+          final index = entry.$1;
+          final member = entry.$2;
+          return Marker(
+            markerId: MarkerId('member_${member.userId}'),
+            position: LatLng(
+              member.coordinate.latitude,
+              member.coordinate.longitude,
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              _markerHues[index % _markerHues.length],
+            ),
+            infoWindow: InfoWindow(
+              title: member.isCurrentUser
+                  ? '${member.displayName} (you)'
+                  : member.displayName,
+              snippet: member.isFresh ? 'Live now' : 'Location may be stale',
+            ),
+          );
+        });
     final stopMarkers = controller.itinerary.indexed.map((entry) {
       final index = entry.$1;
       final stop = entry.$2;
@@ -302,7 +340,12 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
       ),
       onMapCreated: (mapController) {
         _googleMapController = mapController;
-        unawaited(_fitRoute());
+        final current = _devicePosition;
+        if (current == null) {
+          unawaited(_fitRoute());
+        } else {
+          unawaited(_focusOnUser(current));
+        }
       },
       markers: {...memberMarkers, ...stopMarkers},
       polylines: {
@@ -315,8 +358,8 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
         Polyline(
           polylineId: const PolylineId('group_route'),
           points: _route,
-          color: AppColors.primary,
-          width: 6,
+          color: AppColors.primary.withValues(alpha: 0.68),
+          width: 5,
         ),
       },
       circles: _members
@@ -336,12 +379,37 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
           )
           .toSet(),
       padding: const EdgeInsets.only(bottom: 170),
-      compassEnabled: false,
+      compassEnabled: true,
+      trafficEnabled: true,
+      myLocationEnabled: _locationPermissionGranted,
       mapToolbarEnabled: false,
       myLocationButtonEnabled: false,
       zoomControlsEnabled: false,
+      onCameraMoveStarted: () {
+        if (!_movingCameraProgrammatically) _followUser = false;
+      },
       onTap: (_) => setState(() => _paused = false),
     );
+  }
+
+  Future<void> _focusOnUser(Position position) async {
+    final mapController = _googleMapController;
+    if (mapController == null || _movingCameraProgrammatically) return;
+    _movingCameraProgrammatically = true;
+    try {
+      await mapController.moveCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: LatLng(position.latitude, position.longitude),
+            zoom: 17.5,
+            bearing: 0,
+            tilt: 0,
+          ),
+        ),
+      );
+    } finally {
+      _movingCameraProgrammatically = false;
+    }
   }
 
   Future<void> _fitRoute() async {

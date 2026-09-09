@@ -8,6 +8,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 
 import '../weather/weather_feature.dart';
+import 'navigation_sensor.dart';
 
 const _routeBlue = Color(0xff3266cc);
 const _routeInk = Color(0xff14213d);
@@ -161,7 +162,9 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
         permission == LocationPermission.deniedForever) {
       return null;
     }
-    return Geolocator.getCurrentPosition();
+    return Geolocator.getCurrentPosition(
+      locationSettings: navigationLocationSettings,
+    );
   }
 
   Future<void> useCurrentLocation() async {
@@ -698,17 +701,17 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ActiveNavigationPage(
-                              backend: widget.backend,
-                              destination: widget.destination,
-                              routes: routes,
-                              initialRoute: selected,
+                        onPressed: () =>
+                            Navigator.of(context, rootNavigator: true).push(
+                              MaterialPageRoute(
+                                builder: (_) => ActiveNavigationPage(
+                                  backend: widget.backend,
+                                  destination: widget.destination,
+                                  routes: routes,
+                                  initialRoute: selected,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
                         child: const Text('Start Journey'),
                       ),
                     ),
@@ -760,7 +763,9 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   late List<DrivingRoute> activeRoutes;
   int stepIndex = 0;
   Position? position;
-  bool trafficEnabled = false, followUser = true;
+  bool movingCameraProgrammatically = false;
+  bool reducedLocationAccuracy = false;
+  bool trafficEnabled = true, followUser = true;
   bool recommendationLoading = false, showRecommendationCarousel = false;
   List<Map<String, dynamic>> recommendations = [];
   String recommendationTitle = 'Recommended stops';
@@ -797,12 +802,12 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       );
       return;
     }
+    reducedLocationAccuracy =
+        await Geolocator.getLocationAccuracy() ==
+        LocationAccuracyStatus.reduced;
     positionSubscription =
         Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            distanceFilter: 5,
-          ),
+          locationSettings: navigationLocationSettings,
         ).listen(
           updatePosition,
           onError: (Object error) {
@@ -811,9 +816,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         );
     updatePosition(
       await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-        ),
+        locationSettings: navigationLocationSettings,
       ),
     );
   }
@@ -834,24 +837,31 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     }
     setState(() {
       position = value;
-      locationError = null;
+      locationError = reducedLocationAccuracy
+          ? 'Precise location is off. Tap here to enable it in app settings.'
+          : null;
     });
     if (followUser) moveCamera(value);
   }
 
   Future<void> moveCamera(Position value) async {
-    await controller?.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: LatLng(value.latitude, value.longitude),
-          zoom: 17.5,
-          bearing: value.heading.isFinite && value.heading >= 0
-              ? value.heading
-              : 0,
-          tilt: 0,
+    final mapController = controller;
+    if (mapController == null || movingCameraProgrammatically) return;
+    movingCameraProgrammatically = true;
+    try {
+      await mapController.moveCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: LatLng(value.latitude, value.longitude),
+            zoom: 17.5,
+            bearing: 0,
+            tilt: 0,
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      movingCameraProgrammatically = false;
+    }
   }
 
   double distance(double lat1, double lon1, double lat2, double lon2) {
@@ -1232,13 +1242,15 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
               controller = value;
               if (position != null) moveCamera(position!);
             },
-            onCameraMoveStarted: () => followUser = false,
+            onCameraMoveStarted: () {
+              if (!movingCameraProgrammatically) followUser = false;
+            },
             polylines: {
               Polyline(
                 polylineId: const PolylineId('active-route'),
                 points: route.points,
-                color: _routeBlue,
-                width: 7,
+                color: _routeBlue.withValues(alpha: 0.68),
+                width: 5,
               ),
             },
             markers: {
@@ -1355,12 +1367,18 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
               child: Material(
                 elevation: 4,
                 borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    locationError!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.red),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: reducedLocationAccuracy
+                      ? Geolocator.openAppSettings
+                      : null,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      locationError!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   ),
                 ),
               ),

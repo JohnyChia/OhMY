@@ -6,6 +6,7 @@ import '../models/travel_group_models.dart';
 import '../widgets/travel_group_scaffold.dart';
 import '../widgets/travel_group_widgets.dart';
 import 'itinerary_board.dart';
+import 'meetup_picker_screen.dart';
 import 'suggestion_board.dart';
 
 class GroupLobbyScreen extends StatefulWidget {
@@ -238,19 +239,27 @@ class _LobbyTab extends StatelessWidget {
                       style: TextStyle(fontSize: 10, color: AppColors.primary),
                     ),
                   ),
-                  OutlinedButton(
-                    onPressed: () => showTravelGroupMessage(
-                      context,
-                      'Map integration will use the location module.',
+                  if (controller.isCreator)
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              MeetupPickerScreen(controller: controller),
+                        ),
+                      ),
+                      child: Text(
+                        group.meetupPoint.isEmpty ? 'Set on map' : 'Change',
+                      ),
                     ),
-                    child: const Text('View map ›'),
-                  ),
                 ],
               ),
-              Text(group.meetupPoint, style: const TextStyle(fontSize: 15)),
-              const SizedBox(height: 4),
               Text(
-                '${group.distanceKm.toStringAsFixed(1)} km away  •  Walk 10 min',
+                group.meetupPoint.isEmpty
+                    ? controller.isCreator
+                          ? 'See joined travellers live, then choose a fair meetup point.'
+                          : 'The creator will set a meetup point after travellers join.'
+                    : group.meetupPoint,
+                style: const TextStyle(fontSize: 15),
               ),
               if (group.meetupNote.isNotEmpty) ...[
                 const SizedBox(height: 9),
@@ -323,7 +332,7 @@ class _LobbyTab extends StatelessWidget {
                         style: const TextStyle(fontSize: 11),
                       ),
                       const Text(
-                        'Verified travellers',
+                        'Group creator',
                         style: TextStyle(
                           fontSize: 9,
                           color: AppColors.secondaryText,

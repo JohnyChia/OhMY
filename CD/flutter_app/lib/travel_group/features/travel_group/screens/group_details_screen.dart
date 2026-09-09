@@ -74,7 +74,9 @@ class GroupDetailsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      group.meetupPoint,
+                      group.meetupPoint.isEmpty
+                          ? 'The creator will set this after travellers join.'
+                          : group.meetupPoint,
                       style: const TextStyle(fontSize: 15),
                     ),
                     const SizedBox(height: 5),

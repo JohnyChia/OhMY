@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 
 import '../models/travel_group_models.dart';
@@ -27,6 +29,7 @@ class TravelGroupController extends ChangeNotifier {
   List<GroupSuggestion> suggestions = [];
   List<ItineraryStop> itinerary = [];
   double radiusKm = 10;
+  String selectedArea = 'Bukit Bintang, Kuala Lumpur';
   String keyword = '';
   bool openOnly = false;
   bool isLoading = false;
@@ -85,6 +88,13 @@ class TravelGroupController extends ChangeNotifier {
     await loadGroups();
   }
 
+  Future<void> setArea(String value) async {
+    if (selectedArea == value) return;
+    selectedArea = value;
+    notifyListeners();
+    await loadGroups();
+  }
+
   Future<void> openGroup(String groupId) async {
     activeGroup = await repository.getGroup(groupId);
     if (activeGroup == null) {
@@ -122,18 +132,16 @@ class TravelGroupController extends ChangeNotifier {
 
   Future<TravelGroup> createGroup({
     required String name,
-    required String destination,
+    required TravelGroupPlace destination,
     required String description,
-    required String meetupPoint,
     required List<String> tags,
     required int maxMembers,
     required JoinMode joinMode,
   }) async {
     _requireVerified();
     if (name.trim().isEmpty ||
-        destination.trim().isEmpty ||
-        description.trim().isEmpty ||
-        meetupPoint.trim().isEmpty) {
+        destination.name.trim().isEmpty ||
+        description.trim().isEmpty) {
       throw const TravelGroupException(
         'Complete all required fields.',
         'validation',
@@ -150,20 +158,83 @@ class TravelGroupController extends ChangeNotifier {
       creatorId: currentUser.id,
       creatorName: currentUser.name,
       name: name.trim(),
-      destination: destination.trim(),
+      destination: destination.name.trim(),
       description: description.trim(),
-      meetupPoint: meetupPoint.trim(),
+      meetupPoint: '',
       tags: tags,
       maxMembers: maxMembers,
       distanceKm: 0.6,
       joinMode: joinMode,
       status: GroupStatus.waiting,
       memberIds: [currentUser.id],
+      destinationPlaceId: destination.id,
+      destinationAddress: destination.address,
+      destinationLatitude: destination.latitude,
+      destinationLongitude: destination.longitude,
+      destinationPhotoName: destination.photoName,
     );
     await repository.createGroup(group);
     await loadGroups();
     await openGroup(group.id);
     return group;
+  }
+
+  Future<void> setMeetupPoint({
+    required String name,
+    required double latitude,
+    required double longitude,
+    required List<LiveMemberLocation> members,
+  }) async {
+    _requireCreator();
+    if (members.length < 2) {
+      throw const TravelGroupException(
+        'Wait for at least one other traveller to share their location.',
+        'not_enough_locations',
+      );
+    }
+    const maximumDistanceMeters = 5000.0;
+    for (final member in members) {
+      final distance = _distanceBetween(
+        latitude,
+        longitude,
+        member.coordinate.latitude,
+        member.coordinate.longitude,
+      );
+      if (distance > maximumDistanceMeters) {
+        throw TravelGroupException(
+          'This point is too far from ${member.displayName}. Choose a point within 5 km of every traveller.',
+          'meetup_out_of_range',
+        );
+      }
+    }
+    await repository.updateMeetupPoint(
+      groupId: activeGroup!.id,
+      meetupPoint: name.trim().isEmpty ? 'Selected meetup point' : name.trim(),
+      latitude: latitude,
+      longitude: longitude,
+    );
+    await refreshWorkspace();
+  }
+
+  static double _distanceBetween(
+    double startLatitude,
+    double startLongitude,
+    double endLatitude,
+    double endLongitude,
+  ) {
+    const earthRadiusMeters = 6371000.0;
+    double radians(double degrees) => degrees * 0.017453292519943295;
+    final latitudeDelta = radians(endLatitude - startLatitude);
+    final longitudeDelta = radians(endLongitude - startLongitude);
+    final startLatitudeRadians = radians(startLatitude);
+    final endLatitudeRadians = radians(endLatitude);
+    final a =
+        (math.sin(latitudeDelta / 2) * math.sin(latitudeDelta / 2)) +
+        math.cos(startLatitudeRadians) *
+            math.cos(endLatitudeRadians) *
+            math.sin(longitudeDelta / 2) *
+            math.sin(longitudeDelta / 2);
+    return earthRadiusMeters * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
   }
 
   Future<void> joinActiveGroup() async {

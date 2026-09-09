@@ -10,6 +10,12 @@ abstract interface class TravelGroupRepository {
 
   Future<TravelGroup?> getGroup(String groupId);
   Future<TravelGroup> createGroup(TravelGroup group);
+  Future<void> updateMeetupPoint({
+    required String groupId,
+    required String meetupPoint,
+    required double latitude,
+    required double longitude,
+  });
   Future<void> joinOpenGroup({
     required String groupId,
     required String travellerId,

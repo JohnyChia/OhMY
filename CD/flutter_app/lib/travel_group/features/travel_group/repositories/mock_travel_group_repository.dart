@@ -94,6 +94,19 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<void> updateMeetupPoint({
+    required String groupId,
+    required String meetupPoint,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final group = _requireGroup(groupId);
+    group.meetupPoint = meetupPoint;
+    group.meetupLatitude = latitude;
+    group.meetupLongitude = longitude;
+  }
+
+  @override
   Future<void> joinOpenGroup({
     required String groupId,
     required String travellerId,

@@ -51,6 +51,10 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ohMY uses the microphone for voice conversations with the travel assistant.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ohMY uses your precise location to show your position and guide active journeys.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ohMY uses your location during active journeys so your map position stays accurate.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

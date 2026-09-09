@@ -34,6 +34,13 @@ class TravelGroup {
     required this.status,
     required this.memberIds,
     this.meetupNote = '',
+    this.destinationPlaceId,
+    this.destinationAddress = '',
+    this.destinationLatitude,
+    this.destinationLongitude,
+    this.destinationPhotoName,
+    this.meetupLatitude,
+    this.meetupLongitude,
   });
 
   final String id;
@@ -44,6 +51,13 @@ class TravelGroup {
   String description;
   String meetupPoint;
   String meetupNote;
+  final String? destinationPlaceId;
+  final String destinationAddress;
+  final double? destinationLatitude;
+  final double? destinationLongitude;
+  final String? destinationPhotoName;
+  double? meetupLatitude;
+  double? meetupLongitude;
   List<String> tags;
   int maxMembers;
   double distanceKm;
@@ -52,6 +66,33 @@ class TravelGroup {
   List<String> memberIds;
 
   bool get isFull => memberIds.length >= maxMembers;
+}
+
+class TravelGroupPlace {
+  const TravelGroupPlace({
+    required this.id,
+    required this.name,
+    required this.address,
+    required this.latitude,
+    required this.longitude,
+    this.photoName,
+  });
+
+  final String id;
+  final String name;
+  final String address;
+  final double latitude;
+  final double longitude;
+  final String? photoName;
+
+  TravelGroupPlace copyWith({String? photoName}) => TravelGroupPlace(
+    id: id,
+    name: name,
+    address: address,
+    latitude: latitude,
+    longitude: longitude,
+    photoName: photoName ?? this.photoName,
+  );
 }
 
 class JoinRequest {
