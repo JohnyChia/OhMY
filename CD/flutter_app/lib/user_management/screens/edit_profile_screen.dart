@@ -1,8 +1,13 @@
-import 'package:flutter/material.dart';
+import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../config/travel_preference_options.dart';
 import '../models/app_user_profile.dart';
 import '../services/auth_service.dart';
 import '../utils/auth_validators.dart';
+import 'change_password_screen.dart';
 import 'travel_preferences_screen.dart';
 
 class EditProfileScreen extends StatefulWidget {
@@ -22,19 +27,26 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
+  final _imagePicker = ImagePicker();
   late final TextEditingController _nameController;
   late final TextEditingController _bioController;
   late List<String> _preferences;
   bool _isSaving = false;
+  bool _isUploadingPhoto = false;
   bool _preferencesChanged = false;
   bool _hasSavedChanges = false;
+  String? _avatarUrl;
+  String? _localAvatarPath;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.profile.fullName);
     _bioController = TextEditingController(text: widget.profile.bio);
-    _preferences = List.of(widget.initialPreferences);
+    _preferences = widget.initialPreferences
+        .where(culturalTravelPreferenceOptions.contains)
+        .toList();
+    _avatarUrl = widget.profile.avatarUrl;
   }
 
   @override
@@ -61,6 +73,58 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ),
     );
     if (!_preferencesChanged) return;
+  }
+
+  Future<void> _pickProfilePhoto() async {
+    if (_isUploadingPhoto) return;
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+      requestFullMetadata: false,
+    );
+    if (image == null || !mounted) return;
+
+    setState(() {
+      _isUploadingPhoto = true;
+      _localAvatarPath = image.path;
+    });
+    try {
+      final extension = _extensionOf(image.path);
+      final profile = await _authService.uploadProfilePhoto(
+        bytes: await image.readAsBytes(),
+        extension: extension,
+        contentType: _contentTypeFor(extension),
+      );
+      if (!mounted) return;
+      setState(() {
+        _avatarUrl = profile.avatarUrl;
+        _hasSavedChanges = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile photo updated successfully')),
+      );
+    } on AuthFailure catch (error) {
+      if (!mounted) return;
+      setState(() => _localAvatarPath = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isUploadingPhoto = false);
+    }
+  }
+
+  Future<void> _openChangePassword() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const ChangePasswordScreen()),
+    );
+    if (changed == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password changed successfully')),
+      );
+    }
   }
 
   Future<void> _save() async {
@@ -106,22 +170,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: [
               Center(
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundColor: const Color(0xFFD9E8FF),
-                  child: Text(
-                    _initial,
-                    style: const TextStyle(
-                      color: Color(0xFF2E60C4),
-                      fontSize: 28,
-                      fontWeight: FontWeight.w600,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _EditableAvatar(
+                      localPath: _localAvatarPath,
+                      networkUrl: _avatarUrl,
+                      initial: _initial,
                     ),
-                  ),
+                    Positioned(
+                      right: -5,
+                      bottom: -5,
+                      child: IconButton.filled(
+                        tooltip: 'Upload profile photo',
+                        onPressed: _isUploadingPhoto ? null : _pickProfilePhoto,
+                        icon: _isUploadingPhoto
+                            ? const SizedBox.square(
+                                dimension: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.photo_camera_outlined, size: 20),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: _isUploadingPhoto ? null : _pickProfilePhoto,
+                icon: const Icon(Icons.upload_outlined, size: 18),
+                label: const Text('Upload profile photo'),
+              ),
               const Text(
-                'Profile photo upload will be connected with private storage later.',
+                'JPG, PNG or WebP • Maximum 5 MB',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF71809A), fontSize: 11),
               ),
@@ -206,6 +290,48 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
               ),
               const SizedBox(height: 12),
+              InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: _openChangePassword,
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: const Color(0xFFC5D6F5)),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.lock_outline, color: Color(0xFF2E60C4)),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'CHANGE PASSWORD',
+                              style: TextStyle(
+                                color: Color(0xFF2E61C4),
+                                fontSize: 10,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Confirm your old password and choose a new one',
+                              style: TextStyle(
+                                color: Color(0xFF576B8F),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: Color(0xFF536681)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -261,5 +387,59 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return widget.profile.email.isNotEmpty
         ? widget.profile.email[0].toUpperCase()
         : '?';
+  }
+
+  String _extensionOf(String path) {
+    final extension = path.split('.').last.toLowerCase();
+    return extension == 'jpeg' ? 'jpg' : extension;
+  }
+
+  String _contentTypeFor(String extension) => switch (extension) {
+    'png' => 'image/png',
+    'webp' => 'image/webp',
+    _ => 'image/jpeg',
+  };
+}
+
+class _EditableAvatar extends StatelessWidget {
+  const _EditableAvatar({
+    required this.localPath,
+    required this.networkUrl,
+    required this.initial,
+  });
+
+  final String? localPath;
+  final String? networkUrl;
+  final String initial;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Container(
+      color: const Color(0xFFD9E8FF),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Color(0xFF2E60C4),
+          fontSize: 28,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    Widget image = fallback;
+    if (localPath != null) {
+      image = Image.file(
+        File(localPath!),
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
+      );
+    } else if (networkUrl != null && networkUrl!.isNotEmpty) {
+      image = Image.network(
+        networkUrl!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => fallback,
+      );
+    }
+    return ClipOval(child: SizedBox.square(dimension: 88, child: image));
   }
 }

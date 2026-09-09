@@ -44,6 +44,23 @@ void main() {
       expect(AuthValidators.password('short'), isNotNull);
       expect(AuthValidators.password('Travel@123'), isNotNull);
     });
+
+    test('requires at least one letter and one number', () {
+      expect(AuthValidators.password('abcdefgh'), isNotNull);
+      expect(AuthValidators.password('12345678'), isNotNull);
+      expect(AuthValidators.password('abcd1234'), isNull);
+    });
+
+    test('rejects the old password regardless of letter case', () {
+      expect(
+        AuthValidators.newPassword('QQQQ1111', oldPassword: 'qqqq1111'),
+        isNotNull,
+      );
+      expect(
+        AuthValidators.newPassword('Travel5678', oldPassword: 'Travel1234'),
+        isNull,
+      );
+    });
   });
 
   group('AuthValidators.username', () {
