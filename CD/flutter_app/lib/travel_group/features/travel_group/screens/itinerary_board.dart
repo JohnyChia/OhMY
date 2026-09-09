@@ -81,7 +81,7 @@ class ItineraryBoard extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             buildDefaultDragHandles: false,
             itemCount: controller.itinerary.length,
-            onReorder:
+            onReorderItem:
                 group.status == GroupStatus.waiting && controller.isCreator
                 ? controller.reorderStops
                 : (_, _) {},

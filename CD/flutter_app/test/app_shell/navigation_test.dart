@@ -7,7 +7,7 @@ void main() {
     await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
     await tester.pump();
 
-    expect(find.text('Explore Malaysia your way'), findsOneWidget);
+    expect(find.text('Where would you like to go?'), findsOneWidget);
 
     await _openTab(tester, 'AI Chat');
     expect(find.text('Where to next?'), findsOneWidget);

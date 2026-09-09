@@ -98,6 +98,7 @@ class _OhMyShellState extends State<OhMyShell> {
         }
       },
       child: Scaffold(
+        extendBody: true,
         body: IndexedStack(
           index: _selectedIndex,
           children: List.generate(
@@ -109,36 +110,48 @@ class _OhMyShellState extends State<OhMyShell> {
             ),
           ),
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _selectedIndex,
-          onDestinationSelected: _selectTab,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home),
-              label: 'Home',
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+          child: Material(
+            elevation: 10,
+            shadowColor: Colors.black26,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: const BorderSide(color: Color(0xFFE5E8ED)),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.smart_toy_outlined),
-              selectedIcon: Icon(Icons.smart_toy),
-              label: 'AI Chat',
+            child: NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: _selectTab,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.smart_toy_outlined),
+                  selectedIcon: Icon(Icons.smart_toy),
+                  label: 'AI Chat',
+                ),
+                NavigationDestination(
+                  icon: _StartTripNavigationIcon(),
+                  selectedIcon: _StartTripNavigationIcon(selected: true),
+                  label: 'Start Trip',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.map_outlined),
+                  selectedIcon: Icon(Icons.map),
+                  label: 'Community',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: 'Profile',
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.luggage_outlined),
-              selectedIcon: Icon(Icons.luggage),
-              label: 'Start Trip',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.explore_outlined),
-              selectedIcon: Icon(Icons.explore),
-              label: 'Community',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -152,39 +165,307 @@ class HomeModulePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final greeting = _greeting();
+    final userName = _userName();
+
     return Scaffold(
-      appBar: AppBar(title: const Text('ohMY')),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+      backgroundColor: const Color(0xFFF9FBFE),
+      body: Stack(
         children: [
-          Text(
-            'Explore Malaysia your way',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+          Container(
+            height: 150,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF8FB1FA), Color(0xFF9CBBFF)],
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Plan a solo or group journey, ask the travel assistant, or discover trips shared by the community.',
+          ListView(
+            padding: EdgeInsets.fromLTRB(24, topPadding + 18, 24, 110),
+            children: [
+              _HomeSearchBar(onTap: () => onOpenTab(2)),
+              SizedBox(height: 150 - topPadding - 18 - 49 + 18),
+              Text(
+                '$greeting, $userName',
+                style: const TextStyle(
+                  color: Color(0xFF121F38),
+                  fontSize: 20,
+                  height: 1.3,
+                ),
+              ),
+              const Text(
+                'Your recommendations are ready.',
+                style: TextStyle(
+                  color: Color(0xFF596B8A),
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _JourneyCard(onTap: () => onOpenTab(2)),
+              const SizedBox(height: 18),
+              const _SectionHeading(
+                title: 'Current conditions',
+                trailing: 'Kuala Lumpur • Now',
+              ),
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  Expanded(child: _WeatherCard()),
+                  SizedBox(width: 14),
+                  Expanded(child: _TrafficCard()),
+                ],
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                'Picked for your preferences',
+                style: TextStyle(color: Color(0xFF121F38), fontSize: 16),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'Culture • Food • Café hopping',
+                style: TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _BatuCavesCard(onTap: () => onOpenTab(2)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: _MorePlacesCard(onTap: () => onOpenTab(2))),
+                ],
+              ),
+              const SizedBox(height: 22),
+              _GroupPreviewCard(onTap: () => onOpenTab(2)),
+            ],
           ),
-          const SizedBox(height: 24),
-          _HomeActionCard(
-            icon: Icons.luggage_outlined,
-            title: 'Start a trip',
-            subtitle: 'Choose a solo recommendation or group travel.',
-            onTap: () => onOpenTab(2),
+        ],
+      ),
+    );
+  }
+
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  String _userName() {
+    try {
+      final fullName =
+          Supabase.instance.client.auth.currentUser?.userMetadata?['full_name']
+              ?.toString()
+              .trim() ??
+          '';
+      if (fullName.isNotEmpty) return fullName.split(RegExp(r'\s+')).first;
+    } catch (_) {
+      // Supabase is intentionally unavailable in local/demo mode.
+    }
+    return 'Traveller';
+  }
+}
+
+class _HomeSearchBar extends StatelessWidget {
+  const _HomeSearchBar({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF7F3FB),
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(28),
+        child: const SizedBox(
+          height: 49,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Search Attractions ...',
+                    style: TextStyle(color: Color(0xFF49454F), fontSize: 16),
+                  ),
+                ),
+                Icon(Icons.search, color: Color(0xFF49454F), size: 25),
+              ],
+            ),
           ),
-          _HomeActionCard(
-            icon: Icons.smart_toy_outlined,
-            title: 'Ask AI Chat',
-            subtitle: 'Plan conversationally using text or voice.',
-            onTap: () => onOpenTab(1),
+        ),
+      ),
+    );
+  }
+}
+
+class _JourneyCard extends StatelessWidget {
+  const _JourneyCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF2E60C4),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: const SizedBox(
+          height: 114,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(18, 15, 14, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'START A NEW JOURNEY',
+                        style: TextStyle(
+                          color: Color(0xFFE5F0FF),
+                          fontSize: 10,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Where would you like to go?',
+                        style: TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        'Choose Solo Trip or join a nearby Group Trip.',
+                        style: TextStyle(
+                          color: Color(0xFFE8F2FF),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.white, size: 28),
+              ],
+            ),
           ),
-          _HomeActionCard(
-            icon: Icons.explore_outlined,
-            title: 'Community Discovery',
-            subtitle: 'Browse experiences shared by other travellers.',
-            onTap: () => onOpenTab(3),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.title, required this.trailing});
+
+  final String title;
+  final String trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(color: Color(0xFF121F38), fontSize: 16),
+          ),
+        ),
+        Text(
+          trailing,
+          style: const TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+        ),
+      ],
+    );
+  }
+}
+
+class _WeatherCard extends StatelessWidget {
+  const _WeatherCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ConditionCard(
+      backgroundColor: Color(0xFFE8F5FF),
+      icon: Icons.wb_sunny_outlined,
+      iconColor: Color(0xFFFFA60D),
+      value: '30°C',
+      valueColor: Color(0xFF2E60C4),
+      label: 'Sunny',
+    );
+  }
+}
+
+class _TrafficCard extends StatelessWidget {
+  const _TrafficCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ConditionCard(
+      backgroundColor: Color(0xFFFFF2E3),
+      icon: Icons.air,
+      iconColor: Color(0xFFE07314),
+      value: 'Moderate',
+      valueColor: Color(0xFF121F38),
+      label: '+4 min nearby',
+    );
+  }
+}
+
+class _ConditionCard extends StatelessWidget {
+  const _ConditionCard({
+    required this.backgroundColor,
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.valueColor,
+    required this.label,
+  });
+
+  final Color backgroundColor;
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final Color valueColor;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: TextStyle(color: valueColor, fontSize: 17)),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Color(0xFF596B8A),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -192,34 +473,207 @@ class HomeModulePage extends StatelessWidget {
   }
 }
 
-class _HomeActionCard extends StatelessWidget {
-  const _HomeActionCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
+class _BatuCavesCard extends StatelessWidget {
+  const _BatuCavesCard({required this.onTap});
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 14),
+    return _OutlinedHomeCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 76,
+            height: 80,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2B861),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(
+              Icons.change_history,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Batu Caves',
+                  style: TextStyle(color: Color(0xFF121F38), fontSize: 14),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  'Matches Culture',
+                  style: TextStyle(color: Color(0xFF2E60C4), fontSize: 10),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  '18 min • 11.4 km',
+                  style: TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MorePlacesCard extends StatelessWidget {
+  const _MorePlacesCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OutlinedHomeCard(
+      onTap: onTap,
+      backgroundColor: Colors.white,
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('+12', style: TextStyle(color: Color(0xFF2E60C4), fontSize: 23)),
+          SizedBox(height: 2),
+          Text(
+            'places nearby',
+            style: TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+          ),
+          SizedBox(height: 5),
+          Icon(Icons.arrow_forward, color: Color(0xFF2E60C4), size: 15),
+        ],
+      ),
+    );
+  }
+}
+
+class _OutlinedHomeCard extends StatelessWidget {
+  const _OutlinedHomeCard({
+    required this.onTap,
+    required this.child,
+    this.backgroundColor = const Color(0xFFF3F7FE),
+  });
+
+  final VoidCallback onTap;
+  final Widget child;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: backgroundColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15),
+        side: const BorderSide(color: Color(0xFFC7D6F2)),
+      ),
       clipBehavior: Clip.antiAlias,
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(16),
-        leading: CircleAvatar(child: Icon(icon)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(subtitle),
-        ),
-        trailing: const Icon(Icons.chevron_right),
+      child: InkWell(
         onTap: onTap,
+        child: SizedBox(
+          height: 100,
+          child: Padding(padding: const EdgeInsets.all(9), child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupPreviewCard extends StatelessWidget {
+  const _GroupPreviewCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF5F0FF),
+      borderRadius: BorderRadius.circular(15),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: const SizedBox(
+          height: 82,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 42,
+                  child: Icon(
+                    Icons.groups_outlined,
+                    color: Color(0xFF734FBF),
+                    size: 28,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Petaling Street Food Hunt',
+                        style: TextStyle(
+                          color: Color(0xFF121F38),
+                          fontSize: 14,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        '3/5 travellers • 0.8 km away',
+                        style: TextStyle(
+                          color: Color(0xFF596B8A),
+                          fontSize: 10,
+                        ),
+                      ),
+                      Spacer(),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          'View lobby  ›',
+                          style: TextStyle(
+                            color: Color(0xFF2E60C4),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StartTripNavigationIcon extends StatelessWidget {
+  const _StartTripNavigationIcon({this.selected = false});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: const BoxDecoration(
+        color: Color(0xFF3B73E8),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        selected ? Icons.luggage : Icons.luggage_outlined,
+        color: Colors.white,
+        size: 23,
       ),
     );
   }
