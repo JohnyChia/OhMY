@@ -57,7 +57,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   Widget build(BuildContext context) {
     return AuthPageLayout(
       title: 'Create new password',
-      subtitle: 'Use 8–16 letters or numbers. Both entries must match.',
+      subtitle:
+          'Use 8–16 letters and numbers. Your new password cannot be the same as your previous password.',
       glowAsset: 'assets/images/auth/register_glow.svg',
       topSpacing: 170,
       formSpacing: 46,

@@ -53,6 +53,19 @@ class AuthValidators {
     if (!passwordPattern.hasMatch(value!)) {
       return 'Use 8–16 letters and numbers only.';
     }
+    if (!RegExp(r'[A-Za-z]').hasMatch(value) ||
+        !RegExp(r'[0-9]').hasMatch(value)) {
+      return 'Include at least one letter and one number.';
+    }
+    return null;
+  }
+
+  static String? newPassword(String? value, {required String oldPassword}) {
+    final passwordError = password(value);
+    if (passwordError != null) return passwordError;
+    if (value!.toLowerCase() == oldPassword.toLowerCase()) {
+      return 'New password must be completely different from the old password.';
+    }
     return null;
   }
 

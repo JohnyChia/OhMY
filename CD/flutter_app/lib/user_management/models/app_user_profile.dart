@@ -8,6 +8,7 @@ class AppUserProfile {
     required this.email,
     required this.fullName,
     required this.bio,
+    required this.avatarPath,
     required this.avatarUrl,
     required this.verificationStatus,
   });
@@ -16,6 +17,7 @@ class AppUserProfile {
   final String email;
   final String fullName;
   final String bio;
+  final String? avatarPath;
   final String? avatarUrl;
   final TravellerVerificationStatus verificationStatus;
 
@@ -38,10 +40,21 @@ class AppUserProfile {
           (userMetadata['full_name'] as String?)?.trim() ??
           '',
       bio: (userMetadata['bio'] as String?)?.trim() ?? '',
+      avatarPath: (userMetadata['avatar_path'] as String?)?.trim(),
       avatarUrl: userMetadata['avatar_url'] as String?,
       verificationStatus: isVerified
           ? TravellerVerificationStatus.verified
           : TravellerVerificationStatus.unverified,
     );
   }
+
+  AppUserProfile withAvatarUrl(String? value) => AppUserProfile(
+    userId: userId,
+    email: email,
+    fullName: fullName,
+    bio: bio,
+    avatarPath: avatarPath,
+    avatarUrl: value,
+    verificationStatus: verificationStatus,
+  );
 }

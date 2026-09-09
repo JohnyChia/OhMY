@@ -139,7 +139,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Use 8–16 letters or numbers • Passwords must match',
+              'Use 8–16 letters and numbers • Passwords must match',
               style: TextStyle(color: Color(0xFF52668C), fontSize: 10),
             ),
             const SizedBox(height: 8),

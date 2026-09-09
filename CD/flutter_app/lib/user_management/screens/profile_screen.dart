@@ -157,6 +157,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 34, 16, 24),
       children: [
+        Center(child: _ProfileAvatar(profile: profile)),
+        const SizedBox(height: 14),
         const Text(
           'My profile',
           style: TextStyle(
@@ -210,6 +212,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void _showLaterMessage(String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature will be connected in a later stage.')),
+    );
+  }
+}
+
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.profile});
+
+  final AppUserProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = profile.fullName.isNotEmpty
+        ? profile.fullName[0].toUpperCase()
+        : (profile.email.isNotEmpty ? profile.email[0].toUpperCase() : '?');
+    final fallback = Container(
+      color: const Color(0xFFD9E8FF),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Color(0xFF2E60C4),
+          fontSize: 30,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    final url = profile.avatarUrl;
+    return ClipOval(
+      child: SizedBox.square(
+        dimension: 92,
+        child: url == null || url.isEmpty
+            ? fallback
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback,
+              ),
+      ),
     );
   }
 }

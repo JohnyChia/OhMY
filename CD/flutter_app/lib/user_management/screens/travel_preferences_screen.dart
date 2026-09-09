@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/travel_preference_options.dart';
 import '../services/traveler_profile_service.dart';
 
 class TravelPreferencesScreen extends StatefulWidget {
@@ -20,20 +21,6 @@ class TravelPreferencesScreen extends StatefulWidget {
 }
 
 class _TravelPreferencesScreenState extends State<TravelPreferencesScreen> {
-  static const _interests = <String>[
-    'Culture',
-    'Food',
-    'Café hopping',
-    'Nature',
-    'Heritage',
-    'Adventure',
-    'Festivals',
-    'Photography',
-    'Shopping',
-    'Budget',
-    'Family-friendly',
-  ];
-
   final _service = TravelerProfileService();
   late final Set<String> _selected;
   bool _isSaving = false;
@@ -41,7 +28,9 @@ class _TravelPreferencesScreenState extends State<TravelPreferencesScreen> {
   @override
   void initState() {
     super.initState();
-    _selected = widget.initialSelections.toSet();
+    _selected = widget.initialSelections
+        .where(culturalTravelPreferenceOptions.contains)
+        .toSet();
   }
 
   Future<void> _save() async {
@@ -153,7 +142,9 @@ class _TravelPreferencesScreenState extends State<TravelPreferencesScreen> {
                   Wrap(
                     spacing: 10,
                     runSpacing: 12,
-                    children: _interests.map(_buildInterestChip).toList(),
+                    children: culturalTravelPreferenceOptions
+                        .map(_buildInterestChip)
+                        .toList(),
                   ),
                   const SizedBox(height: 24),
                   Container(

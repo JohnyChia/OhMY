@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,6 +19,7 @@ class AuthService {
     : _client = client ?? Supabase.instance.client;
 
   final SupabaseClient _client;
+  static const _avatarBucket = 'profile-avatars';
 
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
@@ -39,7 +39,7 @@ class AuthService {
       if (user == null) {
         throw const AuthFailure('Your signed-in profile could not be loaded.');
       }
-      return AppUserProfile.fromAuthUser(user);
+      return _withSignedAvatar(AppUserProfile.fromAuthUser(user));
     } catch (error) {
       if (error is AuthFailure) rethrow;
       throw _friendlyFailure(error);
@@ -153,6 +153,101 @@ class AuthService {
     }
   }
 
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = currentUser;
+    final email = user?.email?.trim();
+    if (user == null || email == null || email.isEmpty) {
+      throw const AuthFailure('Please sign in again before changing password.');
+    }
+
+    // updateUser can accept an active session without checking the supplied
+    // current password. Explicitly sign in first so an incorrect current
+    // password can never reach the password-update request.
+    try {
+      final response = await _client.auth.signInWithPassword(
+        email: email,
+        password: currentPassword,
+      );
+      if (response.user?.id != user.id) {
+        throw const AuthFailure('Your current password is incorrect.');
+      }
+    } on AuthException catch (error) {
+      final code = error.code?.toLowerCase();
+      final message = error.message.toLowerCase();
+      if (code == 'invalid_credentials' ||
+          message.contains('invalid login credentials')) {
+        throw const AuthFailure('Your current password is incorrect.');
+      }
+      throw _friendlyFailure(error);
+    } catch (error) {
+      if (error is AuthFailure) rethrow;
+      throw _friendlyFailure(error);
+    }
+
+    try {
+      await _client.auth.updateUser(UserAttributes(password: newPassword));
+    } catch (error) {
+      throw _friendlyFailure(error);
+    }
+  }
+
+  Future<AppUserProfile> uploadProfilePhoto({
+    required Uint8List bytes,
+    required String extension,
+    required String contentType,
+  }) async {
+    final user = currentUser;
+    if (user == null) {
+      throw const AuthFailure('Please sign in before changing your photo.');
+    }
+
+    final safeExtension = extension.toLowerCase();
+    if (!const {'jpg', 'jpeg', 'png', 'webp'}.contains(safeExtension)) {
+      throw const AuthFailure('Choose a JPG, PNG or WebP image.');
+    }
+    if (bytes.length > 5 * 1024 * 1024) {
+      throw const AuthFailure('The profile photo must be smaller than 5 MB.');
+    }
+
+    final previousPath = (user.userMetadata?['avatar_path'] as String?)?.trim();
+    final path = '${user.id}/avatar.$safeExtension';
+    try {
+      await _client.storage
+          .from(_avatarBucket)
+          .uploadBinary(
+            path,
+            bytes,
+            fileOptions: FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+              contentType: contentType,
+            ),
+          );
+      final response = await _client.auth.updateUser(
+        UserAttributes(data: {'avatar_path': path}),
+      );
+      final updatedUser = response.user;
+      if (updatedUser == null) {
+        throw const AuthFailure('Your profile photo could not be saved.');
+      }
+      if (previousPath != null && previousPath != path) {
+        await _client.storage.from(_avatarBucket).remove([previousPath]);
+      }
+      return _withSignedAvatar(AppUserProfile.fromAuthUser(updatedUser));
+    } on StorageException catch (error) {
+      if (kDebugMode) debugPrint('Supabase Storage error: ${error.message}');
+      throw const AuthFailure(
+        'The profile photo could not be uploaded. Please try another image.',
+      );
+    } catch (error) {
+      if (error is AuthFailure) rethrow;
+      throw _friendlyFailure(error);
+    }
+  }
+
   Future<AppUserProfile> updateFullName(String fullName) async {
     final currentBio = currentProfile?.bio ?? '';
     return updateProfile(fullName: fullName, bio: currentBio);
@@ -180,6 +275,21 @@ class AuthService {
     } catch (error) {
       if (error is AuthFailure) rethrow;
       throw _friendlyFailure(error);
+    }
+  }
+
+  Future<AppUserProfile> _withSignedAvatar(AppUserProfile profile) async {
+    final path = profile.avatarPath;
+    if (path == null || path.isEmpty) return profile;
+    try {
+      final url = await _client.storage
+          .from(_avatarBucket)
+          .createSignedUrl(path, 60 * 60);
+      return profile.withAvatarUrl(url);
+    } on StorageException {
+      // A missing or unavailable photo must not prevent the rest of the
+      // profile from loading.
+      return profile.withAvatarUrl(null);
     }
   }
 
@@ -224,6 +334,16 @@ class AuthService {
         return const AuthFailure(
           'Use a password that meets the required format.',
         );
+      }
+      if (code == 'same_password' ||
+          message.contains('different from the old')) {
+        return const AuthFailure(
+          'Your new password must be completely different from your old password.',
+        );
+      }
+      if (code == 'current_password_mismatch' ||
+          code == 'current_password_required') {
+        return const AuthFailure('Your current password is incorrect.');
       }
       if (code == 'over_email_send_rate_limit' ||
           code == 'over_request_rate_limit' ||
