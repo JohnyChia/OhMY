@@ -25,6 +25,7 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<AuthState>? _subscription;
   Session? _session;
   Future<bool>? _onboardingCheck;
+  bool _onboardingCompletedThisSession = false;
 
   @override
   void initState() {
@@ -36,9 +37,12 @@ class _AuthGateState extends State<AuthGate> {
         if (!mounted) return;
         setState(() {
           _session = authState.session;
-          _onboardingCheck = authState.session == null
-              ? null
-              : _hasCompletedOnboarding();
+          if (authState.session == null) {
+            _onboardingCompletedThisSession = false;
+            _onboardingCheck = null;
+          } else if (!_onboardingCompletedThisSession) {
+            _onboardingCheck = _hasCompletedOnboarding();
+          }
         });
       },
       onError: (Object error, StackTrace stackTrace) {
@@ -57,7 +61,10 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _onOnboardingSaved(List<String> _) {
-    setState(() => _onboardingCheck = Future.value(true));
+    setState(() {
+      _onboardingCompletedThisSession = true;
+      _onboardingCheck = Future.value(true);
+    });
   }
 
   @override
@@ -70,6 +77,9 @@ class _AuthGateState extends State<AuthGate> {
   Widget build(BuildContext context) {
     if (_session == null) {
       return const LoginScreen();
+    }
+    if (_onboardingCompletedThisSession) {
+      return widget.authenticatedHome ?? const ProfileScreen();
     }
     return FutureBuilder<bool>(
       future: _onboardingCheck ??= _hasCompletedOnboarding(),

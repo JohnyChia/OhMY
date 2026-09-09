@@ -33,7 +33,10 @@ class AppUserProfile {
     return AppUserProfile(
       userId: user.id,
       email: user.email ?? '',
-      fullName: (userMetadata['full_name'] as String?)?.trim() ?? '',
+      fullName:
+          (userMetadata['username'] as String?)?.trim() ??
+          (userMetadata['full_name'] as String?)?.trim() ??
+          '',
       bio: (userMetadata['bio'] as String?)?.trim() ?? '',
       avatarUrl: userMetadata['avatar_url'] as String?,
       verificationStatus: isVerified

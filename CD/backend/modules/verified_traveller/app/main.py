@@ -13,7 +13,6 @@ from .config import Settings, get_settings
 from .vision import (
     CheckFailure,
     FaceEngine,
-    check_head_turns,
     decode_image,
     inspect_document,
 )
@@ -77,7 +76,6 @@ async def check_failure_handler(_, error: CheckFailure):
             "message": error.message,
             "code": error.code,
             "retryable": error.retryable,
-            "attempts_remaining": 0,
         },
     )
 
@@ -91,9 +89,7 @@ def health():
 async def verify(
     document_type: str = Form(...),
     document_front: UploadFile = File(...),
-    selfie_center: UploadFile = File(...),
-    selfie_left: UploadFile = File(...),
-    selfie_right: UploadFile = File(...),
+    selfie: UploadFile = File(...),
     document_back: UploadFile | None = File(default=None),
     user_id: str = Depends(signed_in_user),
     settings: Settings = Depends(get_settings),
@@ -112,29 +108,11 @@ async def verify(
         return {
             "verified": True,
             "message": "This account is already a Verified Traveller.",
-            "attempts_remaining": settings.max_attempts,
-        }
-    failed_count = (
-        admin.table("identity_verifications")
-        .select("id", count="exact")
-        .eq("user_id", user_id)
-        .eq("status", "failed")
-        .execute()
-        .count
-        or 0
-    )
-    if failed_count >= settings.max_attempts:
-        return {
-            "verified": False,
-            "message": "All three attempts have been used. Ask the demonstrator to reset the prototype attempts.",
-            "attempts_remaining": 0,
         }
 
     front_bytes = await document_front.read()
     back_bytes = await document_back.read() if document_back else None
-    center_bytes = await selfie_center.read()
-    left_bytes = await selfie_left.read()
-    right_bytes = await selfie_right.read()
+    selfie_bytes = await selfie.read()
     verification_id = str(uuid4())
     now = datetime.now(timezone.utc)
     row = {
@@ -151,9 +129,7 @@ async def verify(
         face_engine = FaceEngine(settings)
         front = decode_image(front_bytes)
         back = decode_image(back_bytes) if back_bytes else None
-        center = decode_image(center_bytes)
-        left = decode_image(left_bytes)
-        right = decode_image(right_bytes)
+        live_selfie = decode_image(selfie_bytes)
         document = inspect_document(
             document_type, front, back, settings, face_engine
         )
@@ -180,8 +156,7 @@ async def verify(
                 retryable=False,
             )
 
-        check_head_turns(center, left, right, face_engine)
-        score = face_engine.similarity(document.portrait, center)
+        score = face_engine.similarity(document.portrait, live_selfie)
         if score < settings.face_match_threshold:
             raise CheckFailure(
                 "face_mismatch",
@@ -204,19 +179,15 @@ async def verify(
             "verified": True,
             "message": "Verification successful. You’re now a Verified Traveller.",
             "face_match_score": round(score, 4),
-            "attempts_remaining": settings.max_attempts - failed_count,
         }
     except CheckFailure as error:
-        attempts_remaining = max(0, settings.max_attempts - failed_count - 1)
         prefix = f"{user_id}/{verification_id}"
         _store_failed_photos(
             admin,
             prefix,
             front_bytes,
             back_bytes,
-            center_bytes,
-            left_bytes,
-            right_bytes,
+            selfie_bytes,
         )
         admin.table("identity_verifications").update(
             {
@@ -232,7 +203,6 @@ async def verify(
             "message": error.message,
             "code": error.code,
             "retryable": error.retryable,
-            "attempts_remaining": attempts_remaining,
         }
 
 
@@ -241,16 +211,12 @@ def _store_failed_photos(
     prefix: str,
     front: bytes,
     back: bytes | None,
-    center: bytes,
-    left: bytes,
-    right: bytes,
+    selfie: bytes,
 ) -> None:
     bucket = admin.storage.from_("identity-verification-private")
     files = {
         "document-front.jpg": front,
-        "selfie-centre.jpg": center,
-        "selfie-left.jpg": left,
-        "selfie-right.jpg": right,
+        "selfie.jpg": selfie,
     }
     if back:
         files["document-back.jpg"] = back
@@ -282,6 +248,9 @@ def _purge_expired(admin: Client) -> None:
     names = [
         "document-front.jpg",
         "document-back.jpg",
+        "selfie.jpg",
+        # Keep the old names in the purge list so attempts created by the
+        # earlier three-selfie prototype are still cleaned up.
         "selfie-centre.jpg",
         "selfie-left.jpg",
         "selfie-right.jpg",

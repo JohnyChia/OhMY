@@ -17,7 +17,6 @@ class Settings:
     document_hmac_secret: str
     face_match_threshold: float
     tesseract_cmd: str | None
-    max_attempts: int = 3
 
 
 def get_settings() -> Settings:

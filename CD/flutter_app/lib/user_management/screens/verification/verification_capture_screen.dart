@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../models/verification_result.dart';
 import '../../services/verification_service.dart';
@@ -17,6 +18,7 @@ class VerificationCaptureScreen extends StatefulWidget {
 }
 
 class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
+  final _imagePicker = ImagePicker();
   CameraController? _camera;
   _DocumentType _documentType = _DocumentType.mykad;
   String? _frontPath;
@@ -101,6 +103,29 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
     }
   }
 
+  Future<void> _pickDocumentPhoto() async {
+    if (_capturing) return;
+    setState(() => _capturing = true);
+    try {
+      final image = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        requestFullMetadata: false,
+      );
+      if (!mounted || image == null) return;
+      setState(() {
+        if (_capturingBack) {
+          _backPath = image.path;
+        } else {
+          _frontPath = image.path;
+        }
+      });
+    } catch (_) {
+      _showMessage('The selected image could not be opened. Try another one.');
+    } finally {
+      if (mounted) setState(() => _capturing = false);
+    }
+  }
+
   void _retake() {
     setState(() {
       if (_capturingBack) {
@@ -127,7 +152,16 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
         ),
       ),
     );
-    if (verified == true && mounted) Navigator.of(context).pop(true);
+    if (!mounted) return;
+    if (verified == true) {
+      Navigator.of(context).pop(true);
+    } else if (verified == false) {
+      setState(() {
+        _frontPath = null;
+        _backPath = null;
+        _capturingBackSide = false;
+      });
+    }
   }
 
   void _showMessage(String message) {
@@ -159,7 +193,7 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Use the live camera to capture your identification document.',
+              'Capture your document with the camera or upload a clear photo.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
             ),
@@ -202,12 +236,26 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
             ),
             const SizedBox(height: 16),
             if (currentPath == null)
-              ElevatedButton.icon(
-                onPressed: _cameraError == null && !_capturing
-                    ? _takePhoto
-                    : null,
-                icon: const Icon(Icons.camera_alt_outlined),
-                label: Text(_capturing ? 'Capturing…' : 'Capture document'),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _capturing ? null : _pickDocumentPhoto,
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Upload photo'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _cameraError == null && !_capturing
+                          ? _takePhoto
+                          : null,
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: Text(_capturing ? 'Opening…' : 'Use camera'),
+                    ),
+                  ),
+                ],
               )
             else ...[
               OutlinedButton(onPressed: _retake, child: const Text('Retake')),
@@ -251,16 +299,8 @@ class _SelfieVerificationScreen extends StatefulWidget {
 class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
   final _service = VerificationService();
   CameraController? _camera;
-  final List<String> _selfies = [];
   bool _busy = false;
-  bool _reviewingPhoto = false;
   String? _cameraError;
-
-  static const _instructions = [
-    'Look straight at the camera',
-    'Slowly turn your head to your left',
-    'Slowly turn your head to your right',
-  ];
 
   @override
   void initState() {
@@ -299,45 +339,18 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
     super.dispose();
   }
 
-  Future<void> _capture() async {
+  Future<void> _captureAndVerify() async {
     final camera = _camera;
     if (_busy || camera == null || !camera.value.isInitialized) return;
     setState(() => _busy = true);
     try {
       final image = await camera.takePicture();
       if (!mounted) return;
-      setState(() {
-        _selfies.add(image.path);
-        _reviewingPhoto = true;
-      });
-    } on CameraException {
-      _showMessage('The selfie could not be captured. Please try again.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _retake() {
-    if (_selfies.isEmpty || _busy) return;
-    setState(() {
-      _selfies.removeLast();
-      _reviewingPhoto = false;
-    });
-  }
-
-  void _acceptSelfie() => setState(() => _reviewingPhoto = false);
-
-  Future<void> _submit() async {
-    if (_selfies.length != 3 || _busy) return;
-    setState(() => _busy = true);
-    try {
       final result = await _service.submit(
         documentType: widget.documentType,
         documentFrontPath: widget.documentFrontPath,
         documentBackPath: widget.documentBackPath,
-        selfieCenterPath: _selfies[0],
-        selfieLeftPath: _selfies[1],
-        selfieRightPath: _selfies[2],
+        selfiePath: image.path,
       );
       if (result.verified) await _service.refreshVerifiedSession();
       if (!mounted) return;
@@ -350,11 +363,12 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
       if (completed == true) {
         Navigator.of(context).pop(true);
       } else if (!result.verified) {
-        setState(() {
-          _selfies.clear();
-          _reviewingPhoto = false;
-        });
+        // Return false to step 1 so a failed attempt always starts again with
+        // the document front, rather than reusing an earlier document photo.
+        Navigator.of(context).pop(false);
       }
+    } on CameraException {
+      _showMessage('The selfie could not be captured. Please try again.');
     } on VerificationFailure catch (error) {
       _showMessage(error.message);
     } finally {
@@ -371,8 +385,6 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final captureIndex = _selfies.length.clamp(0, 2);
-    final ready = _selfies.length == 3 && !_reviewingPhoto;
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -391,43 +403,17 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
               style: TextStyle(color: Color(0xFF17243D), fontSize: 28),
             ),
             const SizedBox(height: 8),
-            Text(
-              ready
-                  ? 'All three photos are ready for face matching.'
-                  : _reviewingPhoto
-                  ? 'Review this photo or retake it.'
-                  : _instructions[captureIndex],
+            const Text(
+              'Look straight at the camera. Your selfie will be submitted immediately after capture.',
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFF62708A), fontSize: 13),
+              style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
             ),
             const SizedBox(height: 22),
             _SelfieCameraPanel(
               controller: _camera,
-              capturedPath: _reviewingPhoto ? _selfies.last : null,
+              capturedPath: null,
               error: _cameraError,
-              instruction: ready
-                  ? 'Ready to submit'
-                  : _reviewingPhoto
-                  ? 'Review captured photo'
-                  : _instructions[captureIndex],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(3, (index) {
-                final complete = index < _selfies.length;
-                return Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 5),
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: complete
-                        ? const Color(0xFF2E60C4)
-                        : const Color(0xFFD5DDEA),
-                    shape: BoxShape.circle,
-                  ),
-                );
-              }),
+              instruction: 'Keep your face centred and look straight ahead',
             ),
             const SizedBox(height: 16),
             Container(
@@ -437,41 +423,17 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
                 borderRadius: BorderRadius.circular(14),
               ),
               child: const Text(
-                'Face matching compares your centre selfie with the portrait on your document. The left and right photos check the head-turn challenge.',
+                'Face matching compares this live front selfie with the portrait on your document.',
                 style: TextStyle(color: Color(0xFF536681), fontSize: 11),
               ),
             ),
             const SizedBox(height: 16),
-            if (_reviewingPhoto || ready)
-              OutlinedButton(
-                onPressed: _busy ? null : _retake,
-                child: const Text('Retake last photo'),
-              ),
-            if (_reviewingPhoto || ready) const SizedBox(height: 8),
             ElevatedButton.icon(
               onPressed: _busy || _cameraError != null
                   ? null
-                  : _reviewingPhoto
-                  ? _acceptSelfie
-                  : ready
-                  ? _submit
-                  : _capture,
-              icon: ready
-                  ? const Icon(Icons.verified_user_outlined)
-                  : Icon(
-                      _reviewingPhoto
-                          ? Icons.check_circle_outline
-                          : Icons.camera_alt_outlined,
-                    ),
-              label: Text(
-                _busy
-                    ? 'Processing…'
-                    : _reviewingPhoto
-                    ? 'Use this photo'
-                    : ready
-                    ? 'Submit for verification'
-                    : 'Capture ${_selfies.length + 1} of 3',
-              ),
+                  : _captureAndVerify,
+              icon: const Icon(Icons.camera_alt_outlined),
+              label: Text(_busy ? 'Verifying…' : 'Capture and verify'),
             ),
           ],
         ),
@@ -529,13 +491,6 @@ class _VerificationResultScreen extends StatelessWidget {
                   height: 1.5,
                 ),
               ),
-              if (!verified && result.attemptsRemaining > 0) ...[
-                const SizedBox(height: 10),
-                Text(
-                  '${result.attemptsRemaining} attempt${result.attemptsRemaining == 1 ? '' : 's'} remaining',
-                  style: const TextStyle(color: Color(0xFFB54708)),
-                ),
-              ],
               const SizedBox(height: 36),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(verified),
@@ -805,11 +760,22 @@ class _ProportionalCameraPreview extends StatelessWidget {
 
     if (unmirrorFrontCamera &&
         controller.description.lensDirection == CameraLensDirection.front) {
-      preview = Transform.flip(flipX: true, child: preview);
+      preview = Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.diagonal3Values(-1, 1, 1),
+        child: preview,
+      );
     }
 
     return ClipRect(
-      child: FittedBox(fit: BoxFit.cover, child: preview),
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          clipBehavior: Clip.hardEdge,
+          child: preview,
+        ),
+      ),
     );
   }
 }

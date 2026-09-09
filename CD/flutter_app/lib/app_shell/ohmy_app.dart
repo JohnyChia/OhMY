@@ -14,6 +14,14 @@ import '../travel_group/features/travel_group/screens/travel_group_discovery_scr
 import '../user_management/screens/auth/auth_gate.dart';
 import '../user_management/screens/profile_screen.dart';
 
+// Community Discovery can be moved to its live Supabase repository separately
+// from authentication. Keeping this off preserves the teammate's prototype
+// posts while User Management still uses Supabase Auth and profile data.
+const _useSupabaseCommunity = bool.fromEnvironment(
+  'USE_SUPABASE_COMMUNITY',
+  defaultValue: false,
+);
+
 class OhMyApp extends StatelessWidget {
   const OhMyApp({super.key, required this.supabaseEnabled});
 
@@ -53,21 +61,41 @@ class OhMyShell extends StatefulWidget {
 class _OhMyShellState extends State<OhMyShell> {
   int _selectedIndex = 0;
   final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
+  late final CommunityController _communityController;
+  late final List<WidgetBuilder> _rootBuilders;
 
-  late final List<WidgetBuilder> _rootBuilders = [
-    (context) => HomeModulePage(onOpenTab: _selectTab),
-    (context) => const ChatScreen(showBottomNavigation: false),
-    (context) => const StartTripHubPage(),
-    (context) => CommunityModulePage(useSupabase: widget.supabaseEnabled),
-    (context) => widget.supabaseEnabled
-        ? const ProfileScreen(showBottomNavigation: false)
-        : const ModuleSetupPage(
-            icon: Icons.person_outline,
-            title: 'Profile setup required',
-            message:
-                'Start Flutter with SUPABASE_URL and SUPABASE_ANON_KEY to use authentication and profile features.',
-          ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    final CommunityRepository communityRepository =
+        widget.supabaseEnabled && _useSupabaseCommunity
+        ? SupabaseCommunityRepository(Supabase.instance.client)
+        : DemoCommunityRepository();
+    _communityController = CommunityController(communityRepository);
+    _rootBuilders = [
+      (context) => HomeModulePage(onOpenTab: _selectTab),
+      (context) => const ChatScreen(showBottomNavigation: false),
+      (context) => const StartTripHubPage(),
+      (context) => CommunityModulePage(controller: _communityController),
+      (context) => widget.supabaseEnabled
+          ? ProfileScreen(
+              showBottomNavigation: false,
+              communityController: _communityController,
+            )
+          : const ModuleSetupPage(
+              icon: Icons.person_outline,
+              title: 'Profile setup required',
+              message:
+                  'Start Flutter with SUPABASE_URL and SUPABASE_ANON_KEY to use authentication and profile features.',
+            ),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _communityController.dispose();
+    super.dispose();
+  }
 
   void _selectTab(int index) {
     if (_selectedIndex == index) {
@@ -777,37 +805,15 @@ class _TripModeCard extends StatelessWidget {
   }
 }
 
-class CommunityModulePage extends StatefulWidget {
-  const CommunityModulePage({super.key, required this.useSupabase});
+class CommunityModulePage extends StatelessWidget {
+  const CommunityModulePage({super.key, required this.controller});
 
-  final bool useSupabase;
-
-  @override
-  State<CommunityModulePage> createState() => _CommunityModulePageState();
-}
-
-class _CommunityModulePageState extends State<CommunityModulePage> {
-  late final CommunityController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    final CommunityRepository repository = widget.useSupabase
-        ? SupabaseCommunityRepository(Supabase.instance.client)
-        : DemoCommunityRepository();
-    _controller = CommunityController(repository);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final CommunityController controller;
 
   @override
   Widget build(BuildContext context) {
     return CommunityFeedScreen(
-      controller: _controller,
+      controller: controller,
       showBottomNavigation: false,
     );
   }
