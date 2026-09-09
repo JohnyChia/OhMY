@@ -73,7 +73,10 @@ class _LoginScreenState extends State<LoginScreen> {
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
+                inputFormatters: AuthValidators.emailInputFormatters,
                 textInputAction: TextInputAction.next,
+                textCapitalization: TextCapitalization.none,
+                autocorrect: false,
                 autofillHints: const [AutofillHints.email],
                 validator: AuthValidators.email,
                 decoration: const InputDecoration(
@@ -118,7 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 10),
               Row(
-                mainAxisAlignment: MainAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text(
                     'Don’t have an account?',

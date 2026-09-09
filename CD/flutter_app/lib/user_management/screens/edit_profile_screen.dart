@@ -27,6 +27,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late List<String> _preferences;
   bool _isSaving = false;
   bool _preferencesChanged = false;
+  bool _hasSavedChanges = false;
 
   @override
   void initState() {
@@ -74,7 +75,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profile updated successfully')),
       );
-      Navigator.of(context).pop(true);
+      setState(() => _hasSavedChanges = true);
     } on AuthFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -91,7 +92,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         leading: TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () => Navigator.of(context).pop(_hasSavedChanges),
           child: const Text('‹ Back'),
         ),
         leadingWidth: 82,
@@ -127,10 +128,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: 18),
               TextFormField(
                 controller: _nameController,
-                validator: AuthValidators.fullName,
-                maxLength: 30,
+                inputFormatters: AuthValidators.usernameInputFormatters,
+                validator: AuthValidators.username,
+                textCapitalization: TextCapitalization.none,
+                autocorrect: false,
                 decoration: const InputDecoration(
-                  labelText: 'DISPLAY NAME',
+                  labelText: 'USERNAME',
                   floatingLabelBehavior: FloatingLabelBehavior.always,
                 ),
               ),

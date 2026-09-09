@@ -26,9 +26,7 @@ class VerificationService {
     required String documentType,
     required String documentFrontPath,
     String? documentBackPath,
-    required String selfieCenterPath,
-    required String selfieLeftPath,
-    required String selfieRightPath,
+    required String selfiePath,
   }) async {
     final accessToken = _client.auth.currentSession?.accessToken;
     if (accessToken == null) {
@@ -47,12 +45,7 @@ class VerificationService {
               'document_front',
               documentFrontPath,
             ),
-            await http.MultipartFile.fromPath(
-              'selfie_center',
-              selfieCenterPath,
-            ),
-            await http.MultipartFile.fromPath('selfie_left', selfieLeftPath),
-            await http.MultipartFile.fromPath('selfie_right', selfieRightPath),
+            await http.MultipartFile.fromPath('selfie', selfiePath),
           ]);
 
     if (documentBackPath != null) {

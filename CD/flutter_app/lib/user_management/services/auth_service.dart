@@ -47,17 +47,34 @@ class AuthService {
   }
 
   Future<AuthResponse> register({
-    required String fullName,
+    required String username,
     required String email,
     required String password,
   }) async {
     try {
-      return await _client.auth.signUp(
-        email: email.trim(),
+      final response = await _client.auth.signUp(
+        email: email.trim().toLowerCase(),
         password: password,
-        data: {'full_name': fullName.trim()},
+        data: {
+          'username': username.trim(),
+          // Keep the legacy key temporarily because existing teammate screens
+          // may still read it as the public display name.
+          'full_name': username.trim(),
+        },
       );
+
+      // With email confirmation enabled, Supabase can deliberately return an
+      // obfuscated user with no identities instead of an error for an existing
+      // address. Convert that response into the clear registration message
+      // required by this prototype.
+      if (response.session == null &&
+          response.user?.identities != null &&
+          response.user!.identities!.isEmpty) {
+        throw const AuthFailure('This email address is already registered.');
+      }
+      return response;
     } catch (error) {
+      if (error is AuthFailure) rethrow;
       throw _friendlyFailure(error);
     }
   }
@@ -147,7 +164,13 @@ class AuthService {
   }) async {
     try {
       final response = await _client.auth.updateUser(
-        UserAttributes(data: {'full_name': fullName.trim(), 'bio': bio.trim()}),
+        UserAttributes(
+          data: {
+            'username': fullName.trim(),
+            'full_name': fullName.trim(),
+            'bio': bio.trim(),
+          },
+        ),
       );
       final user = response.user;
       if (user == null) {

@@ -1,5 +1,17 @@
+import 'package:flutter/services.dart';
+
 class AuthValidators {
   AuthValidators._();
+
+  static List<TextInputFormatter> get emailInputFormatters => [
+    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9@._-]')),
+    LengthLimitingTextInputFormatter(254),
+  ];
+
+  static List<TextInputFormatter> get usernameInputFormatters => [
+    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9_]')),
+    LengthLimitingTextInputFormatter(20),
+  ];
 
   static String? requiredField(String? value, String fieldName) {
     if (value == null || value.trim().isEmpty) {
@@ -12,9 +24,23 @@ class AuthValidators {
     final requiredError = requiredField(value, 'your email address');
     if (requiredError != null) return requiredError;
 
-    final emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-    if (!emailPattern.hasMatch(value!.trim())) {
-      return 'Please enter a valid email address.';
+    final email = value!.trim();
+    final parts = email.split('@');
+    if (parts.length != 2 || parts.first.length > 64) {
+      return 'Enter a valid email such as name@example.com.';
+    }
+
+    // Project rule: keep addresses simple and predictable. The local part can
+    // contain letters/numbers with single dots, underscores, or hyphens between
+    // them. Symbols such as + and % are deliberately not accepted.
+    final emailPattern = RegExp(
+      r'^[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*@'
+      r'[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?'
+      r'(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*'
+      r'\.[A-Za-z]{2,63}$',
+    );
+    if (!emailPattern.hasMatch(email)) {
+      return 'Enter a valid email without symbols such as + or %.';
     }
     return null;
   }
@@ -37,6 +63,16 @@ class AuthValidators {
     final length = value!.trim().length;
     if (length < 3 || length > 30) {
       return 'Name must contain 3–30 characters.';
+    }
+    return null;
+  }
+
+  static String? username(String? value) {
+    final requiredError = requiredField(value, 'a username');
+    if (requiredError != null) return requiredError;
+
+    if (!RegExp(r'^[A-Za-z][A-Za-z0-9_]{2,19}$').hasMatch(value!.trim())) {
+      return 'Use 3–20 letters, numbers or underscores; start with a letter.';
     }
     return null;
   }

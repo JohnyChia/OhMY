@@ -94,17 +94,6 @@ class FaceEngine:
             )
         )
 
-    def pose_offset(self, image: np.ndarray) -> float:
-        face = self.detect_one(image)
-        # YuNet returns five landmarks after the bounding box. The first two
-        # are the eyes and the third is the nose tip.
-        first_eye_x = float(face[4])
-        second_eye_x = float(face[6])
-        nose_x = float(face[8])
-        eye_width = max(abs(second_eye_x - first_eye_x), 1.0)
-        return (nose_x - ((first_eye_x + second_eye_x) / 2)) / eye_width
-
-
 def _ocr(image: np.ndarray, settings: Settings) -> str:
     if settings.tesseract_cmd:
         pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
@@ -184,25 +173,3 @@ def _parse_mrz_date(value: str) -> date:
     current_two_digit_year = date.today().year % 100
     century = 2000 if year <= current_two_digit_year + 20 else 1900
     return datetime.strptime(f"{century + year}{value[2:]}", "%Y%m%d").date()
-
-
-def check_head_turns(
-    center: np.ndarray,
-    left: np.ndarray,
-    right: np.ndarray,
-    faces: FaceEngine,
-) -> None:
-    positions = [faces.pose_offset(image) for image in (center, left, right)]
-    center_offset, first_turn, second_turn = positions
-    if abs(center_offset) > 0.13:
-        raise CheckFailure(
-            "centre_pose",
-            "Look straight at the camera for the first selfie.",
-        )
-    # Front-camera image mirroring differs between devices, so require two
-    # clearly opposite turns without assuming which saved image is mirrored.
-    if first_turn * second_turn >= 0 or abs(first_turn) < 0.08 or abs(second_turn) < 0.08:
-        raise CheckFailure(
-            "head_turn",
-            "The head-turn check was not clear. Turn left and right more slowly.",
-        )

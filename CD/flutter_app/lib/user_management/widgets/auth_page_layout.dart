@@ -52,71 +52,78 @@ class AuthPageLayout extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Center(
-                    child: SizedBox(
-                      width: 330,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (showBackButton)
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: TextButton.icon(
-                                onPressed: () =>
-                                    Navigator.of(context).maybePop(),
-                                style: TextButton.styleFrom(
-                                  padding: EdgeInsets.zero,
-                                  foregroundColor: const Color(0xFF2E60C4),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 360),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showBackButton)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton.icon(
+                                  onPressed: () =>
+                                      Navigator.of(context).maybePop(),
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    foregroundColor: const Color(0xFF2E60C4),
+                                  ),
+                                  icon: const Icon(
+                                    Icons.chevron_left,
+                                    size: 18,
+                                  ),
+                                  label: Text(backLabel),
                                 ),
-                                icon: const Icon(Icons.chevron_left, size: 18),
-                                label: Text(backLabel),
                               ),
-                            ),
-                          SizedBox(height: topSpacing),
-                          if (illustrationAsset != null) ...[
-                            Center(
-                              child: SvgPicture.asset(
-                                illustrationAsset!,
-                                width: 78,
-                                height: 78,
+                            SizedBox(height: topSpacing),
+                            if (illustrationAsset != null) ...[
+                              Center(
+                                child: SvgPicture.asset(
+                                  illustrationAsset!,
+                                  width: 78,
+                                  height: 78,
+                                ),
                               ),
-                            ),
-                            SizedBox(height: titleSpacing),
-                          ],
-                          Text(
-                            title,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xFF17243D),
-                              fontSize: 30,
-                              fontWeight: FontWeight.w400,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            subtitle,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Color(0xFF62708A),
-                              fontSize: 13,
-                              height: 1.5,
-                            ),
-                          ),
-                          SizedBox(height: formSpacing),
-                          child,
-                          if (footerNote != null) ...[
-                            const SizedBox(height: 130),
+                              SizedBox(height: titleSpacing),
+                            ],
                             Text(
-                              footerNote!,
+                              title,
                               textAlign: TextAlign.center,
                               style: const TextStyle(
-                                color: Color(0xFF7A879B),
-                                fontSize: 11,
+                                color: Color(0xFF17243D),
+                                fontSize: 30,
+                                fontWeight: FontWeight.w400,
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 8),
+                            Text(
+                              subtitle,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Color(0xFF62708A),
+                                fontSize: 13,
+                                height: 1.5,
+                              ),
+                            ),
+                            SizedBox(height: formSpacing),
+                            child,
+                            if (footerNote != null) ...[
+                              const SizedBox(height: 130),
+                              Text(
+                                footerNote!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFF7A879B),
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   ),

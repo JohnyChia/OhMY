@@ -71,7 +71,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
+              inputFormatters: AuthValidators.emailInputFormatters,
               textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
               autofillHints: const [AutofillHints.email],
               validator: AuthValidators.email,
               decoration: const InputDecoration(
@@ -92,6 +95,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             ),
             const SizedBox(height: 10),
             Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text(
                   'Remembered your password?',

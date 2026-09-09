@@ -16,7 +16,7 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _fullNameController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -26,7 +26,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _fullNameController.dispose();
+    _usernameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -43,7 +43,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
     try {
       final response = await _authService.register(
-        fullName: _fullNameController.text,
+        username: _usernameController.text,
         email: _emailController.text,
         password: _passwordController.text,
       );
@@ -87,13 +87,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextFormField(
-              controller: _fullNameController,
+              controller: _usernameController,
+              inputFormatters: AuthValidators.usernameInputFormatters,
               textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.name],
-              validator: AuthValidators.fullName,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
+              autofillHints: const [AutofillHints.newUsername],
+              validator: AuthValidators.username,
               decoration: const InputDecoration(
-                labelText: 'FULL NAME',
-                hintText: 'Your full name',
+                labelText: 'USERNAME',
+                hintText: 'Choose a username',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
               ),
             ),
@@ -101,7 +104,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
+              inputFormatters: AuthValidators.emailInputFormatters,
               textInputAction: TextInputAction.next,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
               autofillHints: const [AutofillHints.email],
               validator: AuthValidators.email,
               decoration: const InputDecoration(
@@ -194,7 +200,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 8),
             Row(
-              mainAxisAlignment: MainAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text(
                   'Already have an account?',
