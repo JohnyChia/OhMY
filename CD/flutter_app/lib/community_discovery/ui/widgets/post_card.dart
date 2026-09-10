@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../../models/community_post.dart';
+import '../../integration/community_integration_callbacks.dart';
 import '../../state/community_controller.dart';
 import '../post_detail_screen.dart';
 import 'post_image.dart';
 
 class PostCard extends StatelessWidget {
-  const PostCard({super.key, required this.post, required this.controller});
+  const PostCard({
+    super.key,
+    required this.post,
+    required this.controller,
+    this.integrationCallbacks = const CommunityIntegrationCallbacks(),
+  });
 
   final CommunityPost post;
   final CommunityController controller;
+  final CommunityIntegrationCallbacks integrationCallbacks;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -17,8 +24,11 @@ class PostCard extends StatelessWidget {
     child: InkWell(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) =>
-              PostDetailScreen(postId: post.id, controller: controller),
+          builder: (_) => PostDetailScreen(
+            postId: post.id,
+            controller: controller,
+            integrationCallbacks: integrationCallbacks,
+          ),
         ),
       ),
       child: Column(
@@ -26,7 +36,7 @@ class PostCard extends StatelessWidget {
         children: [
           PostImage(post: post),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
             child: Row(
               children: [
                 const CircleAvatar(
@@ -35,26 +45,32 @@ class PostCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('${post.authorName}  •  Verified traveller'),
+                  child: Text(
+                    '${post.authorName}  •  Verified traveller',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ),
               ],
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Text(
-              post.attractionName,
+              post.title,
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
-            child: Text('${post.locationName} • ${post.tags.join(' • ')}'),
+            padding: const EdgeInsets.fromLTRB(14, 2, 14, 6),
+            child: Text(
+              '${post.attractionName} • ${post.locationName}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
             child: Text(
               post.description,
               maxLines: 2,
@@ -62,7 +78,7 @@ class PostCard extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(6, 6, 6, 8),
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 4),
             child: Row(
               children: [
                 IconButton(
@@ -81,6 +97,7 @@ class PostCard extends StatelessWidget {
                       builder: (_) => PostDetailScreen(
                         postId: post.id,
                         controller: controller,
+                        integrationCallbacks: integrationCallbacks,
                       ),
                     ),
                   ),

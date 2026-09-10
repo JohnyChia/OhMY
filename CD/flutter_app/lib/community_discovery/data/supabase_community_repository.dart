@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/community_comment.dart';
@@ -5,11 +7,52 @@ import '../models/community_post.dart';
 import '../models/completed_trip.dart';
 import '../models/discovery_tag.dart';
 import 'community_repository.dart';
+import 'community_validation_api.dart';
 
 class SupabaseCommunityRepository implements CommunityRepository {
-  SupabaseCommunityRepository(this._client);
+  SupabaseCommunityRepository(this._client, {required String communityApiUrl})
+    : _validationApi = CommunityValidationApi(
+        baseUrl: communityApiUrl,
+        supabase: _client,
+      ) {
+    _channel = _client
+        .channel('community-discovery-v2')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'community_posts',
+          callback: (_) => _notifyChanged(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'community_post_likes',
+          callback: (_) => _notifyChanged(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'community_post_bookmarks',
+          callback: (_) => _notifyChanged(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'community_post_comments',
+          callback: (_) => _notifyChanged(),
+        )
+        .subscribe();
+  }
 
   final SupabaseClient _client;
+  final CommunityValidationApi _validationApi;
+  final _changes = StreamController<void>.broadcast();
+  late final RealtimeChannel _channel;
+
+  void _notifyChanged() => _changes.add(null);
+
+  @override
+  Stream<void> get changes => _changes.stream;
 
   String get _userId {
     final id = _client.auth.currentUser?.id;
@@ -23,28 +66,49 @@ class SupabaseCommunityRepository implements CommunityRepository {
   Future<List<CommunityPost>> getPosts({
     String query = '',
     Set<int> tagIds = const {},
+    bool bookmarkedOnly = false,
   }) async {
     final rows = await _client.rpc(
-      'community_feed',
+      'community_feed_v3',
       params: {
         'search_query': query.trim(),
         'tag_filters': tagIds.toList(),
         'result_limit': 50,
         'result_offset': 0,
+        'bookmarked_only': bookmarkedOnly,
       },
     );
     return (rows as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map((row) {
           final imagePath = row['image_path'] as String?;
-          final imageUrl = imagePath == null
-              ? null
-              : _client.storage.from('community-posts').getPublicUrl(imagePath);
+          final imagePaths = List<String>.from(
+            row['image_paths'] as List? ?? const [],
+          );
+          final directImageUrls = List<String>.from(
+            row['image_urls'] as List? ?? const [],
+          );
+          final publicImageUrls = <String>[
+            ...directImageUrls,
+            ...imagePaths.map(
+              (path) =>
+                  _client.storage.from('community-posts').getPublicUrl(path),
+            ),
+          ];
+          final imageUrl =
+              publicImageUrls.firstOrNull ??
+              row['image_url'] as String? ??
+              (imagePath == null
+                  ? null
+                  : _client.storage
+                        .from('community-posts')
+                        .getPublicUrl(imagePath));
           return CommunityPost.fromFeedMap(
             row,
             isLiked: row['is_liked'] as bool? ?? false,
             isBookmarked: row['is_bookmarked'] as bool? ?? false,
             publicImageUrl: imageUrl,
+            publicImageUrls: publicImageUrls,
           );
         })
         .toList(growable: false);
@@ -52,12 +116,11 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<List<DiscoveryTag>> getTags() async {
-    final rows = await _client
-        .from('tags')
-        .select('id, name, tag_type')
-        .order('tag_type')
-        .order('name');
-    return rows.map(DiscoveryTag.fromMap).toList(growable: false);
+    final rows = await _client.rpc('get_filter_tags_v1');
+    return (rows as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(DiscoveryTag.fromMap)
+        .toList(growable: false);
   }
 
   @override
@@ -72,11 +135,22 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<List<CompletedTrip>> getEligibleTrips() async {
-    final rows = await _client.rpc('eligible_community_trips');
+    final rows = await _client.rpc('eligible_community_trips_v2');
     return (rows as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(CompletedTrip.fromMap)
         .toList(growable: false);
+  }
+
+  @override
+  Future<CommunityPost?> getPostForTripSession(String tripSessionId) async {
+    final postId = await _client.rpc(
+      'community_post_id_for_trip_v4',
+      params: {'p_trip_session_id': tripSessionId},
+    );
+    if (postId == null) return null;
+    final posts = await getPosts();
+    return posts.where((post) => post.id == postId).firstOrNull;
   }
 
   @override
@@ -127,39 +201,104 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<CommunityPost> createPost(CreatePostInput input) async {
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
-    final imagePath = '$_userId/$timestamp.${input.imageExtension}';
-    final contentType = switch (input.imageExtension) {
-      'png' => 'image/png',
-      'webp' => 'image/webp',
-      _ => 'image/jpeg',
-    };
-    await _client.storage
-        .from('community-posts')
-        .uploadBinary(
-          imagePath,
-          input.imageBytes,
-          fileOptions: FileOptions(
-            cacheControl: '3600',
-            contentType: contentType,
-          ),
-        );
+    if (input.images.isEmpty || input.images.length > 6) {
+      throw ArgumentError('Select between 1 and 6 pictures.');
+    }
+    final imagePaths = await _uploadImages(input.images);
     try {
-      final postId =
-          await _client.rpc(
-                'create_community_post',
-                params: {
-                  'trip_session_id': input.completedTripId,
-                  'post_description': input.description.trim(),
-                  'post_image_path': imagePath,
-                  'post_tag_ids': input.tagIds,
-                },
-              )
-              as String;
+      final postId = await _validationApi.createPost(
+        tripSessionId: input.completedTripId,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        imagePaths: imagePaths,
+      );
       final posts = await getPosts();
       return posts.firstWhere((post) => post.id == postId);
     } catch (_) {
-      await _client.storage.from('community-posts').remove([imagePath]);
+      await _client.storage.from('community-posts').remove(imagePaths);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<CommunityPost> updatePost(UpdatePostInput input) async {
+    final replacements = input.images;
+    if (replacements != null &&
+        (replacements.isEmpty || replacements.length > 6)) {
+      throw ArgumentError('Select between 1 and 6 pictures.');
+    }
+    final imagePaths = replacements == null
+        ? <String>[]
+        : await _uploadImages(replacements);
+    try {
+      await _validationApi.updatePost(
+        postId: input.postId,
+        title: input.title.trim(),
+        description: input.description.trim(),
+        imagePaths: imagePaths,
+      );
+      if (replacements != null && input.existingImagePaths.isNotEmpty) {
+        try {
+          await _client.storage
+              .from('community-posts')
+              .remove(input.existingImagePaths);
+        } catch (_) {
+          // The database update succeeded; orphan cleanup can be retried later.
+        }
+      }
+      final posts = await getPosts();
+      return posts.firstWhere((post) => post.id == input.postId);
+    } catch (_) {
+      if (imagePaths.isNotEmpty) {
+        await _client.storage.from('community-posts').remove(imagePaths);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    _validationApi.close();
+    await _client.removeChannel(_channel);
+    await _changes.close();
+  }
+
+  void _validateImage(List<int> bytes, String extension) {
+    if (!{'jpg', 'jpeg', 'png'}.contains(extension.toLowerCase())) {
+      throw ArgumentError('Only JPG, JPEG, and PNG are accepted.');
+    }
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw ArgumentError('Picture must not exceed 10 MB.');
+    }
+  }
+
+  Future<List<String>> _uploadImages(List<PostImageUpload> images) async {
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+    final paths = <String>[];
+    try {
+      for (var index = 0; index < images.length; index++) {
+        final image = images[index];
+        _validateImage(image.bytes, image.extension);
+        final extension = image.extension.toLowerCase();
+        final path = '$_userId/${timestamp}_$index.$extension';
+        final contentType = extension == 'png' ? 'image/png' : 'image/jpeg';
+        await _client.storage
+            .from('community-posts')
+            .uploadBinary(
+              path,
+              image.bytes,
+              fileOptions: FileOptions(
+                cacheControl: '3600',
+                contentType: contentType,
+              ),
+            );
+        paths.add(path);
+      }
+      return paths;
+    } catch (_) {
+      if (paths.isNotEmpty) {
+        await _client.storage.from('community-posts').remove(paths);
+      }
       rethrow;
     }
   }

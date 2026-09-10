@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/community_repository.dart';
@@ -7,38 +9,77 @@ import '../models/completed_trip.dart';
 import '../models/discovery_tag.dart';
 
 class CommunityController extends ChangeNotifier {
-  CommunityController(this._repository);
+  CommunityController(this._repository) {
+    _changesSubscription = _repository.changes.listen((_) {
+      _realtimeDebounce?.cancel();
+      _realtimeDebounce = Timer(const Duration(milliseconds: 250), () {
+        unawaited(loadPosts(silent: true));
+        if (_bookmarksLoaded) unawaited(loadBookmarkedPosts());
+      });
+    });
+  }
 
   final CommunityRepository _repository;
   List<CommunityPost> _posts = const [];
+  List<CommunityPost> _bookmarkedPosts = const [];
+  final Map<String, CommunityPost> _postCache = {};
+  bool _bookmarksLoaded = false;
   Set<int> _selectedTagIds = {};
   List<DiscoveryTag> _tags = const [];
   String _query = '';
   bool _isLoading = false;
+  bool _tagsLoading = false;
+  bool _tagsLoaded = false;
+  String? _tagsError;
   String? _error;
+  StreamSubscription<void>? _changesSubscription;
+  Timer? _realtimeDebounce;
 
   List<CommunityPost> get posts => List.unmodifiable(_posts);
+  List<CommunityPost> get bookmarkedPosts =>
+      List.unmodifiable(_bookmarkedPosts);
   Set<int> get selectedTagIds => Set.unmodifiable(_selectedTagIds);
   List<DiscoveryTag> get tags => List.unmodifiable(_tags);
   String get query => _query;
   bool get isLoading => _isLoading;
+  bool get tagsLoading => _tagsLoading;
+  bool get tagsLoaded => _tagsLoaded;
+  String? get tagsError => _tagsError;
   String? get error => _error;
 
-  CommunityPost postById(String id) =>
-      _posts.firstWhere((post) => post.id == id);
+  CommunityPost postById(String id) {
+    return _postCache[id] ??
+        _posts.followedBy(_bookmarkedPosts).firstWhere((post) => post.id == id);
+  }
 
-  Future<void> loadPosts({String? query, Set<int>? tagIds}) async {
+  void _replacePost(CommunityPost post) {
+    _postCache[post.id] = post;
+    final feedIndex = _posts.indexWhere((item) => item.id == post.id);
+    if (feedIndex >= 0) _posts[feedIndex] = post;
+    final bookmarkIndex = _bookmarkedPosts.indexWhere(
+      (item) => item.id == post.id,
+    );
+    if (bookmarkIndex >= 0) _bookmarkedPosts[bookmarkIndex] = post;
+  }
+
+  Future<void> loadPosts({
+    String? query,
+    Set<int>? tagIds,
+    bool silent = false,
+  }) async {
     _query = query ?? _query;
     _selectedTagIds = tagIds ?? _selectedTagIds;
-    _isLoading = true;
+    _isLoading = !silent;
     _error = null;
     notifyListeners();
     try {
-      if (_tags.isEmpty) _tags = await _repository.getTags();
       _posts = await _repository.getPosts(
         query: _query,
         tagIds: _selectedTagIds,
       );
+      for (final post in _posts) {
+        _postCache[post.id] = post;
+      }
     } catch (error) {
       _error = _message(error);
     } finally {
@@ -56,35 +97,34 @@ class CommunityController extends ChangeNotifier {
   Future<void> clearTags() => loadPosts(tagIds: {});
 
   Future<void> toggleLike(String postId) async {
-    final index = _posts.indexWhere((post) => post.id == postId);
-    if (index < 0) return;
-    final before = _posts[index];
+    final before = postById(postId);
     final liked = !before.isLiked;
-    _posts[index] = before.copyWith(
-      isLiked: liked,
-      likeCount: before.likeCount + (liked ? 1 : -1),
+    _replacePost(
+      before.copyWith(
+        isLiked: liked,
+        likeCount: before.likeCount + (liked ? 1 : -1),
+      ),
     );
     notifyListeners();
     try {
       await _repository.setLiked(postId, liked);
     } catch (error) {
-      _posts[index] = before;
+      _replacePost(before);
       _error = _message(error);
       notifyListeners();
     }
   }
 
   Future<void> toggleBookmark(String postId) async {
-    final index = _posts.indexWhere((post) => post.id == postId);
-    if (index < 0) return;
-    final before = _posts[index];
+    final before = postById(postId);
     final bookmarked = !before.isBookmarked;
-    _posts[index] = before.copyWith(isBookmarked: bookmarked);
+    _replacePost(before.copyWith(isBookmarked: bookmarked));
     notifyListeners();
     try {
       await _repository.setBookmarked(postId, bookmarked);
+      if (_bookmarksLoaded) await loadBookmarkedPosts();
     } catch (error) {
-      _posts[index] = before;
+      _replacePost(before);
       _error = _message(error);
       notifyListeners();
     }
@@ -95,24 +135,71 @@ class CommunityController extends ChangeNotifier {
 
   Future<CommunityComment> addComment(String postId, String content) async {
     final comment = await _repository.addComment(postId, content);
-    final index = _posts.indexWhere((post) => post.id == postId);
-    if (index >= 0) {
-      _posts[index] = _posts[index].copyWith(
-        commentCount: _posts[index].commentCount + 1,
-      );
-      notifyListeners();
-    }
+    final before = postById(postId);
+    _replacePost(before.copyWith(commentCount: before.commentCount + 1));
+    notifyListeners();
     return comment;
   }
 
   Future<List<CompletedTrip>> getEligibleTrips() =>
       _repository.getEligibleTrips();
 
+  Future<CommunityPost?> getPostForTripSession(String tripSessionId) =>
+      _repository.getPostForTripSession(tripSessionId);
+
+  Future<void> loadTags({bool force = false}) async {
+    if (_tagsLoading || (_tagsLoaded && !force)) return;
+    _tagsLoading = true;
+    _tagsError = null;
+    notifyListeners();
+    try {
+      _tags = await _repository.getTags();
+      _tagsLoaded = true;
+    } catch (error) {
+      _tagsError = _message(error);
+    } finally {
+      _tagsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> ensureTags() => loadTags();
+
+  Future<void> loadBookmarkedPosts() async {
+    _bookmarksLoaded = true;
+    try {
+      _bookmarkedPosts = await _repository.getPosts(bookmarkedOnly: true);
+      for (final post in _bookmarkedPosts) {
+        _postCache[post.id] = post;
+      }
+      notifyListeners();
+    } catch (error) {
+      _error = _message(error);
+      notifyListeners();
+    }
+  }
+
   Future<CommunityPost> createPost(CreatePostInput input) async {
     final post = await _repository.createPost(input);
     _posts = [post, ..._posts];
+    _postCache[post.id] = post;
     notifyListeners();
     return post;
+  }
+
+  Future<CommunityPost> updatePost(UpdatePostInput input) async {
+    final post = await _repository.updatePost(input);
+    _replacePost(post);
+    notifyListeners();
+    return post;
+  }
+
+  @override
+  void dispose() {
+    _realtimeDebounce?.cancel();
+    _changesSubscription?.cancel();
+    unawaited(_repository.dispose());
+    super.dispose();
   }
 
   String _message(Object error) => error

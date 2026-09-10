@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../models/community_comment.dart';
+import '../integration/community_integration_callbacks.dart';
 import '../state/community_controller.dart';
+import 'create_post_screen.dart';
 import 'widgets/post_image.dart';
 
 class PostDetailScreen extends StatefulWidget {
@@ -9,10 +11,12 @@ class PostDetailScreen extends StatefulWidget {
     super.key,
     required this.postId,
     required this.controller,
+    this.integrationCallbacks = const CommunityIntegrationCallbacks(),
   });
 
   final String postId;
   final CommunityController controller;
+  final CommunityIntegrationCallbacks integrationCallbacks;
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -22,22 +26,39 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final _commentController = TextEditingController();
   late Future<List<CommunityComment>> _comments;
   bool _submitting = false;
+  late int _lastCommentCount;
 
   @override
   void initState() {
     super.initState();
     _comments = widget.controller.getComments(widget.postId);
+    _lastCommentCount = widget.controller.postById(widget.postId).commentCount;
+    widget.controller.addListener(_syncComments);
+  }
+
+  void _syncComments() {
+    final count = widget.controller.postById(widget.postId).commentCount;
+    if (count == _lastCommentCount || !mounted) return;
+    _lastCommentCount = count;
+    setState(() => _comments = widget.controller.getComments(widget.postId));
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_syncComments);
     _commentController.dispose();
     super.dispose();
   }
 
   Future<void> _submitComment() async {
+    if (_submitting) return;
     final content = _commentController.text.trim();
-    if (content.isEmpty || content.length > 500) return;
+    if (content.isEmpty || content.length > 500) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Comments must be 1–500 characters.')),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
       await widget.controller.addComment(widget.postId, content);
@@ -60,52 +81,87 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     builder: (context, _) {
       final post = widget.controller.postById(widget.postId);
       return Scaffold(
-        appBar: AppBar(title: const Text('Post details')),
+        appBar: AppBar(
+          actions: [
+            if (post.isOwner)
+              IconButton(
+                tooltip: 'Edit post',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CreatePostScreen(
+                        controller: widget.controller,
+                        post: post,
+                      ),
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
         body: ListView(
           padding: const EdgeInsets.only(bottom: 30),
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 12),
-              child: Row(
-                children: [
-                  const CircleAvatar(child: Icon(Icons.person_outline)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          post.authorName,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const Text('Verified traveller'),
-                      ],
-                    ),
-                  ),
-                  Text(_relativeTime(post.createdAt)),
-                ],
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(18),
+              ),
+              child: PostImage(
+                post: post,
+                height: 360,
+                fit: BoxFit.contain,
+                openFullscreenOnTap: true,
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
               child: Text(
-                post.attractionName,
+                post.title,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w800,
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 2, 18, 10),
-              child: Text('${post.locationName} • ${post.tags.join(' • ')}'),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: ListTile(
+                leading: const Icon(Icons.location_on_outlined),
+                title: Text(post.attractionName),
+                subtitle: Text(post.locationName),
+                trailing: const Icon(Icons.directions_outlined),
+                onTap: () async {
+                  final callback = widget.integrationCallbacks.onStartJourney;
+                  if (callback == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Connect onStartJourney to open this location in the main app.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  await callback(
+                    StartJourneyRequest(
+                      postId: post.id,
+                      attractionName: post.attractionName,
+                      destinationName: post.locationName,
+                    ),
+                  );
+                },
+              ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
               child: Text(post.description),
             ),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(18),
-              child: PostImage(post: post, height: 320),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 2),
+              child: Text(
+                '${post.authorName} · Verified traveller · ${_relativeTime(post.createdAt)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -172,13 +228,27 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 return Column(
                   children: comments
                       .map(
-                        (comment) => ListTile(
-                          leading: const CircleAvatar(
-                            child: Icon(Icons.person, size: 18),
+                        (comment) => Container(
+                          margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF4F7FC),
+                            borderRadius: BorderRadius.circular(14),
                           ),
-                          title: Text(comment.authorName),
-                          subtitle: Text(comment.content),
-                          trailing: Text(_relativeTime(comment.createdAt)),
+                          child: ListTile(
+                            dense: true,
+                            leading: const CircleAvatar(
+                              radius: 16,
+                              child: Icon(Icons.person, size: 16),
+                            ),
+                            title: Text(
+                              comment.authorName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(comment.content),
+                            trailing: Text(_relativeTime(comment.createdAt)),
+                          ),
                         ),
                       )
                       .toList(),

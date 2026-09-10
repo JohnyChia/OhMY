@@ -17,8 +17,15 @@ The Preference Recommender module for **ohMY**, a Malaysian cultural and heritag
 - High-quality 2D route polylines, ETA, distance and traffic labels.
 - Prototype active journey with live GPS following and Google maneuver instructions.
 - Navigation-time recommendations based on destination tags or personal preferences.
+- Community Discovery feed, search, shared-tag filtering, completed-trip posting,
+  multi-image galleries, likes, comments, bookmarks, and server-side text moderation.
 
 Bookmarks, user-profile preferences, expandable journey details, voice guidance, arrival handling and automatic off-route rerouting are later integrations.
+
+Community integration instructions, migration order, Profile/Trip History hooks,
+and deployment details are documented in
+[`COMMUNITY_INTEGRATION.md`](COMMUNITY_INTEGRATION.md). Publishing test cases are
+kept in [`CREATE_POST_TEST_CASES.md`](CREATE_POST_TEST_CASES.md).
 
 ## Technology
 

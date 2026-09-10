@@ -1,11 +1,15 @@
 # Secrets
 backend/.env
+backend/community_validation/.env
 flutter_app/android/local.properties
+flutter_app/config/community.env.json
 *.jks
 *.keystore
 
 # Node
 backend/node_modules/
+backend/community_validation/node_modules/
+backend/community_validation/dist/
 backend/npm-debug.log*
 
 # Flutter and Dart

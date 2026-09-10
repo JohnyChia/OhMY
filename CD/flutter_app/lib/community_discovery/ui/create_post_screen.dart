@@ -1,84 +1,124 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../data/community_repository.dart';
+import '../models/community_post.dart';
 import '../models/completed_trip.dart';
 import '../state/community_controller.dart';
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key, required this.controller});
+  const CreatePostScreen({
+    super.key,
+    required this.controller,
+    this.completedTripId,
+    this.post,
+  }) : assert(
+         (completedTripId == null) != (post == null),
+         'Provide either a completedTripId for Create or a post for Edit.',
+       );
 
   final CommunityController controller;
+  final String? completedTripId;
+  final CommunityPost? post;
 
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
 }
 
 class _CreatePostScreenState extends State<CreatePostScreen> {
-  final _descriptionController = TextEditingController();
+  late final TextEditingController _titleController;
+  late final TextEditingController _descriptionController;
   final _picker = ImagePicker();
   late Future<List<CompletedTrip>> _trips;
   CompletedTrip? _selectedTrip;
-  Uint8List? _imageBytes;
-  String _imageExtension = 'jpg';
-  final Set<int> _tagIds = {};
+  final List<PostImageUpload> _images = [];
+  bool _replacingImages = false;
   bool _publishing = false;
+  bool get _isEditing => widget.post != null;
 
   @override
   void initState() {
     super.initState();
-    _trips = widget.controller.getEligibleTrips();
+    _titleController = TextEditingController(text: widget.post?.title);
+    _descriptionController = TextEditingController(
+      text: widget.post?.description,
+    );
+    _trips = _isEditing
+        ? Future.value(const <CompletedTrip>[])
+        : widget.controller.getEligibleTrips();
   }
 
   @override
   void dispose() {
+    _titleController.dispose();
     _descriptionController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final image = await _picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 88,
-      maxWidth: 1800,
-    );
-    if (image == null) return;
-    final bytes = await image.readAsBytes();
-    if (bytes.lengthInBytes > 8 * 1024 * 1024) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please select an image smaller than 8 MB.'),
-          ),
-        );
-      }
+  Future<void> _pickImages() async {
+    final remaining = _isEditing && !_replacingImages ? 6 : 6 - _images.length;
+    if (remaining <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('A post can contain up to 6 pictures.')),
+      );
       return;
     }
-    final extension = image.name.contains('.')
-        ? image.name.split('.').last.toLowerCase()
-        : 'jpg';
-    setState(() {
-      _imageBytes = bytes;
-      _imageExtension = {'jpg', 'jpeg', 'png', 'webp'}.contains(extension)
-          ? extension
+    final selected = await _picker.pickMultiImage(
+      imageQuality: 88,
+      maxWidth: 1800,
+      limit: remaining,
+    );
+    if (selected.isEmpty) return;
+    final uploads = <PostImageUpload>[];
+    for (final image in selected) {
+      final bytes = await image.readAsBytes();
+      if (bytes.lengthInBytes > 10 * 1024 * 1024) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${image.name} is larger than 10 MB.')),
+          );
+        }
+        return;
+      }
+      final extension = image.name.contains('.')
+          ? image.name.split('.').last.toLowerCase()
           : 'jpg';
+      if (!{'jpg', 'jpeg', 'png'}.contains(extension)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${image.name}: only JPG, JPEG, and PNG are accepted.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      uploads.add(PostImageUpload(bytes: bytes, extension: extension));
+    }
+    setState(() {
+      if (_isEditing && !_replacingImages) {
+        _images.clear();
+        _replacingImages = true;
+      }
+      _images.addAll(uploads.take(6 - _images.length));
     });
   }
 
   Future<void> _publish() async {
     final trip = _selectedTrip;
-    final image = _imageBytes;
+    final title = _titleController.text.trim();
     final description = _descriptionController.text.trim();
-    if (trip == null ||
-        image == null ||
-        description.isEmpty ||
-        _tagIds.isEmpty) {
+    if ((!_isEditing && trip == null) ||
+        (!_isEditing && _images.isEmpty) ||
+        (_isEditing && _replacingImages && _images.isEmpty) ||
+        title.length < 3 ||
+        description.length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Select a completed trip, picture, description, and at least one tag.',
+            'Add a title, description, picture, and completed trip.',
           ),
         ),
       );
@@ -86,20 +126,35 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
     setState(() => _publishing = true);
     try {
-      await widget.controller.createPost(
-        CreatePostInput(
-          completedTripId: trip.id,
-          description: description,
-          tagIds: _tagIds.toList(),
-          imageBytes: image,
-          imageExtension: _imageExtension,
-        ),
-      );
+      if (_isEditing) {
+        await widget.controller.updatePost(
+          UpdatePostInput(
+            postId: widget.post!.id,
+            title: title,
+            description: description,
+            images: _replacingImages ? List.unmodifiable(_images) : null,
+            existingImagePaths: widget.post!.imagePaths,
+          ),
+        );
+      } else {
+        await widget.controller.createPost(
+          CreatePostInput(
+            completedTripId: trip!.id,
+            title: title,
+            description: description,
+            images: List.unmodifiable(_images),
+          ),
+        );
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Post could not be published: $error')),
+          SnackBar(
+            content: Text(
+              '${_isEditing ? 'Post could not be updated' : 'Post could not be published'}: $error',
+            ),
+          ),
         );
       }
     } finally {
@@ -109,7 +164,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Share a completed trip')),
+    appBar: AppBar(
+      title: Text(_isEditing ? 'Edit post' : 'Share a completed trip'),
+    ),
     body: FutureBuilder<List<CompletedTrip>>(
       future: _trips,
       builder: (context, snapshot) {
@@ -124,7 +181,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           );
         }
         final trips = snapshot.data ?? const [];
-        if (trips.isEmpty) {
+        if (!_isEditing && trips.isEmpty) {
           return const _CenteredMessage(
             icon: Icons.flag_outlined,
             title: 'Complete a trip first',
@@ -132,35 +189,34 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 'Only completed trips that have not been posted can be shared.',
           );
         }
+        if (_selectedTrip == null && !_isEditing) {
+          _selectedTrip = trips
+              .where((trip) => trip.id == widget.completedTripId)
+              .firstOrNull;
+          if (_selectedTrip == null) {
+            return const _CenteredMessage(
+              icon: Icons.lock_clock_outlined,
+              title: 'Trip is not available',
+              message:
+                  'This trip is unfinished, already posted, or does not belong to the signed-in user.',
+            );
+          }
+        }
         return ListView(
           padding: const EdgeInsets.all(18),
           children: [
-            Text(
-              '1. Select your completed trip',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<CompletedTrip>(
-              initialValue: _selectedTrip,
-              hint: const Text('Choose a completed trip'),
-              items: trips
-                  .map(
-                    (trip) => DropdownMenuItem(
-                      value: trip,
-                      child: Text(trip.title, overflow: TextOverflow.ellipsis),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (trip) => setState(() => _selectedTrip = trip),
-            ),
-            if (_selectedTrip case final trip?) ...[
-              const SizedBox(height: 10),
+            if (!_isEditing) ...[
+              Text(
+                '1. Completed trip',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.location_on_outlined),
-                  title: Text(trip.attractionName),
+                  title: Text(_selectedTrip!.title),
                   subtitle: Text(
-                    '${trip.locationName}\nLocation comes from your completed trip.',
+                    '${_selectedTrip!.attractionName}, ${_selectedTrip!.locationName}\nLocation is locked to this completed trip.',
                   ),
                   isThreeLine: true,
                 ),
@@ -168,40 +224,38 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             ],
             const SizedBox(height: 22),
             Text(
-              '2. Add one picture',
+              _isEditing ? 'Pictures' : '2. Add pictures',
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            const SizedBox(height: 3),
+            Text(
+              'Select 1–6 JPG or PNG pictures. Swipe left or right to preview.',
+            ),
             const SizedBox(height: 8),
-            InkWell(
-              onTap: _pickImage,
-              borderRadius: BorderRadius.circular(18),
-              child: Container(
-                height: 220,
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE3ECFA),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFB8CAE7)),
-                ),
-                child: _imageBytes == null
-                    ? const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add_photo_alternate_outlined, size: 52),
-                          SizedBox(height: 8),
-                          Text('Choose from gallery (maximum 8 MB)'),
-                        ],
-                      )
-                    : Image.memory(
-                        _imageBytes!,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                      ),
-              ),
+            _ImageEditor(
+              newImages: _images,
+              existingUrls: _replacingImages
+                  ? const []
+                  : widget.post?.allImageUrls ?? const [],
+              onPick: _pickImages,
+              onRemove: (index) => setState(() => _images.removeAt(index)),
             ),
             const SizedBox(height: 22),
             Text(
-              '3. Describe your experience',
+              _isEditing ? 'Title' : '3. Add a title',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _titleController,
+              maxLength: 120,
+              decoration: const InputDecoration(
+                hintText: 'Example: Morning light at Kwai Chai Hong',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _isEditing ? 'Description' : '4. Describe your experience',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -215,27 +269,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              '4. Add discovery tags',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: widget.controller.tags
-                  .map(
-                    (tag) => FilterChip(
-                      label: Text(tag.name),
-                      selected: _tagIds.contains(tag.id),
-                      onSelected: (selected) => setState(
-                        () => selected
-                            ? _tagIds.add(tag.id)
-                            : _tagIds.remove(tag.id),
-                      ),
-                    ),
-                  )
-                  .toList(),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.auto_awesome_outlined),
+                title: const Text('Tags are added automatically'),
+                subtitle: const Text(
+                  'Tags come only from the completed trip location and attraction, never from your title or description.',
+                ),
+              ),
             ),
             const SizedBox(height: 26),
             FilledButton.icon(
@@ -246,12 +287,156 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.publish),
-              label: Text(_publishing ? 'Publishing…' : 'Publish post'),
+              label: Text(
+                _publishing
+                    ? (_isEditing ? 'Saving…' : 'Publishing…')
+                    : (_isEditing ? 'Save changes' : 'Publish post'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Your title and description are checked for unsafe, spam-like, meaningless, or location-unrelated text. Publishing is blocked if validation is unavailable.',
+              textAlign: TextAlign.center,
             ),
           ],
         );
       },
     ),
+  );
+}
+
+class _ImageEditor extends StatelessWidget {
+  const _ImageEditor({
+    required this.newImages,
+    required this.existingUrls,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  final List<PostImageUpload> newImages;
+  final List<String> existingUrls;
+  final VoidCallback onPick;
+  final ValueChanged<int> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = newImages.isNotEmpty ? newImages.length : existingUrls.length;
+    if (count == 0) {
+      return InkWell(
+        onTap: onPick,
+        borderRadius: BorderRadius.circular(18),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFE3ECFA),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFB8CAE7)),
+            ),
+            child: const _PhotoPrompt(),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 180,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: count,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, index) => SizedBox(
+              width: 270,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: newImages.isNotEmpty
+                        ? Image.memory(
+                            newImages[index].bytes,
+                            fit: BoxFit.cover,
+                          )
+                        : Image.network(existingUrls[index], fit: BoxFit.cover),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: CircleAvatar(
+                      radius: 17,
+                      backgroundColor: Colors.black54,
+                      child: newImages.isNotEmpty
+                          ? IconButton(
+                              padding: EdgeInsets.zero,
+                              tooltip: 'Remove picture',
+                              onPressed: () => onRemove(index),
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.white,
+                                size: 19,
+                              ),
+                            )
+                          : const Icon(
+                              Icons.lock_outline,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 10,
+                    bottom: 10,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 4,
+                        ),
+                        child: Text(
+                          '${index + 1}/$count',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: onPick,
+          icon: const Icon(Icons.add_photo_alternate_outlined),
+          label: Text(
+            newImages.isNotEmpty && newImages.length < 6
+                ? 'Add more (${newImages.length}/6)'
+                : 'Choose a new gallery (maximum 6)',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PhotoPrompt extends StatelessWidget {
+  const _PhotoPrompt();
+
+  @override
+  Widget build(BuildContext context) => const Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      Icon(Icons.add_photo_alternate_outlined, size: 44),
+      SizedBox(height: 8),
+      Text('Choose JPG, JPEG, or PNG (maximum 10 MB)'),
+    ],
   );
 }
 

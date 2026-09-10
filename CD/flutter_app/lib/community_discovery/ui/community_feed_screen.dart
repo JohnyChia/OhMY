@@ -3,13 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../state/community_controller.dart';
+import '../integration/community_integration_callbacks.dart';
 import '../theme/community_theme.dart';
+import 'bookmarked_posts_screen.dart';
 import 'widgets/post_card.dart';
 
 class CommunityFeedScreen extends StatefulWidget {
-  const CommunityFeedScreen({super.key, required this.controller});
+  const CommunityFeedScreen({
+    super.key,
+    required this.controller,
+    this.integrationCallbacks = const CommunityIntegrationCallbacks(),
+  });
 
   final CommunityController controller;
+  final CommunityIntegrationCallbacks integrationCallbacks;
 
   @override
   State<CommunityFeedScreen> createState() => _CommunityFeedScreenState();
@@ -22,6 +29,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(widget.controller.loadTags());
     unawaited(widget.controller.loadPosts());
   }
 
@@ -48,7 +56,12 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       return Scaffold(
         body: SafeArea(
           child: RefreshIndicator(
-            onRefresh: state.loadPosts,
+            onRefresh: () async {
+              await Future.wait([
+                state.loadTags(force: true),
+                state.loadPosts(),
+              ]);
+            },
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
@@ -92,7 +105,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                     child: ListView(
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       scrollDirection: Axis.horizontal,
-                      children: state.tags.take(5).map((tag) {
+                      children: state.tags.map((tag) {
                         final selected = state.selectedTagIds.contains(tag.id);
                         return Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -153,8 +166,11 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                     sliver: SliverList.separated(
                       itemCount: state.posts.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 14),
-                      itemBuilder: (context, index) =>
-                          PostCard(post: state.posts[index], controller: state),
+                      itemBuilder: (context, index) => PostCard(
+                        post: state.posts[index],
+                        controller: state,
+                        integrationCallbacks: widget.integrationCallbacks,
+                      ),
                     ),
                   ),
               ],
@@ -164,7 +180,16 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         bottomNavigationBar: NavigationBar(
           selectedIndex: 3,
           onDestinationSelected: (index) {
-            if (index != 3) {
+            if (index == 4) {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => BookmarkedPostsScreen(
+                    controller: state,
+                    integrationCallbacks: widget.integrationCallbacks,
+                  ),
+                ),
+              );
+            } else if (index != 3) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text(
@@ -202,63 +227,128 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   );
 
   Future<void> _showFilters() async {
-    final selected = Set<int>.from(widget.controller.selectedTagIds);
     final result = await showModalBottomSheet<Set<int>>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(22, 4, 22, 22),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'All discovery tags',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Choose one or more tags. A post matching any selected tag is shown.',
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: widget.controller.tags
-                      .map(
-                        (tag) => FilterChip(
-                          label: Text(tag.name),
-                          selected: selected.contains(tag.id),
-                          onSelected: (value) => setModalState(
-                            () => value
-                                ? selected.add(tag.id)
-                                : selected.remove(tag.id),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(context, selected),
-                    child: const Text('Apply filters'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      builder: (_) => _TagFilterSheet(controller: widget.controller),
     );
     if (result != null) await widget.controller.loadPosts(tagIds: result);
   }
+}
+
+class _TagFilterSheet extends StatefulWidget {
+  const _TagFilterSheet({required this.controller});
+
+  final CommunityController controller;
+
+  @override
+  State<_TagFilterSheet> createState() => _TagFilterSheetState();
+}
+
+class _TagFilterSheetState extends State<_TagFilterSheet> {
+  late final Set<int> selected;
+
+  @override
+  void initState() {
+    super.initState();
+    selected = Set<int>.from(widget.controller.selectedTagIds);
+    unawaited(widget.controller.loadTags());
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) {
+      final state = widget.controller;
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(22, 4, 22, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'All tags',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Text('${selected.length} selected'),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Choose one or more tags. A post matching any selected tag is shown.',
+              ),
+              const SizedBox(height: 16),
+              if (state.tagsLoading)
+                const Center(child: CircularProgressIndicator())
+              else if (state.tagsError != null)
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Tags could not be loaded.\n${state.tagsError}',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () => state.loadTags(force: true),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                    ],
+                  ),
+                )
+              else if (state.tagsLoaded && state.tags.isEmpty)
+                const Center(child: Text('No tags are configured.'))
+              else
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: state.tags
+                          .map(
+                            (tag) => FilterChip(
+                              label: Text(tag.name),
+                              selected: selected.contains(tag.id),
+                              onSelected: (value) => setState(
+                                () => value
+                                    ? selected.add(tag.id)
+                                    : selected.remove(tag.id),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: state.tagsLoading || state.tagsError != null
+                      ? null
+                      : () => Navigator.pop(context, selected),
+                  child: Text(
+                    selected.isEmpty
+                        ? 'Show all posts'
+                        : 'Apply ${selected.length} filter(s)',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class _Header extends StatelessWidget {
@@ -298,7 +388,7 @@ class _Header extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         IconButton.filledTonal(
-          tooltip: 'All discovery tags',
+          tooltip: 'All tags',
           onPressed: onFilter,
           icon: const Icon(Icons.tune),
         ),
