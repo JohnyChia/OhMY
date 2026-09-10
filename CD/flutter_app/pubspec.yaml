@@ -45,6 +45,7 @@ dependencies:
   record: ^6.2.1
   path_provider: ^2.1.6
   google_fonts: ^8.2.1
+  google_navigation_flutter: ^0.10.0
 
 dev_dependencies:
   flutter_test:
@@ -56,6 +57,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.7
 
 dependency_overrides:
   google_maps_flutter_android:
@@ -75,6 +78,29 @@ flutter:
   assets:
     - assets/images/auth/
     - assets/images/travel_group/
+    - assets/images/preference_recommender/
+    - assets/images/branding/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/images/branding/ohmy_icon.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/images/branding/ohmy_icon.png
+  remove_alpha_ios: true
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  background_image: assets/images/branding/initialize_page.png
+  android: true
+  ios: true
+  fullscreen: true
+  android_12:
+    color: "#FFFFFF"
+    image: assets/images/branding/ohmy_icon.png
+    # Android 12 only permits a centered system icon. The generated v31 style
+    # is intentionally overridden with a transparent drawable so the complete
+    # initialize_page.png Flutter screen supplies the visible branding.
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -733,7 +733,10 @@ class StartTripHubPage extends StatelessWidget {
             subtitle:
                 'Search places, receive recommendations, check weather and traffic, then build your route.',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const PlaceMapPage()),
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: '/start-trip/solo-map'),
+                builder: (_) => const PlaceMapPage(),
+              ),
             ),
           ),
           const SizedBox(height: 14),

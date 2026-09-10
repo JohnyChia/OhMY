@@ -33,9 +33,6 @@ migrate_working_dir/
 /build/
 /coverage/
 
-# Local Supabase launch settings (never commit local project credentials)
-/supabase.local.json
-
 # Symbolication related
 app.*.symbols
 

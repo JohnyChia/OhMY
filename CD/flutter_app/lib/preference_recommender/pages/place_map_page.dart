@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import 'package:http/http.dart' as http;
 import '../features/routes/route_feature.dart';
 import '../features/routes/navigation_sensor.dart';
 import '../features/weather/weather_feature.dart';
+import '../widgets/wau_loading_indicator.dart';
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -24,7 +26,7 @@ class PlaceMapPage extends StatefulWidget {
 }
 
 class _PlaceMapPageState extends State<PlaceMapPage> {
-  static const double recommendationPanelHeight = 220;
+  static const double recommendationPanelHeight = 258;
   static const backend = String.fromEnvironment(
     'BACKEND_URL',
     defaultValue: 'http://127.0.0.1:3000',
@@ -37,7 +39,12 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     'Religious Heritage',
   ];
   final search = TextEditingController();
-  final recommendationScroll = ScrollController();
+  final searchFocus = FocusNode();
+  final Object searchTapGroup = Object();
+  final recommendationPage = PageController(viewportFraction: .9);
+  Timer? searchDebounce;
+  int searchRequest = 0;
+  Future<BitmapDescriptor>? recommendationMarkerFuture;
   GoogleMapController? controller;
   MethodChannel? poiChannel;
   List<Map<String, dynamic>> results = [], recommendations = [];
@@ -56,7 +63,28 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   @override
   void initState() {
     super.initState();
+    completedJourneyLocation.addListener(_resumeAtCompletedJourneyLocation);
     unawaited(initializeCurrentLocation());
+  }
+
+  void _resumeAtCompletedJourneyLocation() {
+    final location = completedJourneyLocation.value;
+    if (!mounted || location == null) return;
+    completedJourneyLocation.value = null;
+    final latest = Position(
+      longitude: location.longitude,
+      latitude: location.latitude,
+      timestamp: DateTime.now(),
+      accuracy: 0,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+    setState(() => currentPosition = latest);
+    unawaited(moveMapTo(latest, zoom: 16));
   }
 
   Future<void> initializeCurrentLocation() async {
@@ -95,6 +123,70 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     return n == null
         ? null
         : '$backend/api/places/photo?name=${Uri.encodeQueryComponent(n)}';
+  }
+
+  Future<BitmapDescriptor> recommendationMarkerIcon() {
+    recommendationMarkerFuture ??= _buildHibiscusMarker();
+    return recommendationMarkerFuture!;
+  }
+
+  Future<BitmapDescriptor> _buildHibiscusMarker() async {
+    const scale = 3.0;
+    const width = 46.0;
+    const height = 56.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(scale);
+    const center = Offset(width / 2, 23);
+    final bluePaint = Paint()..color = blue;
+
+    for (var petal = 0; petal < 5; petal++) {
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate((math.pi * 2 / 5) * petal);
+      canvas.drawOval(
+        Rect.fromCenter(center: const Offset(0, -11), width: 20, height: 27),
+        bluePaint,
+      );
+      canvas.restore();
+    }
+    canvas.drawCircle(center, 12, bluePaint);
+    canvas.drawPath(
+      Path()
+        ..moveTo(17, 38)
+        ..lineTo(width / 2, height)
+        ..lineTo(29, 38)
+        ..close(),
+      bluePaint,
+    );
+
+    final flowerLine = Paint()
+      ..color = const Color(0xffffdf65)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.7
+      ..strokeCap = StrokeCap.round;
+    for (var petal = 0; petal < 5; petal++) {
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.rotate((math.pi * 2 / 5) * petal);
+      canvas.drawOval(
+        Rect.fromCenter(center: const Offset(0, -10), width: 13, height: 21),
+        flowerLine,
+      );
+      canvas.restore();
+    }
+    canvas.drawCircle(center, 3.5, flowerLine);
+    canvas.drawLine(center, const Offset(35, 11), flowerLine);
+    canvas.drawCircle(const Offset(36.5, 9.5), 1.2, flowerLine);
+
+    final image = await recorder.endRecording().toImage(
+      (width * scale).round(),
+      (height * scale).round(),
+    );
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.bytes(
+      bytes!.buffer.asUint8List(),
+      imagePixelRatio: scale * 1.5,
+    );
   }
 
   Future<Map<String, dynamic>> post(String path, Map body) async {
@@ -148,8 +240,37 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     return r * 2 * math.atan2(math.sqrt(x), math.sqrt(1 - x));
   }
 
-  Future<void> runSearch() async {
-    if (search.text.trim().isEmpty) return;
+  void searchChanged(String value) {
+    searchDebounce?.cancel();
+    final query = value.trim();
+    final request = ++searchRequest;
+    if (query.isEmpty) {
+      setState(() {
+        results = [];
+        loading = false;
+        message = null;
+      });
+      return;
+    }
+    searchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(runSearch(query: query, request: request)),
+    );
+  }
+
+  void dismissSearchResults() {
+    searchFocus.unfocus();
+    if (results.isNotEmpty) setState(() => results = []);
+  }
+
+  Future<void> runSearch({String? query, int? request}) async {
+    final requestedQuery = (query ?? search.text).trim();
+    if (requestedQuery.isEmpty) {
+      if (mounted) setState(() => results = []);
+      return;
+    }
+    searchDebounce?.cancel();
+    final requestedId = request ?? ++searchRequest;
     setState(() {
       loading = true;
       results = [];
@@ -158,17 +279,21 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       message = 'Searching places…';
     });
     try {
-      final d = await post('/api/places/search', {'query': search.text.trim()});
-      if (mounted) {
+      final d = await post('/api/places/search', {'query': requestedQuery});
+      if (mounted &&
+          requestedId == searchRequest &&
+          search.text.trim() == requestedQuery) {
         setState(() {
           results = List<Map<String, dynamic>>.from(d['places'] ?? []);
           message = results.isEmpty ? 'No places found.' : null;
         });
       }
     } catch (e) {
-      fail(e);
+      if (requestedId == searchRequest) fail(e);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted && requestedId == searchRequest) {
+        setState(() => loading = false);
+      }
     }
   }
 
@@ -242,10 +367,11 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         'mode': 'preferences',
         'preferences': preferences,
       });
-      final tagged = List<Map<String, dynamic>>.from(d['taggedPlaces'] ?? []),
+      final recommendationIcon = await recommendationMarkerIcon();
+      final matched = List<Map<String, dynamic>>.from(d['matchedPlaces'] ?? []),
           m = <Marker>{};
       final visiblePoints = <LatLng>[LatLng(pos.latitude, pos.longitude)];
-      for (final item in tagged) {
+      for (final item in matched) {
         final p = item['place'] as Map<String, dynamic>,
             l = p['location'] as Map<String, dynamic>;
         final markerPosition = LatLng(
@@ -257,15 +383,15 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           Marker(
             markerId: MarkerId(p['id'].toString()),
             position: markerPosition,
+            icon: recommendationIcon,
+            anchor: const Offset(.5, 1),
             onTap: () => _selectTaggedMarker(item),
           ),
         );
       }
       if (mounted) {
         setState(() {
-          recommendations = List<Map<String, dynamic>>.from(
-            d['matchedPlaces'] ?? [],
-          );
+          recommendations = matched;
           markers = m;
           recommendationTitle = 'Based on your preferences';
           showCarousel = recommendations.isNotEmpty;
@@ -307,9 +433,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         'mode': 'destination',
         'destinationPlaceId': sourceId,
       });
-      final tagged = List<Map<String, dynamic>>.from(
-        data['taggedPlaces'] ?? [],
-      );
+      final recommendationIcon = await recommendationMarkerIcon();
       final matched = List<Map<String, dynamic>>.from(
         data['matchedPlaces'] ?? [],
       );
@@ -320,7 +444,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         ),
       ];
       final recommendationMarkers = <Marker>{};
-      for (final item in tagged) {
+      for (final item in matched) {
         final place = item['place'];
         final location = place?['location'];
         if (place is! Map || location is! Map) continue;
@@ -333,6 +457,8 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           Marker(
             markerId: MarkerId(place['id'].toString()),
             position: markerPosition,
+            icon: recommendationIcon,
+            anchor: const Offset(.5, 1),
             onTap: () => _selectTaggedMarker(item),
           ),
         );
@@ -399,9 +525,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     });
     if (index < 0) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!recommendationScroll.hasClients) return;
-      recommendationScroll.animateTo(
-        index * 340.0,
+      if (!recommendationPage.hasClients) return;
+      recommendationPage.animateToPage(
+        index,
         duration: const Duration(milliseconds: 350),
         curve: Curves.easeOutCubic,
       );
@@ -507,6 +633,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               }
             });
           },
+          onTap: (_) => dismissSearchResults(),
           markers: markers,
           trafficEnabled: trafficEnabled,
           myLocationEnabled: locationPermissionGranted,
@@ -523,22 +650,38 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: Material(
-                    elevation: 5,
-                    borderRadius: BorderRadius.circular(18),
-                    child: TextField(
-                      controller: search,
-                      onSubmitted: (_) => runSearch(),
-                      decoration: InputDecoration(
-                        hintText: 'Search attractions…',
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 17,
-                          vertical: 14,
-                        ),
-                        suffixIcon: IconButton(
-                          onPressed: runSearch,
-                          icon: const Icon(Icons.search),
+                  child: TapRegion(
+                    groupId: searchTapGroup,
+                    onTapOutside: (_) => dismissSearchResults(),
+                    child: Material(
+                      elevation: 5,
+                      borderRadius: BorderRadius.circular(18),
+                      child: TextField(
+                        controller: search,
+                        focusNode: searchFocus,
+                        onChanged: searchChanged,
+                        onSubmitted: (_) => unawaited(runSearch()),
+                        decoration: InputDecoration(
+                          hintText: 'Search attractions…',
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 17,
+                            vertical: 14,
+                          ),
+                          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: search,
+                            builder: (_, value, child) => value.text.isEmpty
+                                ? const Icon(Icons.search)
+                                : IconButton(
+                                    tooltip: 'Clear search',
+                                    onPressed: () {
+                                      search.clear();
+                                      searchChanged('');
+                                      searchFocus.requestFocus();
+                                    },
+                                    icon: const Icon(Icons.close),
+                                  ),
+                          ),
                         ),
                       ),
                     ),
@@ -564,9 +707,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                     elevation: 14,
                     child: SizedBox(
                       height: 140,
-                      child: Center(
-                        child: CircularProgressIndicator(color: blue),
-                      ),
+                      child: Center(child: WauLoadingIndicator(size: 46)),
                     ),
                   )
                 : weather == null
@@ -583,7 +724,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                   ),
           ),
         if (loading)
-          const Center(child: CircularProgressIndicator(color: blue)),
+          const Center(
+            child: WauLoadingIndicator(size: 68, label: 'Finding places…'),
+          ),
         if (message != null && !loading)
           Positioned(
             left: 70,
@@ -607,32 +750,35 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   );
 
   Widget resultList() => Positioned(
-    top: 82,
-    left: 70,
+    top: MediaQuery.paddingOf(context).top + 72,
+    left: 16,
     right: 16,
-    child: Material(
-      elevation: 8,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 330),
-        child: ListView.builder(
-          padding: const EdgeInsets.all(7),
-          shrinkWrap: true,
-          itemCount: results.length,
-          itemBuilder: (_, i) {
-            final p = results[i];
-            return ListTile(
-              dense: true,
-              leading: Icon(
-                p['isArea'] == true ? Icons.map_outlined : Icons.place,
-                color: blue,
-              ),
-              title: Text(name(p), maxLines: 1),
-              subtitle: Text(p['formattedAddress'] ?? '', maxLines: 2),
-              onTap: p['isArea'] == true ? null : () => selectPlace(p['id']),
-            );
-          },
+    child: TapRegion(
+      groupId: searchTapGroup,
+      child: Material(
+        elevation: 8,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 330),
+          child: ListView.builder(
+            padding: const EdgeInsets.all(7),
+            shrinkWrap: true,
+            itemCount: results.length,
+            itemBuilder: (_, i) {
+              final p = results[i];
+              return ListTile(
+                dense: true,
+                leading: Icon(
+                  p['isArea'] == true ? Icons.map_outlined : Icons.place,
+                  color: blue,
+                ),
+                title: Text(name(p), maxLines: 1),
+                subtitle: Text(p['formattedAddress'] ?? '', maxLines: 2),
+                onTap: p['isArea'] == true ? null : () => selectPlace(p['id']),
+              );
+            },
+          ),
         ),
       ),
     ),
@@ -820,12 +966,17 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               ],
             ),
             Expanded(
-              child: ListView.separated(
-                controller: recommendationScroll,
-                scrollDirection: Axis.horizontal,
+              child: PageView.builder(
+                controller: recommendationPage,
                 itemCount: recommendations.length,
-                separatorBuilder: (context, index) => const SizedBox(width: 10),
-                itemBuilder: (_, i) => recommendationCard(recommendations[i]),
+                onPageChanged: (index) => setState(
+                  () => highlightedRecommendationId =
+                      recommendations[index]['place']?['id']?.toString(),
+                ),
+                itemBuilder: (_, i) => Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: recommendationCard(recommendations[i]),
+                ),
               ),
             ),
           ],
@@ -842,110 +993,171 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     );
     final placeId = p['id']?.toString() ?? '';
     final isBookmarked = bookmarkedRecommendations.contains(placeId);
-    return SizedBox(
-      width: 330,
-      child: Card(
-        margin: EdgeInsets.zero,
-        color: const Color(0xfff6f9ff),
-        shape: RoundedRectangleBorder(
-          side: BorderSide(
-            color: isSelected ? blue : const Color(0xffc9dcfb),
-            width: isSelected ? 2 : 1,
-          ),
-          borderRadius: BorderRadius.circular(14),
+    return Material(
+      color: blue,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(
+          color: isSelected ? Colors.white : const Color(0xff9bb9ec),
+          width: isSelected ? 2 : 1,
         ),
-        child: InkWell(
-          onTap: () => details(item),
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Row(
-              children: [
-                if (img != null)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(11),
-                    child: Image.network(
-                      img,
-                      width: 72,
-                      height: 72,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                if (img != null) const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => details(item),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (img != null)
+              Image.network(
+                img,
+                fit: BoxFit.cover,
+                errorBuilder: (_, error, stack) =>
+                    const ColoredBox(color: blue),
+              ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Color(0xe614213d),
+                    Color(0x993266cc),
+                    Color(0x330b1730),
+                  ],
+                  stops: [0, .56, 1],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '#${item['rank'] ?? 1}  ${name(p)}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${ranking['similarityPercentage'] ?? 0}% match',
-                            style: const TextStyle(
-                              fontSize: 9,
-                              color: blue,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        description(p),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 10, color: muted),
-                      ),
-                      Text(
-                        '${eta(p)} · ${distance(p)}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: blue,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      tagRow(tags(item)),
-                      Row(
-                        children: [
-                          tiny(
-                            Icons.directions,
-                            'Directions',
-                            () => directions(p),
-                          ),
-                          tiny(
-                            isBookmarked
-                                ? Icons.bookmark
-                                : Icons.bookmark_border,
-                            'Bookmark',
-                            () => setState(() {
-                              if (isBookmarked) {
-                                bookmarkedRecommendations.remove(placeId);
-                              } else {
-                                bookmarkedRecommendations.add(placeId);
-                              }
-                            }),
-                          ),
-                        ],
+                      _overlayPill('#${item['rank'] ?? 1}'),
+                      const Spacer(),
+                      _overlayPill(
+                        '${ranking['similarityPercentage'] ?? 0}% match',
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    name(p),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Text(
+                    description(p),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 10),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${eta(p)}  ·  ${distance(p)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  _overlayTags(tags(item)),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      _overlayAction(
+                        Icons.directions,
+                        'Directions',
+                        () => directions(p),
+                      ),
+                      _overlayAction(
+                        isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                        'Bookmark',
+                        () => setState(() {
+                          if (isBookmarked) {
+                            bookmarkedRecommendations.remove(placeId);
+                          } else {
+                            bookmarkedRecommendations.add(placeId);
+                          }
+                        }),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
   }
+
+  Widget _overlayPill(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .38),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Colors.white38),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+
+  Widget _overlayTags(List<String> values) => SizedBox(
+    height: 24,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: math.min(5, values.length),
+      separatorBuilder: (_, index) => const SizedBox(width: 5),
+      itemBuilder: (_, index) => Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .18),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white38),
+        ),
+        child: Text(
+          values[index],
+          style: const TextStyle(color: Colors.white, fontSize: 9),
+        ),
+      ),
+    ),
+  );
+
+  Widget _overlayAction(IconData icon, String label, VoidCallback onPressed) =>
+      Padding(
+        padding: const EdgeInsets.only(right: 7),
+        child: SizedBox(
+          height: 30,
+          child: FilledButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon, size: 14),
+            label: Text(label, style: const TextStyle(fontSize: 9)),
+            style: FilledButton.styleFrom(
+              foregroundColor: blue,
+              backgroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ),
+      );
 
   Widget tiny(IconData i, String s, VoidCallback f) => Padding(
     padding: const EdgeInsets.only(right: 6),
@@ -993,8 +1205,11 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   );
   @override
   void dispose() {
+    completedJourneyLocation.removeListener(_resumeAtCompletedJourneyLocation);
+    searchDebounce?.cancel();
     search.dispose();
-    recommendationScroll.dispose();
+    searchFocus.dispose();
+    recommendationPage.dispose();
     poiChannel?.setMethodCallHandler(null);
     controller?.dispose();
     super.dispose();
@@ -1062,7 +1277,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
               child: SizedBox(
                 height: 250,
                 child: PageView.builder(
-                  itemCount: math.min(5, photos.length),
+                  itemCount: math.min(9, photos.length),
                   onPageChanged: (v) => setState(() => page = v),
                   itemBuilder: (_, i) => Image.network(
                     '${widget.backend}/api/places/photo?name=${Uri.encodeQueryComponent(photos[i]['name'])}',
@@ -1080,7 +1295,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '${page + 1} of ${math.min(5, photos.length)}',
+                      '${page + 1} of ${math.min(9, photos.length)}',
                       style: const TextStyle(fontSize: 11, color: muted),
                     ),
                     const Text(

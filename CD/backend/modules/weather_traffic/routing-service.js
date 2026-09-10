@@ -32,6 +32,9 @@ async function computeDrivingRoutes(input) {
                 "routes.duration",
                 "routes.staticDuration",
                 "routes.distanceMeters",
+                "routes.routeToken",
+                "routes.routeLabels",
+                "routes.travelAdvisory.tollInfo",
                 "routes.polyline.encodedPolyline",
                 "routes.legs.steps.distanceMeters",
                 "routes.legs.steps.navigationInstruction",
@@ -48,6 +51,7 @@ async function computeDrivingRoutes(input) {
             routingPreference: "TRAFFIC_AWARE_OPTIMAL",
             polylineQuality: "HIGH_QUALITY",
             polylineEncoding: "ENCODED_POLYLINE",
+            extraComputations: ["TOLLS"],
             computeAlternativeRoutes: true
         })
     });
@@ -59,6 +63,11 @@ async function computeDrivingRoutes(input) {
         const ratio = staticSeconds > 0 ? durationSeconds / staticSeconds : 1;
         const traffic = ratio >= 1.5 ? "Heavy traffic" : ratio >= 1.15 ? "Moderate traffic" : ratio >= 1.05 ? "Light traffic" : "Normal traffic";
         const distanceMeters = Number(route.distanceMeters || 0);
+        const tollPrices = (route.travelAdvisory?.tollInfo?.estimatedPrice || []).map((price) => ({
+            currencyCode: price.currencyCode || "",
+            units: Number(price.units || 0),
+            nanos: Number(price.nanos || 0)
+        }));
         const steps = (route.legs || []).flatMap((leg) =>
             (leg.steps || []).map((step) => ({
                 instruction: step.navigationInstruction?.instructions || "Continue on the route",
@@ -76,9 +85,12 @@ async function computeDrivingRoutes(input) {
         );
         return {
             routeIndex: index,
+            routeToken: route.routeToken || "",
             durationMinutes: Math.max(1, Math.round(durationSeconds / 60)),
             distanceKm: Number((distanceMeters / 1000).toFixed(2)),
             traffic,
+            routeLabels: route.routeLabels || [],
+            tollPrices,
             geometry: route.polyline?.encodedPolyline || "",
             steps
         };

@@ -1,0 +1,412 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_navigation_flutter/google_navigation_flutter.dart'
+    as navigation;
+
+/// Enables accelerated movement along the active route for emulator testing.
+/// It is off unless explicitly supplied with --dart-define.
+const bool navigationSimulationEnabled = bool.fromEnvironment(
+  'NAVIGATION_SIMULATION',
+  defaultValue: false,
+);
+const double navigationSimulationSpeed = 5;
+
+/// Owns the short-lived Google Navigation SDK session used during a journey.
+///
+/// The normal discovery map remains a `google_maps_flutter` map. This widget is
+/// only mounted by the active navigation page and cleans up the native session
+/// when the page is closed or Google reports arrival.
+class NativeNavigationMap extends StatefulWidget {
+  const NativeNavigationMap({
+    super.key,
+    required this.destinationName,
+    required this.destinationLatitude,
+    required this.destinationLongitude,
+    required this.routeToken,
+    required this.trafficEnabled,
+    required this.onArrived,
+    required this.onLocation,
+    required this.onProgress,
+    required this.onStatus,
+  });
+
+  final String destinationName;
+  final double destinationLatitude;
+  final double destinationLongitude;
+  final String routeToken;
+  final bool trafficEnabled;
+  final VoidCallback onArrived;
+  final void Function(double latitude, double longitude) onLocation;
+  final void Function(
+    double remainingDistanceMeters,
+    double remainingTimeSeconds,
+    navigation.TrafficDelaySeverity traffic,
+  )
+  onProgress;
+  final ValueChanged<String?> onStatus;
+
+  @override
+  State<NativeNavigationMap> createState() => NativeNavigationMapState();
+}
+
+class NativeNavigationMapState extends State<NativeNavigationMap> {
+  navigation.GoogleNavigationViewController? _controller;
+  StreamSubscription<navigation.OnArrivalEvent>? _arrivalSubscription;
+  StreamSubscription<navigation.RoadSnappedLocationUpdatedEvent>?
+  _locationSubscription;
+  StreamSubscription<navigation.RemainingTimeOrDistanceChangedEvent>?
+  _progressSubscription;
+  bool _sessionInitialized = false;
+  bool _hasLocation = false;
+  bool _routeStarted = false;
+  bool _simulationRunning = false;
+  bool _closing = false;
+  int _routeAttempt = 0;
+  String? _startupMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_initialize());
+  }
+
+  @override
+  void didUpdateWidget(covariant NativeNavigationMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.trafficEnabled != widget.trafficEnabled) {
+      unawaited(_controller?.settings.setTrafficEnabled(widget.trafficEnabled));
+    }
+    if (oldWidget.destinationLatitude != widget.destinationLatitude ||
+        oldWidget.destinationLongitude != widget.destinationLongitude ||
+        oldWidget.destinationName != widget.destinationName ||
+        oldWidget.routeToken != widget.routeToken) {
+      _routeStarted = false;
+      if (_hasLocation) unawaited(_setDestinationAndStart());
+    }
+  }
+
+  Future<void> _initialize() async {
+    if (kIsWeb ||
+        (defaultTargetPlatform != TargetPlatform.android &&
+            defaultTargetPlatform != TargetPlatform.iOS)) {
+      _fail('Google turn-by-turn navigation is available on Android and iOS.');
+      return;
+    }
+
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        _fail('Turn on location services to start navigation.');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _fail('Location permission is required to start navigation.');
+        return;
+      }
+
+      var termsAccepted =
+          await navigation.GoogleMapsNavigator.areTermsAccepted();
+      if (!termsAccepted) {
+        termsAccepted =
+            await navigation.GoogleMapsNavigator.showTermsAndConditionsDialog(
+              'ohMY navigation',
+              'ohMY',
+              uiParams: const navigation.TermsAndConditionsUIParams(
+                backgroundColor: Colors.white,
+                titleColor: Color(0xff3266cc),
+                mainTextColor: Color(0xff14213d),
+                acceptButtonTextColor: Color(0xff3266cc),
+                cancelButtonTextColor: Color(0xff68748b),
+              ),
+            );
+      }
+      if (!termsAccepted) {
+        _fail('Accept Google Navigation terms to start the journey.');
+        return;
+      }
+
+      await navigation.GoogleMapsNavigator.initializeNavigationSession(
+        taskRemovedBehavior: navigation.TaskRemovedBehavior.quitService,
+      );
+      _sessionInitialized = true;
+      _arrivalSubscription =
+          navigation.GoogleMapsNavigator.setOnArrivalListener((event) {
+            if (!_closing) widget.onArrived();
+          });
+      _progressSubscription =
+          navigation
+              .GoogleMapsNavigator.setOnRemainingTimeOrDistanceChangedListener(
+            (event) => widget.onProgress(
+              event.remainingDistance,
+              event.remainingTime,
+              event.delaySeverity,
+            ),
+            remainingTimeThresholdSeconds: 15,
+            remainingDistanceThresholdMeters: 25,
+          );
+      _locationSubscription =
+          await navigation
+              .GoogleMapsNavigator.setRoadSnappedLocationUpdatedListener((
+            event,
+          ) {
+            _hasLocation = true;
+            widget.onLocation(
+              event.location.latitude,
+              event.location.longitude,
+            );
+            if (!_routeStarted && _controller != null) {
+              unawaited(_setDestinationAndStart());
+            }
+          });
+      if (mounted) setState(() {});
+    } on navigation.SessionInitializationException catch (error) {
+      _fail('Navigation could not start: ${error.code.name}.');
+    } catch (error) {
+      _fail(_friendlyError(error));
+    }
+  }
+
+  Future<void> _onViewCreated(
+    navigation.GoogleNavigationViewController controller,
+  ) async {
+    _controller = controller;
+    try {
+      await controller.setMyLocationEnabled(true);
+      await controller.settings.setTrafficEnabled(widget.trafficEnabled);
+      await controller.setBuildingsEnabled(false);
+      await controller.setIndoorEnabled(false);
+      await controller.setNavigationUIEnabled(true);
+      await controller.setNavigationFooterEnabled(false);
+      await controller.setRecenterButtonEnabled(false);
+      await controller.settings.setMyLocationButtonEnabled(false);
+      await controller.setPadding(const EdgeInsets.only(bottom: 118));
+      if (_hasLocation) await _setDestinationAndStart();
+    } catch (error) {
+      if (!_closing) _fail(_friendlyError(error));
+    }
+  }
+
+  Future<void> _setDestinationAndStart() async {
+    if (_closing || !_sessionInitialized || _controller == null) return;
+    _routeStarted = true;
+    if (mounted) setState(() => _startupMessage = 'Calculating route…');
+    try {
+      if (_simulationRunning) {
+        await navigation.GoogleMapsNavigator.simulator.removeUserLocation();
+        _simulationRunning = false;
+      }
+      final status = await navigation.GoogleMapsNavigator.setDestinations(
+        navigation.Destinations(
+          waypoints: [
+            navigation.NavigationWaypoint.withLatLngTarget(
+              title: widget.destinationName,
+              target: navigation.LatLng(
+                latitude: widget.destinationLatitude,
+                longitude: widget.destinationLongitude,
+              ),
+            ),
+          ],
+          displayOptions: navigation.NavigationDisplayOptions(
+            showDestinationMarkers: true,
+            showStopSigns: true,
+            showTrafficLights: true,
+          ),
+          routeTokenOptions: widget.routeToken.isEmpty
+              ? null
+              : navigation.RouteTokenOptions(
+                  routeToken: widget.routeToken,
+                  travelMode: navigation.NavigationTravelMode.driving,
+                ),
+          routingOptions: widget.routeToken.isEmpty
+              ? navigation.RoutingOptions(
+                  travelMode: navigation.NavigationTravelMode.driving,
+                )
+              : null,
+        ),
+      );
+      if (status != navigation.NavigationRouteStatus.statusOk) {
+        if (status == navigation.NavigationRouteStatus.networkError &&
+            _routeAttempt < 2 &&
+            !_closing) {
+          _routeAttempt++;
+          if (mounted) {
+            setState(() {
+              _startupMessage =
+                  'Connection is slow. Retrying route (${_routeAttempt + 1}/3)…';
+            });
+          }
+          await Future<void>.delayed(Duration(seconds: _routeAttempt * 2));
+          if (!_closing) {
+            _routeStarted = false;
+            await _setDestinationAndStart();
+          }
+          return;
+        }
+        _routeStarted = false;
+        _fail(_routeError(status));
+        return;
+      }
+      await navigation.GoogleMapsNavigator.setAudioGuidance(
+        navigation.NavigationAudioGuidanceSettings(
+          isBluetoothAudioEnabled: true,
+          isVibrationEnabled: true,
+          guidanceType:
+              navigation.NavigationAudioGuidanceType.alertsAndGuidance,
+        ),
+      );
+      await navigation.GoogleMapsNavigator.startGuidance();
+      await _controller!.setNavigationUIEnabled(true);
+      // The app supplies its own cancel/ETA/routes footer. Keep Google's
+      // maneuver header, but prevent its native footer intercepting taps.
+      await _controller!.setNavigationFooterEnabled(false);
+      await _controller!.setRecenterButtonEnabled(false);
+      await _controller!.followMyLocation(
+        navigation.CameraPerspective.topDownHeadingUp,
+      );
+      if (navigationSimulationEnabled) {
+        await navigation.GoogleMapsNavigator.simulator
+            .simulateLocationsAlongExistingRouteWithOptions(
+              navigation.SimulationOptions(
+                speedMultiplier: navigationSimulationSpeed,
+              ),
+            );
+        _simulationRunning = true;
+      }
+      _routeAttempt = 0;
+      widget.onStatus(null);
+      if (mounted) setState(() => _startupMessage = null);
+    } catch (error) {
+      _routeStarted = false;
+      _fail(_friendlyError(error));
+    }
+  }
+
+  Future<void> recenter() async {
+    try {
+      await _controller?.followMyLocation(
+        navigation.CameraPerspective.topDownHeadingUp,
+        zoomLevel: 18,
+      );
+    } catch (error) {
+      if (!_closing) _fail(_friendlyError(error));
+    }
+  }
+
+  /// Stops native guidance before the Flutter route is removed.
+  Future<void> stop() => _cleanup();
+
+  String _routeError(navigation.NavigationRouteStatus status) =>
+      switch (status) {
+        navigation.NavigationRouteStatus.locationUnavailable ||
+        navigation.NavigationRouteStatus.locationUnknown =>
+          'Waiting for an accurate GPS location. Please try again shortly.',
+        navigation.NavigationRouteStatus.apiKeyNotAuthorized =>
+          'The API key is not authorized for Google Navigation SDK.',
+        navigation.NavigationRouteStatus.quotaExceeded ||
+        navigation.NavigationRouteStatus.quotaCheckFailed =>
+          'Google Navigation quota is unavailable.',
+        navigation.NavigationRouteStatus.networkError =>
+          'A network connection is required to calculate the route.',
+        navigation.NavigationRouteStatus.routeNotFound =>
+          'Google Navigation could not find a driving route.',
+        _ => 'Google Navigation could not start (${status.name}).',
+      };
+
+  String _friendlyError(Object error) =>
+      error.toString().replaceFirst('Exception: ', '');
+
+  void _fail(String message) {
+    widget.onStatus(message);
+    if (mounted) setState(() => _startupMessage = message);
+  }
+
+  Future<void> _cleanup() async {
+    if (_closing) return;
+    _closing = true;
+    await _arrivalSubscription?.cancel();
+    await _progressSubscription?.cancel();
+    await _locationSubscription?.cancel();
+    if (_sessionInitialized) {
+      try {
+        if (_simulationRunning) {
+          await navigation.GoogleMapsNavigator.simulator.removeUserLocation();
+          _simulationRunning = false;
+        }
+        await navigation.GoogleMapsNavigator.cleanup();
+      } catch (_) {
+        // A native view may already have completed session cleanup.
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_cleanup());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_sessionInitialized) {
+      return ColoredBox(
+        color: const Color(0xffeef3fb),
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: Color(0xff3266cc)),
+                const SizedBox(height: 16),
+                Text(
+                  _startupMessage ?? 'Starting Google Navigation…',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xff14213d)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        navigation.GoogleMapsNavigationView(
+          onViewCreated: _onViewCreated,
+          initialNavigationUIEnabledPreference:
+              navigation.NavigationUIEnabledPreference.automatic,
+          initialMapType: navigation.MapType.normal,
+          initialMapToolbarEnabled: false,
+          initialZoomControlsEnabled: false,
+          initialTiltGesturesEnabled: false,
+          initialForceNightMode: navigation.NavigationForceNightMode.forceDay,
+          initialPadding: const EdgeInsets.only(bottom: 118),
+        ),
+        if (_startupMessage != null)
+          Positioned(
+            left: 24,
+            right: 24,
+            top: MediaQuery.paddingOf(context).top + 88,
+            child: Material(
+              elevation: 5,
+              borderRadius: BorderRadius.circular(12),
+              color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(_startupMessage!, textAlign: TextAlign.center),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}

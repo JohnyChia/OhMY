@@ -16,6 +16,31 @@ function getApiKey() {
     return key;
 }
 
+function isMalaysianPlace(place) {
+    return (place.addressComponents || []).some(component =>
+        (component.types || []).includes("country")
+        && String(component.shortText || "").toUpperCase() === "MY"
+    );
+}
+
+function keepMalaysianPlaces(data) {
+    const places = data.places || [];
+    const routingSummaries = Array.isArray(data.routingSummaries)
+        ? data.routingSummaries
+        : null;
+    const retained = places
+        .map((place, index) => ({ place, routingSummary: routingSummaries?.[index] }))
+        .filter(({ place }) => isMalaysianPlace(place));
+
+    return {
+        ...data,
+        places: retained.map(({ place }) => place),
+        ...(routingSummaries
+            ? { routingSummaries: retained.map(({ routingSummary }) => routingSummary || {}) }
+            : {})
+    };
+}
+
 // ============================================================
 // SEARCH PLACES
 // ============================================================
@@ -64,17 +89,8 @@ async function searchPlaces(query) {
         );
     }
 
-    // regionCode influences ranking and formatting, but does not strictly
-    // exclude other countries. Apply the country gate only to text search;
-    // nearby discovery is already constrained by its geographic circle.
-    data.places = (data.places || []).filter(place =>
-        (place.addressComponents || []).some(component =>
-            (component.types || []).includes("country")
-            && component.shortText === "MY"
-        )
-    );
-
-    return data;
+    // regionCode is a ranking hint, not a strict country restriction.
+    return keepMalaysianPlaces(data);
 }
 
 
@@ -149,7 +165,8 @@ async function searchNearbyPlaces({
                     "places.types",
                     "places.primaryType",
                     "places.googleMapsUri",
-                    "places.photos"
+                    "places.photos",
+                    "places.addressComponents"
                 ].join(",")
             },
 
@@ -184,7 +201,9 @@ async function searchNearbyPlaces({
         throw new Error(JSON.stringify(data));
     }
 
-    return data;
+    // A 10 km circle can cross an international border, so enforce the
+    // country after Google responds and keep routing summaries index-aligned.
+    return keepMalaysianPlaces(data);
 }
 
 

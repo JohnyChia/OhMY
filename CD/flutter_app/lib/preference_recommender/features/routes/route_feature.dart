@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,10 +10,16 @@ import 'package:http/http.dart' as http;
 
 import '../weather/weather_feature.dart';
 import 'navigation_sensor.dart';
+import 'native_navigation_map.dart';
+import '../../widgets/wau_loading_indicator.dart';
 
 const _routeBlue = Color(0xff3266cc);
 const _routeInk = Color(0xff14213d);
 const _routeMuted = Color(0xff68748b);
+
+/// Publishes the final road-snapped position when a journey completes so the
+/// existing Solo Trip map can resume at the place where navigation ended.
+final ValueNotifier<LatLng?> completedJourneyLocation = ValueNotifier(null);
 
 class RouteLocation {
   const RouteLocation({
@@ -43,23 +50,29 @@ class RouteLocation {
 class DrivingRoute {
   const DrivingRoute({
     required this.index,
+    required this.routeToken,
     required this.minutes,
     required this.distanceKm,
     required this.traffic,
+    required this.tollPrices,
     required this.points,
     required this.steps,
   });
   final int index, minutes;
+  final String routeToken;
   final double distanceKm;
   final String traffic;
+  final List<Map<String, dynamic>> tollPrices;
   final List<LatLng> points;
   final List<NavigationStep> steps;
 
   factory DrivingRoute.fromJson(Map<String, dynamic> json) => DrivingRoute(
     index: (json['routeIndex'] as num?)?.round() ?? 0,
+    routeToken: json['routeToken']?.toString() ?? '',
     minutes: (json['durationMinutes'] as num?)?.round() ?? 0,
     distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0,
     traffic: json['traffic']?.toString() ?? 'Traffic unavailable',
+    tollPrices: List<Map<String, dynamic>>.from(json['tollPrices'] ?? []),
     points: decodePolyline(json['geometry']?.toString() ?? ''),
     steps: List<Map<String, dynamic>>.from(
       json['steps'] ?? [],
@@ -439,6 +452,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   int selected = 0;
   bool loading = true;
   String? error;
+  Map<int, BitmapDescriptor> routeIndicatorIcons = {};
 
   @override
   void initState() {
@@ -470,6 +484,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           ).map(DrivingRoute.fromJson).toList();
           loading = false;
         });
+        await buildRouteIndicatorIcons();
       }
       WidgetsBinding.instance.addPostFrameCallback((_) => fitRoute());
     } catch (exception) {
@@ -492,13 +507,155 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
               : Colors.blueGrey.withValues(alpha: .5),
           width: route.index == routes[selected].index ? 7 : 5,
           zIndex: route.index == routes[selected].index ? 2 : 1,
+          consumeTapEvents: true,
           onTap: () {
-            setState(() => selected = routes.indexOf(route));
-            fitRoute();
+            selectRoute(routes.indexOf(route));
           },
         ),
       )
       .toSet();
+
+  String routeCaption(int index) {
+    final fastest = routes.map((route) => route.minutes).reduce(math.min);
+    final shortest = routes.map((route) => route.distanceKm).reduce(math.min);
+    if (routes[index].minutes == fastest) return 'Best';
+    if (routes[index].distanceKm == shortest) return 'Shortest distance';
+    return 'Alternative route';
+  }
+
+  String tollDescription(DrivingRoute route) {
+    if (route.tollPrices.isEmpty) return 'No toll estimate';
+    final price = route.tollPrices.first;
+    final amount =
+        (price['units'] as num? ?? 0).toDouble() +
+        (price['nanos'] as num? ?? 0).toDouble() / 1000000000;
+    final currency = price['currencyCode']?.toString() ?? '';
+    return 'Tolls $currency ${amount.toStringAsFixed(2)}'.trim();
+  }
+
+  Future<BitmapDescriptor> routeIndicatorIcon(int index) async {
+    const scale = 3.0;
+    const width = 142.0;
+    const bodyHeight = 50.0;
+    const height = 58.0;
+    final selectedRoute = selected == index;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final background = Paint()
+      ..color = selectedRoute ? _routeBlue : const Color(0xfff7f9ff);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(0, 0, width * scale, bodyHeight * scale),
+        const Radius.circular(14 * scale),
+      ),
+      background,
+    );
+    final pointer = Path()
+      ..moveTo((width / 2 - 7) * scale, (bodyHeight - 1) * scale)
+      ..lineTo((width / 2) * scale, height * scale)
+      ..lineTo((width / 2 + 7) * scale, (bodyHeight - 1) * scale)
+      ..close();
+    canvas.drawPath(pointer, background);
+    if (!selectedRoute) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          const Rect.fromLTWH(1, 1, width * scale - 2, bodyHeight * scale - 2),
+          const Radius.circular(14 * scale),
+        ),
+        Paint()
+          ..color = const Color(0xff9bb8ee)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+    void paintText(String text, double top, double size, FontWeight weight) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            color: selectedRoute ? Colors.white : _routeInk,
+            fontSize: size * scale,
+            fontWeight: weight,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '…',
+      )..layout(maxWidth: (width - 18) * scale);
+      painter.paint(canvas, Offset(9 * scale, top * scale));
+    }
+
+    final route = routes[index];
+    paintText(
+      '${route.minutes} min · ${route.distanceKm.toStringAsFixed(1)} km',
+      6,
+      11,
+      FontWeight.w700,
+    );
+    paintText(routeCaption(index), 27, 9, FontWeight.w500);
+    final image = await recorder.endRecording().toImage(
+      (width * scale).round(),
+      (height * scale).round(),
+    );
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.bytes(
+      bytes!.buffer.asUint8List(),
+      imagePixelRatio: scale,
+    );
+  }
+
+  Future<void> buildRouteIndicatorIcons() async {
+    final icons = <int, BitmapDescriptor>{};
+    for (var index = 0; index < routes.length; index++) {
+      icons[index] = await routeIndicatorIcon(index);
+    }
+    if (mounted) setState(() => routeIndicatorIcons = icons);
+  }
+
+  void selectRoute(int index) {
+    if (index == selected) return;
+    setState(() => selected = index);
+    unawaited(buildRouteIndicatorIcons());
+  }
+
+  Set<Marker> get routeMarkers {
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('start'),
+        position: LatLng(widget.start.latitude, widget.start.longitude),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+      Marker(
+        markerId: const MarkerId('destination'),
+        position: LatLng(
+          widget.destination.latitude,
+          widget.destination.longitude,
+        ),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+      ),
+    };
+    for (var index = 0; index < routes.length; index++) {
+      final route = routes[index];
+      final icon = routeIndicatorIcons[index];
+      if (route.points.isEmpty || icon == null) continue;
+      final fraction = (index + 1) / (routes.length + 1);
+      final indicatorIndex = math.min(
+        route.points.length - 1,
+        ((route.points.length - 1) * fraction).round(),
+      );
+      markers.add(
+        Marker(
+          markerId: MarkerId('route-indicator-$index'),
+          position: route.points[indicatorIndex],
+          icon: icon,
+          anchor: const Offset(.5, 1),
+          zIndexInt: selected == index ? 4 : 3,
+          onTap: () => selectRoute(index),
+        ),
+      );
+    }
+    return markers;
+  }
 
   Future<void> fitRoute() async {
     if (controller == null ||
@@ -541,25 +698,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
             controller = value;
             fitRoute();
           },
-          markers: {
-            Marker(
-              markerId: const MarkerId('start'),
-              position: LatLng(widget.start.latitude, widget.start.longitude),
-              icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueAzure,
-              ),
-            ),
-            Marker(
-              markerId: const MarkerId('destination'),
-              position: LatLng(
-                widget.destination.latitude,
-                widget.destination.longitude,
-              ),
-              icon: BitmapDescriptor.defaultMarkerWithHue(
-                BitmapDescriptor.hueOrange,
-              ),
-            ),
-          },
+          markers: routeMarkers,
           polylines: routes.isEmpty ? {} : polylines,
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
@@ -621,8 +760,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
             ),
           ),
         ),
-        if (loading)
-          const Center(child: CircularProgressIndicator(color: _routeBlue)),
+        if (loading) const Center(child: WauLoadingIndicator(size: 64)),
         if (error != null)
           Center(
             child: Card(
@@ -646,28 +784,6 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
-                      height: 58,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: routes.length,
-                        separatorBuilder: (_, index) =>
-                            const SizedBox(width: 8),
-                        itemBuilder: (_, index) {
-                          final route = routes[index];
-                          return ChoiceChip(
-                            selected: selected == index,
-                            onSelected: (_) {
-                              setState(() => selected = index);
-                              fitRoute();
-                            },
-                            label: Text(
-                              'Route ${index + 1}  •  ${route.minutes} min',
-                            ),
-                          );
-                        },
-                      ),
-                    ),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -689,29 +805,49 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                     ),
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(
-                        routes[selected].traffic,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _routeMuted,
-                        ),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 3,
+                        children: [
+                          Text(
+                            routeCaption(selected),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _routeBlue,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            routes[selected].traffic,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _routeMuted,
+                            ),
+                          ),
+                          Text(
+                            tollDescription(routes[selected]),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _routeMuted,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () =>
-                            Navigator.of(context, rootNavigator: true).push(
-                              MaterialPageRoute(
-                                builder: (_) => ActiveNavigationPage(
-                                  backend: widget.backend,
-                                  destination: widget.destination,
-                                  routes: routes,
-                                  initialRoute: selected,
-                                ),
-                              ),
+                        onPressed: () => Navigator.of(context).pushReplacement(
+                          MaterialPageRoute(
+                            builder: (_) => ActiveNavigationPage(
+                              backend: widget.backend,
+                              destination: widget.destination,
+                              routes: routes,
+                              initialRoute: selected,
                             ),
+                          ),
+                        ),
                         child: const Text('Start Journey'),
                       ),
                     ),
@@ -756,20 +892,22 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     'Nature',
     'Religious Heritage',
   ];
-  GoogleMapController? controller;
-  StreamSubscription<Position>? positionSubscription;
+  final navigationMapKey = GlobalKey<NativeNavigationMapState>();
   late int selectedRoute;
   late RouteLocation activeDestination;
   late List<DrivingRoute> activeRoutes;
   int stepIndex = 0;
   Position? position;
-  bool movingCameraProgrammatically = false;
   bool reducedLocationAccuracy = false;
   bool trafficEnabled = true, followUser = true;
   bool recommendationLoading = false, showRecommendationCarousel = false;
   List<Map<String, dynamic>> recommendations = [];
   String recommendationTitle = 'Recommended stops';
   String? locationError;
+  double? sdkRemainingDistanceMeters;
+  double? sdkRemainingTimeSeconds;
+  bool arrivalHandled = false;
+  final bool useNativeNavigationFooter = false;
   final Set<String> bookmarkedRecommendations = {};
 
   DrivingRoute get route => activeRoutes[selectedRoute];
@@ -783,85 +921,6 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     activeDestination = widget.destination;
     activeRoutes = List<DrivingRoute>.from(widget.routes);
     selectedRoute = widget.initialRoute;
-    startTracking();
-  }
-
-  Future<void> startTracking() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      setState(() => locationError = 'Turn on location services to navigate.');
-      return;
-    }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      setState(
-        () => locationError = 'Location permission is required to navigate.',
-      );
-      return;
-    }
-    reducedLocationAccuracy =
-        await Geolocator.getLocationAccuracy() ==
-        LocationAccuracyStatus.reduced;
-    positionSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: navigationLocationSettings,
-        ).listen(
-          updatePosition,
-          onError: (Object error) {
-            if (mounted) setState(() => locationError = error.toString());
-          },
-        );
-    updatePosition(
-      await Geolocator.getCurrentPosition(
-        locationSettings: navigationLocationSettings,
-      ),
-    );
-  }
-
-  void updatePosition(Position value) {
-    if (!mounted) return;
-    final currentStep = step;
-    if (currentStep != null &&
-        distance(
-              value.latitude,
-              value.longitude,
-              currentStep.end.latitude,
-              currentStep.end.longitude,
-            ) <
-            35 &&
-        stepIndex < route.steps.length - 1) {
-      stepIndex++;
-    }
-    setState(() {
-      position = value;
-      locationError = reducedLocationAccuracy
-          ? 'Precise location is off. Tap here to enable it in app settings.'
-          : null;
-    });
-    if (followUser) moveCamera(value);
-  }
-
-  Future<void> moveCamera(Position value) async {
-    final mapController = controller;
-    if (mapController == null || movingCameraProgrammatically) return;
-    movingCameraProgrammatically = true;
-    try {
-      await mapController.moveCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: LatLng(value.latitude, value.longitude),
-            zoom: 17.5,
-            bearing: 0,
-            tilt: 0,
-          ),
-        ),
-      );
-    } finally {
-      movingCameraProgrammatically = false;
-    }
   }
 
   double distance(double lat1, double lon1, double lat2, double lon2) {
@@ -1128,8 +1187,46 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     }
   }
 
-  void cancelJourney() =>
-      Navigator.of(context).popUntil((route) => route.isFirst);
+  void cancelJourney() {
+    // The active navigation page lives in the Start Trip tab's navigator.
+    // Return to that tab's first page immediately while native cleanup runs
+    // asynchronously from NativeNavigationMap.dispose().
+    Navigator.of(context).popUntil(
+      (route) => route.settings.name == '/start-trip/solo-map' || route.isFirst,
+    );
+  }
+
+  Future<void> finishJourney() async {
+    if (!mounted || arrivalHandled) return;
+    arrivalHandled = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(
+          Icons.location_on_rounded,
+          color: _routeBlue,
+          size: 38,
+        ),
+        title: const Text('You have arrived'),
+        content: Text('Welcome to ${activeDestination.name}.'),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Finish journey'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    completedJourneyLocation.value = LatLng(
+      position?.latitude ?? activeDestination.latitude,
+      position?.longitude ?? activeDestination.longitude,
+    );
+    Navigator.of(context).popUntil(
+      (route) => route.settings.name == '/start-trip/solo-map' || route.isFirst,
+    );
+  }
 
   void openRecommendationDetails(Map<String, dynamic> item) {
     Navigator.push(
@@ -1202,7 +1299,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         recommendations = [];
         followUser = true;
       });
-      await moveCamera(current);
+      await navigationMapKey.currentState?.recenter();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1224,105 +1321,46 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final currentStep = step;
     return Scaffold(
       body: Stack(
         children: [
-          GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: route.points.isEmpty
-                  ? LatLng(
-                      activeDestination.latitude,
-                      activeDestination.longitude,
-                    )
-                  : route.points.first,
-              zoom: 16,
-            ),
-            onMapCreated: (value) {
-              controller = value;
-              if (position != null) moveCamera(position!);
-            },
-            onCameraMoveStarted: () {
-              if (!movingCameraProgrammatically) followUser = false;
-            },
-            polylines: {
-              Polyline(
-                polylineId: const PolylineId('active-route'),
-                points: route.points,
-                color: _routeBlue.withValues(alpha: 0.68),
-                width: 5,
-              ),
-            },
-            markers: {
-              Marker(
-                markerId: const MarkerId('destination'),
-                position: LatLng(
-                  activeDestination.latitude,
-                  activeDestination.longitude,
-                ),
-                icon: BitmapDescriptor.defaultMarkerWithHue(
-                  BitmapDescriptor.hueOrange,
-                ),
-              ),
-            },
-            trafficEnabled: trafficEnabled,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            buildingsEnabled: false,
-            indoorViewEnabled: false,
-            tiltGesturesEnabled: false,
-            mapToolbarEnabled: false,
-            zoomControlsEnabled: false,
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Material(
-                color: _routeBlue,
-                elevation: 6,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                  child: Row(
-                    children: [
-                      Icon(
-                        maneuverIcon(currentStep?.maneuver ?? 'STRAIGHT'),
-                        color: Colors.white,
-                        size: 38,
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              currentStep?.instruction ??
-                                  'Continue toward ${activeDestination.name}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              instructionDistance(),
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+          SafeArea(
+            bottom: false,
+            child: NativeNavigationMap(
+              key: navigationMapKey,
+              destinationName: activeDestination.name,
+              destinationLatitude: activeDestination.latitude,
+              destinationLongitude: activeDestination.longitude,
+              routeToken: route.routeToken,
+              trafficEnabled: trafficEnabled,
+              onArrived: finishJourney,
+              onLocation: (latitude, longitude) {
+                if (!mounted) return;
+                setState(() {
+                  position = Position(
+                    longitude: longitude,
+                    latitude: latitude,
+                    timestamp: DateTime.now(),
+                    accuracy: 0,
+                    altitude: 0,
+                    altitudeAccuracy: 0,
+                    heading: 0,
+                    headingAccuracy: 0,
+                    speed: 0,
+                    speedAccuracy: 0,
+                  );
+                });
+              },
+              onProgress: (distanceMeters, timeSeconds, traffic) {
+                if (!mounted) return;
+                setState(() {
+                  sdkRemainingDistanceMeters = distanceMeters;
+                  sdkRemainingTimeSeconds = timeSeconds;
+                });
+              },
+              onStatus: (message) {
+                if (mounted) setState(() => locationError = message);
+              },
             ),
           ),
           if (!showRecommendationCarousel)
@@ -1330,15 +1368,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
               left: 14,
               bottom: 132,
               child: Column(
-                children: [
-                  navigationButton(Icons.cloud_outlined, showWeather),
-                  const SizedBox(height: 9),
-                  navigationButton(
-                    Icons.traffic,
-                    () => setState(() => trafficEnabled = !trafficEnabled),
-                    active: trafficEnabled,
-                  ),
-                ],
+                children: [navigationButton(Icons.cloud_outlined, showWeather)],
               ),
             ),
           if (!showRecommendationCarousel)
@@ -1354,7 +1384,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                   const SizedBox(height: 9),
                   navigationButton(Icons.my_location_rounded, () {
                     followUser = true;
-                    if (position != null) moveCamera(position!);
+                    navigationMapKey.currentState?.recenter();
                   }),
                 ],
               ),
@@ -1383,82 +1413,97 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 ),
               ),
             ),
+          if (navigationSimulationEnabled && locationError == null)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 132,
+              left: 18,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xff14213d).withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    child: Text(
+                      'TEST SIMULATION  -  5x',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (recommendationLoading)
             const Positioned(
               left: 0,
               right: 0,
               bottom: 170,
-              child: Center(
-                child: CircularProgressIndicator(color: _routeBlue),
-              ),
+              child: Center(child: WauLoadingIndicator(size: 58)),
             ),
           if (showRecommendationCarousel) navigationRecommendationCarousel(),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Material(
-              elevation: 14,
-              color: Colors.white,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        '⌃  Swipe up for journey details',
-                        style: TextStyle(fontSize: 10, color: _routeMuted),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          navigationButton(
-                            Icons.close,
-                            cancelJourney,
-                            danger: true,
-                          ),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                Text(
-                                  '${route.minutes} min',
-                                  style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                Text(
-                                  '${route.distanceKm.toStringAsFixed(1)} km remaining',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: _routeMuted,
-                                  ),
-                                ),
-                              ],
+          if (!useNativeNavigationFooter)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Material(
+                elevation: 14,
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            navigationButton(
+                              Icons.close,
+                              cancelJourney,
+                              danger: true,
                             ),
-                          ),
-                          navigationButton(
-                            Icons.alt_route_rounded,
-                            chooseRoute,
-                            label: 'Routes',
-                          ),
-                        ],
-                      ),
-                      const Text(
-                        'Powered by Google',
-                        style: TextStyle(fontSize: 8, color: _routeMuted),
-                      ),
-                    ],
+                            Expanded(
+                              child: Column(
+                                children: [
+                                  Text(
+                                    '${sdkRemainingTimeSeconds == null ? route.minutes : math.max(1, (sdkRemainingTimeSeconds! / 60).ceil())} min',
+                                    style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${(sdkRemainingDistanceMeters == null ? route.distanceKm : sdkRemainingDistanceMeters! / 1000).toStringAsFixed(1)} km remaining',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: _routeMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            navigationButton(
+                              Icons.alt_route_rounded,
+                              chooseRoute,
+                              label: 'Routes',
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -1554,10 +1599,202 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 itemCount: recommendations.length,
                 separatorBuilder: (_, index) => const SizedBox(width: 10),
                 itemBuilder: (_, index) =>
-                    navigationRecommendationCard(recommendations[index]),
+                    navigationPhotoRecommendationCard(recommendations[index]),
               ),
             ),
           ],
+        ),
+      ),
+    ),
+  );
+
+  Widget navigationPhotoRecommendationCard(Map<String, dynamic> item) {
+    final place = Map<String, dynamic>.from(item['place'] as Map? ?? const {});
+    final analysis = Map<String, dynamic>.from(
+      item['analysis'] as Map? ?? const {},
+    );
+    final ranking = Map<String, dynamic>.from(
+      item['ranking'] as Map? ?? const {},
+    );
+    final tags = <String>[
+      ...List<String>.from(analysis['generalTags'] ?? []),
+      ...List<String>.from(analysis['culturalTags'] ?? []),
+    ].take(5).toList();
+    final photoName = place['photo']?['name']?.toString();
+    final title =
+        place['displayName']?['text']?.toString() ?? 'Recommended stop';
+    final description =
+        place['description']?.toString() ??
+        place['formattedAddress']?.toString() ??
+        'Description unavailable.';
+    final eta = (place['etaMinutes'] as num?)?.round();
+    final distanceKm =
+        (place['routeDistanceKm'] ?? place['distanceKm']) as num?;
+    final placeId = place['id']?.toString() ?? '';
+    final bookmarked = bookmarkedRecommendations.contains(placeId);
+
+    return SizedBox(
+      width: 350,
+      child: Material(
+        color: _routeBlue,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => openRecommendationDetails(item),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (photoName != null)
+                Image.network(
+                  '${widget.backend}/api/places/photo?name=${Uri.encodeQueryComponent(photoName)}',
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, error, stack) =>
+                      const ColoredBox(color: _routeBlue),
+                ),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Color(0xe614213d),
+                      Color(0x993266cc),
+                      Color(0x330b1730),
+                    ],
+                    stops: [0, .56, 1],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        navigationOverlayPill('#${item['rank'] ?? 1}'),
+                        const Spacer(),
+                        navigationOverlayPill(
+                          '${ranking['similarityPercentage'] ?? 0}% match',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${eta == null ? 'ETA unavailable' : '$eta min'}  ·  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    navigationOverlayTags(tags),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        navigationOverlayAction(
+                          Icons.navigation_rounded,
+                          'Navigate',
+                          () => navigateToRecommendation(item),
+                        ),
+                        navigationOverlayAction(
+                          bookmarked ? Icons.bookmark : Icons.bookmark_border,
+                          'Bookmark',
+                          () => setState(
+                            () => bookmarked
+                                ? bookmarkedRecommendations.remove(placeId)
+                                : bookmarkedRecommendations.add(placeId),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget navigationOverlayPill(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .38),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Colors.white38),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+
+  Widget navigationOverlayTags(List<String> tags) => SizedBox(
+    height: 24,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: tags.length,
+      separatorBuilder: (_, index) => const SizedBox(width: 5),
+      itemBuilder: (_, index) => Container(
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .18),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white38),
+        ),
+        child: Text(
+          tags[index],
+          style: const TextStyle(color: Colors.white, fontSize: 9),
+        ),
+      ),
+    ),
+  );
+
+  Widget navigationOverlayAction(
+    IconData icon,
+    String label,
+    VoidCallback onPressed,
+  ) => Padding(
+    padding: const EdgeInsets.only(right: 7),
+    child: SizedBox(
+      height: 30,
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 14),
+        label: Text(label, style: const TextStyle(fontSize: 9)),
+        style: FilledButton.styleFrom(
+          foregroundColor: _routeBlue,
+          backgroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 9),
+          visualDensity: VisualDensity.compact,
         ),
       ),
     ),
@@ -1768,8 +2005,6 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
 
   @override
   void dispose() {
-    positionSubscription?.cancel();
-    controller?.dispose();
     super.dispose();
   }
 }
@@ -1841,7 +2076,7 @@ class _NavigationPlaceDetailPageState
               child: photos.isEmpty
                   ? const _NavigationPhotoUnavailable()
                   : PageView.builder(
-                      itemCount: math.min(5, photos.length),
+                      itemCount: math.min(9, photos.length),
                       onPageChanged: (value) =>
                           setState(() => photoPage = value),
                       itemBuilder: (_, index) => Image.network(
@@ -1860,7 +2095,7 @@ class _NavigationPlaceDetailPageState
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    '${photoPage + 1} of ${math.min(5, photos.length)}',
+                    '${photoPage + 1} of ${math.min(9, photos.length)}',
                     style: const TextStyle(fontSize: 11, color: _routeMuted),
                   ),
                   const Text(

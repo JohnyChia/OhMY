@@ -8,12 +8,20 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Navigation SDK bundles the Google Maps Android classes. Keep the existing
+// google_maps_flutter discovery UI, but do not package its duplicate native
+// play-services-maps artifact alongside Navigation SDK.
+configurations.configureEach {
+    exclude(group = "com.google.android.gms", module = "play-services-maps")
+}
+
 android {
     namespace = "com.example.flutter_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -27,7 +35,8 @@ android {
         applicationId = "com.example.flutter_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // Google Navigation SDK for Flutter requires Android API 24 or newer.
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -49,6 +58,10 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.5")
 }
 
 flutter {
