@@ -18,8 +18,7 @@ Enable Supabase Realtime for `community_posts`, `community_post_likes`, `communi
 
 ## 2. Deploy the Node service
 
-The Community validator is an isolated service under
-`backend/community_validation/`. From that folder run:
+From `server/` run:
 
 ```text
 npm install
@@ -59,10 +58,7 @@ Flutter receives public configuration only:
 }
 ```
 
-The existing recommendation backend already defaults to port `3000`. When both
-services run locally, set the Community validator to `PORT=3001` and use
-`http://10.0.2.2:3001` in Flutter. A physical phone needs the computer's
-reachable LAN address. Use HTTPS after deployment.
+For local Android Emulator testing use `http://10.0.2.2:3000`. A physical phone needs the computer's reachable LAN address. Use HTTPS after deployment.
 
 Create the module objects after the host app has initialized Supabase and restored its authenticated session:
 
@@ -148,6 +144,6 @@ Image-location moderation is not implemented. A future system may combine EXIF G
 - Test two signed-in sessions for comment/like synchronization and duplicate-submission protection.
 - Test completed/unposted → Create, completed/posted → Edit, and incomplete → no action.
 - Test portrait/landscape galleries, full-screen paging, pinch/double-tap zoom, pan, and X dismissal.
-- When sharing the folder directly instead of through Git, exclude `backend/community_validation/.env`, `flutter_app/config/community.env.json`, and `flutter_app/android/local.properties`; each is machine-specific and ignored by Git.
+- When sharing the folder directly instead of through Git, exclude `server/.env`, `config/flutter.env.json`, and `android/local.properties`; each is machine-specific and ignored by Git.
 
 Detailed publishing cases remain in `CREATE_POST_TEST_CASES.md`.

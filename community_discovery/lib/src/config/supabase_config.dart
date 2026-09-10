@@ -11,7 +11,7 @@ abstract final class SupabaseConfig {
   );
   static const communityApiUrl = String.fromEnvironment(
     'COMMUNITY_API_URL',
-    defaultValue: 'http://10.0.2.2:3001',
+    defaultValue: 'http://10.0.2.2:3000',
   );
 
   static bool get isConfigured => url.isNotEmpty && publishableKey.isNotEmpty;

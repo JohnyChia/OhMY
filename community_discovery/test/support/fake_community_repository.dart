@@ -1,8 +1,8 @@
-import 'package:flutter_app/community_discovery/data/community_repository.dart';
-import 'package:flutter_app/community_discovery/models/community_comment.dart';
-import 'package:flutter_app/community_discovery/models/community_post.dart';
-import 'package:flutter_app/community_discovery/models/completed_trip.dart';
-import 'package:flutter_app/community_discovery/models/discovery_tag.dart';
+import 'package:community_discovery/src/data/community_repository.dart';
+import 'package:community_discovery/src/models/community_comment.dart';
+import 'package:community_discovery/src/models/community_post.dart';
+import 'package:community_discovery/src/models/completed_trip.dart';
+import 'package:community_discovery/src/models/discovery_tag.dart';
 
 class FakeCommunityRepository implements CommunityRepository {
   final _post = CommunityPost(

@@ -1,4 +1,4 @@
-import 'package:flutter_app/community_discovery/community_app.dart';
+import 'package:community_discovery/src/community_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_community_repository.dart';
