@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../preference_recommender/features/routes/navigation_sensor.dart';
+import '../../../../user_management/models/travel_history_entry.dart';
+import '../../../../user_management/services/travel_history_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
@@ -39,6 +41,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   ];
 
   final TravelMapService _mapService = MockTravelMapService();
+  final TravelHistoryService _travelHistoryService = TravelHistoryService();
   late final LiveTripLocationService _liveLocationService;
   StreamSubscription<List<LiveMemberLocation>>? _memberSubscription;
   StreamSubscription<Position>? _positionSubscription;
@@ -458,6 +461,55 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
       await controller.completeStop(stop);
       if (!mounted) return;
       if (controller.activeGroup!.status == GroupStatus.completed) {
+        final group = controller.activeGroup!;
+        final completedAt = DateTime.now();
+        final estimatedMinutes = controller.itinerary.fold<int>(
+          0,
+          (total, item) =>
+              total +
+              item.estimatedDurationMinutes +
+              item.travelTimeFromPreviousMinutes,
+        );
+        final startedAt =
+            controller.activeTripStartedAt ??
+            completedAt.subtract(Duration(minutes: estimatedMinutes));
+        var elapsedMinutes = 0;
+        final recordedStops = controller.itinerary
+            .map((item) {
+              elapsedMinutes += item.travelTimeFromPreviousMinutes;
+              final visitedAt = startedAt.add(
+                Duration(minutes: elapsedMinutes),
+              );
+              elapsedMinutes += item.estimatedDurationMinutes;
+              return TravelHistoryStop(
+                name: item.placeName,
+                visitedAt: visitedAt,
+              );
+            })
+            .toList(growable: false);
+        try {
+          await _travelHistoryService.recordCompletedTrip(
+            CompletedTravelDraft(
+              type: TravelHistoryType.group,
+              sourceReference:
+                  'group-${group.id}-${startedAt.microsecondsSinceEpoch}',
+              title: group.name,
+              destination: group.destination,
+              startedAt: startedAt,
+              completedAt: completedAt,
+              stops: recordedStops,
+              distanceKm: group.distanceKm,
+              durationMinutes: completedAt.difference(startedAt).inMinutes,
+              tags: group.tags,
+              travelMode: 'Group journey',
+            ),
+          );
+        } on TravelHistoryFailure catch (error) {
+          if (mounted) {
+            showTravelGroupMessage(context, error.message, error: true);
+          }
+        }
+        if (!mounted) return;
         showTravelGroupMessage(context, 'Every itinerary stop is complete.');
         Navigator.pop(context);
       } else {

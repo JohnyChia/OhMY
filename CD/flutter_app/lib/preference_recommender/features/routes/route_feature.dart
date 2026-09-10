@@ -12,6 +12,8 @@ import '../weather/weather_feature.dart';
 import 'navigation_sensor.dart';
 import 'native_navigation_map.dart';
 import '../../widgets/wau_loading_indicator.dart';
+import '../../../user_management/models/travel_history_entry.dart';
+import '../../../user_management/services/travel_history_service.dart';
 
 const _routeBlue = Color(0xff3266cc);
 const _routeInk = Color(0xff14213d);
@@ -893,9 +895,11 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     'Religious Heritage',
   ];
   final navigationMapKey = GlobalKey<NativeNavigationMapState>();
+  final TravelHistoryService travelHistoryService = TravelHistoryService();
   late int selectedRoute;
   late RouteLocation activeDestination;
   late List<DrivingRoute> activeRoutes;
+  late final DateTime journeyStartedAt;
   int stepIndex = 0;
   Position? position;
   bool reducedLocationAccuracy = false;
@@ -921,6 +925,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     activeDestination = widget.destination;
     activeRoutes = List<DrivingRoute>.from(widget.routes);
     selectedRoute = widget.initialRoute;
+    journeyStartedAt = DateTime.now();
   }
 
   double distance(double lat1, double lon1, double lat2, double lon2) {
@@ -1223,6 +1228,36 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       position?.latitude ?? activeDestination.latitude,
       position?.longitude ?? activeDestination.longitude,
     );
+    final completedAt = DateTime.now();
+    try {
+      await travelHistoryService.recordCompletedTrip(
+        CompletedTravelDraft(
+          type: TravelHistoryType.solo,
+          sourceReference: 'solo-${journeyStartedAt.microsecondsSinceEpoch}',
+          title: '${activeDestination.name} Solo Trip',
+          destination: activeDestination.name,
+          startedAt: journeyStartedAt,
+          completedAt: completedAt,
+          stops: [
+            TravelHistoryStop(
+              name: activeDestination.name,
+              visitedAt: completedAt,
+            ),
+          ],
+          distanceKm: route.distanceKm,
+          durationMinutes: completedAt.difference(journeyStartedAt).inMinutes,
+          tags: const [],
+          travelMode: 'Driving',
+        ),
+      );
+    } on TravelHistoryFailure catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+    if (!mounted) return;
     Navigator.of(context).popUntil(
       (route) => route.settings.name == '/start-trip/solo-map' || route.isFirst,
     );

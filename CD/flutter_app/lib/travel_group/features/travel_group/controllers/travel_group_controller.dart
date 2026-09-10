@@ -28,6 +28,7 @@ class TravelGroupController extends ChangeNotifier {
   List<JoinRequest> joinRequests = [];
   List<GroupSuggestion> suggestions = [];
   List<ItineraryStop> itinerary = [];
+  DateTime? activeTripStartedAt;
   double radiusKm = 10;
   String selectedArea = 'Bukit Bintang, Kuala Lumpur';
   String keyword = '';
@@ -326,6 +327,7 @@ class TravelGroupController extends ChangeNotifier {
   Future<void> startItinerary() async {
     _requireCreator();
     await repository.startItinerary(activeGroup!.id);
+    activeTripStartedAt = DateTime.now();
     await refreshWorkspace();
   }
 
