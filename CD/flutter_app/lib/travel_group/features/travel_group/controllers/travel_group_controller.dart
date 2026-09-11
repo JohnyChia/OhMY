@@ -5,16 +5,23 @@ import 'package:flutter/foundation.dart';
 import '../models/travel_group_models.dart';
 import '../repositories/travel_group_repository.dart';
 import '../services/live_trip_location_service.dart';
+import '../utils/profanity_filter.dart';
 
 class TravelGroupController extends ChangeNotifier {
   TravelGroupController({
     required this.repository,
+    PrototypeUser? currentUser,
+    this.allowDemoVerification = true,
     this.liveTripLocationServiceFactory = createMockLiveTripLocationService,
   }) {
-    currentUser = demoUsers.first;
+    this.currentUser = currentUser ?? demoUsers.first;
   }
 
+  static const minTravellersPerGroup = 2;
+  static const maxTravellersPerGroup = 4;
+
   final TravelGroupRepository repository;
+  final bool allowDemoVerification;
   final LiveTripLocationServiceFactory liveTripLocationServiceFactory;
 
   final List<PrototypeUser> demoUsers = [
@@ -28,11 +35,15 @@ class TravelGroupController extends ChangeNotifier {
   List<JoinRequest> joinRequests = [];
   List<GroupSuggestion> suggestions = [];
   List<ItineraryStop> itinerary = [];
+  TravelGroupTripSession? activeSession;
   double radiusKm = 10;
   String selectedArea = 'Bukit Bintang, Kuala Lumpur';
+  double? areaLatitude;
+  double? areaLongitude;
   String keyword = '';
   bool openOnly = false;
   bool isLoading = false;
+  int _localIdSequence = 0;
 
   bool get isCreator => activeGroup?.creatorId == currentUser.id;
   bool get isMember => activeGroup?.memberIds.contains(currentUser.id) ?? false;
@@ -48,6 +59,7 @@ class TravelGroupController extends ChangeNotifier {
     return liveTripLocationServiceFactory(
       group: group,
       currentUser: currentUser,
+      sessionId: activeSession?.id,
     );
   }
 
@@ -57,6 +69,7 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   void completeDemoVerification() {
+    if (!allowDemoVerification) return;
     currentUser.isVerified = true;
     notifyListeners();
   }
@@ -64,11 +77,35 @@ class TravelGroupController extends ChangeNotifier {
   Future<void> loadGroups() async {
     isLoading = true;
     notifyListeners();
-    groups = await repository.getNearbyGroups(
-      radiusKm: radiusKm,
+    var fetched = await repository.getNearbyGroups(
+      radiusKm: 500,
       keyword: keyword,
       openOnly: openOnly,
     );
+    final centerLatitude = areaLatitude;
+    final centerLongitude = areaLongitude;
+    if (centerLatitude != null && centerLongitude != null) {
+      fetched = fetched
+          .map((group) {
+            if (group.destinationLatitude == null ||
+                group.destinationLongitude == null) {
+              return group;
+            }
+            group.distanceKm =
+                _distanceBetween(
+                  centerLatitude,
+                  centerLongitude,
+                  group.destinationLatitude!,
+                  group.destinationLongitude!,
+                ) /
+                1000.0;
+            return group;
+          })
+          .where((group) => group.distanceKm <= radiusKm)
+          .toList();
+      fetched.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+    }
+    groups = fetched;
     isLoading = false;
     notifyListeners();
   }
@@ -88,9 +125,17 @@ class TravelGroupController extends ChangeNotifier {
     await loadGroups();
   }
 
-  Future<void> setArea(String value) async {
-    if (selectedArea == value) return;
+  Future<void> setArea(
+    String value, {
+    double? latitude,
+    double? longitude,
+  }) async {
+    if (selectedArea == value && latitude == null) return;
     selectedArea = value;
+    if (latitude != null && longitude != null) {
+      areaLatitude = latitude;
+      areaLongitude = longitude;
+    }
     notifyListeners();
     await loadGroups();
   }
@@ -109,6 +154,9 @@ class TravelGroupController extends ChangeNotifier {
     joinRequests = await repository.getJoinRequests(group.id);
     suggestions = await repository.getSuggestions(group.id);
     itinerary = await repository.getItinerary(group.id);
+    activeSession = await repository.getActiveTripSession(group.id);
+    final refreshedGroup = await repository.getGroup(group.id);
+    if (refreshedGroup != null) activeGroup = refreshedGroup;
     notifyListeners();
   }
 
@@ -130,6 +178,39 @@ class TravelGroupController extends ChangeNotifier {
     }
   }
 
+  void _validateGroupText({required String name, required String description}) {
+    if (name.trim().isEmpty || description.trim().isEmpty) {
+      throw const TravelGroupException(
+        'Complete all required fields.',
+        'validation',
+      );
+    }
+    final titleHit = ProfanityFilter.firstProfanity(name);
+    if (titleHit != null) {
+      throw const TravelGroupException(
+        'Group titles cannot contain inappropriate language.',
+        'profanity',
+      );
+    }
+    final descriptionHit = ProfanityFilter.firstProfanity(description);
+    if (descriptionHit != null) {
+      throw const TravelGroupException(
+        'Group descriptions cannot contain inappropriate language.',
+        'profanity',
+      );
+    }
+  }
+
+  void _validateCapacity(int maxMembers) {
+    if (maxMembers < minTravellersPerGroup ||
+        maxMembers > maxTravellersPerGroup) {
+      throw const TravelGroupException(
+        'A travel group allows 2 to 4 travellers.',
+        'invalid_capacity',
+      );
+    }
+  }
+
   Future<TravelGroup> createGroup({
     required String name,
     required TravelGroupPlace destination,
@@ -139,9 +220,9 @@ class TravelGroupController extends ChangeNotifier {
     required JoinMode joinMode,
   }) async {
     _requireVerified();
-    if (name.trim().isEmpty ||
-        destination.name.trim().isEmpty ||
-        description.trim().isEmpty) {
+    _validateGroupText(name: name, description: description);
+    _validateCapacity(maxMembers);
+    if (destination.name.trim().isEmpty) {
       throw const TravelGroupException(
         'Complete all required fields.',
         'validation',
@@ -153,8 +234,19 @@ class TravelGroupController extends ChangeNotifier {
         'validation',
       );
     }
+    final centerLatitude = areaLatitude;
+    final centerLongitude = areaLongitude;
+    final distanceKm = centerLatitude != null && centerLongitude != null
+        ? _distanceBetween(
+                centerLatitude,
+                centerLongitude,
+                destination.latitude,
+                destination.longitude,
+              ) /
+              1000.0
+        : 0.0;
     final group = TravelGroup(
-      id: 'GROUP_${DateTime.now().microsecondsSinceEpoch}',
+      id: _localId('GROUP'),
       creatorId: currentUser.id,
       creatorName: currentUser.name,
       name: name.trim(),
@@ -163,7 +255,7 @@ class TravelGroupController extends ChangeNotifier {
       meetupPoint: '',
       tags: tags,
       maxMembers: maxMembers,
-      distanceKm: 0.6,
+      distanceKm: distanceKm,
       joinMode: joinMode,
       status: GroupStatus.waiting,
       memberIds: [currentUser.id],
@@ -179,6 +271,48 @@ class TravelGroupController extends ChangeNotifier {
     return group;
   }
 
+  Future<void> editGroup({
+    required String name,
+    TravelGroupPlace? destination,
+    required String description,
+    required int maxMembers,
+    required JoinMode joinMode,
+  }) async {
+    _requireCreator();
+    final group = activeGroup!;
+    if (group.status != GroupStatus.waiting) {
+      throw const TravelGroupException(
+        'Group details can only be edited before the trip starts.',
+        'edit_locked',
+      );
+    }
+    _validateGroupText(name: name, description: description);
+    _validateCapacity(maxMembers);
+    if (maxMembers < group.memberCount) {
+      throw const TravelGroupException(
+        'The group already has more travellers than the new maximum.',
+        'capacity_below_members',
+      );
+    }
+    group
+      ..name = name.trim()
+      ..description = description.trim()
+      ..maxMembers = maxMembers
+      ..joinMode = joinMode;
+    if (destination != null) {
+      group
+        ..destination = destination.name.trim()
+        ..destinationPlaceId = destination.id
+        ..destinationAddress = destination.address
+        ..destinationLatitude = destination.latitude
+        ..destinationLongitude = destination.longitude
+        ..destinationPhotoName = destination.photoName;
+    }
+    await repository.updateGroup(group);
+    await loadGroups();
+    await refreshWorkspace();
+  }
+
   Future<void> setMeetupPoint({
     required String name,
     required double latitude,
@@ -186,9 +320,9 @@ class TravelGroupController extends ChangeNotifier {
     required List<LiveMemberLocation> members,
   }) async {
     _requireCreator();
-    if (members.length < 2) {
+    if (members.isEmpty) {
       throw const TravelGroupException(
-        'Wait for at least one other traveller to share their location.',
+        'Wait for your live location before choosing a meetup point.',
         'not_enough_locations',
       );
     }
@@ -214,6 +348,7 @@ class TravelGroupController extends ChangeNotifier {
       longitude: longitude,
     );
     await refreshWorkspace();
+    if (isCreator) await _persistRecalculatedItinerary();
   }
 
   static double _distanceBetween(
@@ -274,8 +409,30 @@ class TravelGroupController extends ChangeNotifier {
         'members_only',
       );
     }
+    final group = activeGroup!;
+    bool samePlace(String? placeId, String placeName) {
+      final candidateId = place.placeId?.trim();
+      if (candidateId != null &&
+          candidateId.isNotEmpty &&
+          placeId == candidateId) {
+        return true;
+      }
+      return placeName.trim().toLowerCase() == place.name.trim().toLowerCase();
+    }
+
+    if (samePlace(group.destinationPlaceId, group.destination) ||
+        suggestions.any(
+          (suggestion) => samePlace(suggestion.placeId, suggestion.placeName),
+        ) ||
+        itinerary.any((stop) => samePlace(stop.placeId, stop.placeName))) {
+      throw const TravelGroupException(
+        'This place is already part of the group plan.',
+        'duplicate_place',
+      );
+    }
+
     final suggestion = GroupSuggestion(
-      id: 'SUGGESTION_${DateTime.now().microsecondsSinceEpoch}',
+      id: _localId('SUGGESTION'),
       groupId: activeGroup!.id,
       suggestedByUserId: currentUser.id,
       placeName: place.name,
@@ -285,6 +442,9 @@ class TravelGroupController extends ChangeNotifier {
       crowdLevel: place.crowdLevel,
       durationMinutes: place.durationMinutes,
       tags: place.tags,
+      placeId: place.placeId,
+      latitude: place.latitude,
+      longitude: place.longitude,
     );
     await repository.addSuggestion(suggestion);
     await refreshWorkspace();
@@ -309,6 +469,37 @@ class TravelGroupController extends ChangeNotifier {
     _requireCreator();
     await repository.confirmSuggestion(suggestion.id);
     await refreshWorkspace();
+    if (activeGroup!.status == GroupStatus.waiting) {
+      await _persistRecalculatedItinerary();
+    }
+  }
+
+  Future<void> removeSuggestion(GroupSuggestion suggestion) async {
+    if (!isCreator && suggestion.suggestedByUserId != currentUser.id) {
+      throw const TravelGroupException(
+        'Only the creator or the traveller who suggested this place can remove it.',
+        'suggestion_remove_forbidden',
+      );
+    }
+    await repository.removeSuggestion(suggestion.id);
+    await refreshWorkspace();
+    if (isCreator) await _persistRecalculatedItinerary();
+  }
+
+  Future<void> removeStop(ItineraryStop stop) async {
+    _requireCreator();
+    if (stop.status == StopStatus.current) {
+      throw const TravelGroupException(
+        'The active destination cannot be removed during navigation.',
+        'active_stop',
+      );
+    }
+    await repository.removeItineraryStop(
+      groupId: activeGroup!.id,
+      stopId: stop.id,
+    );
+    await refreshWorkspace();
+    await _persistRecalculatedItinerary();
   }
 
   Future<void> reorderStops(int oldIndex, int newIndex) async {
@@ -316,16 +507,70 @@ class TravelGroupController extends ChangeNotifier {
     final reordered = [...itinerary];
     final item = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, item);
-    await repository.reorderItinerary(
-      activeGroup!.id,
-      reordered.map((stop) => stop.id).toList(),
-    );
+    _recalculateLegs(reordered);
+    await repository.reorderItinerary(activeGroup!.id, reordered);
+    await refreshWorkspace();
+  }
+
+  void _recalculateLegs(List<ItineraryStop> stops) {
+    double? previousLatitude = activeGroup?.meetupLatitude;
+    double? previousLongitude = activeGroup?.meetupLongitude;
+    for (var index = 0; index < stops.length; index++) {
+      final stop = stops[index];
+      stop.position = index;
+      final latitude = stop.latitude;
+      final longitude = stop.longitude;
+      if (previousLatitude == null ||
+          previousLongitude == null ||
+          latitude == null ||
+          longitude == null) {
+        stop
+          ..travelDistanceFromPreviousKm = 0
+          ..travelTimeFromPreviousMinutes = 0;
+      } else {
+        final directKm =
+            _distanceBetween(
+              previousLatitude,
+              previousLongitude,
+              latitude,
+              longitude,
+            ) /
+            1000;
+        final estimatedDrivingKm = directKm * 1.25;
+        stop
+          ..travelDistanceFromPreviousKm = estimatedDrivingKm
+          ..travelTimeFromPreviousMinutes = math.max(
+            1,
+            (estimatedDrivingKm / 30 * 60).round(),
+          );
+      }
+      previousLatitude = latitude;
+      previousLongitude = longitude;
+    }
+  }
+
+  Future<void> _persistRecalculatedItinerary() async {
+    if (itinerary.isEmpty || activeGroup!.status != GroupStatus.waiting) return;
+    _recalculateLegs(itinerary);
+    await repository.reorderItinerary(activeGroup!.id, itinerary);
     await refreshWorkspace();
   }
 
   Future<void> startItinerary() async {
     _requireCreator();
+    if (activeGroup!.memberCount < minTravellersPerGroup) {
+      throw const TravelGroupException(
+        'At least two travellers must join before the group trip can start.',
+        'not_enough_members',
+      );
+    }
     await repository.startItinerary(activeGroup!.id);
+    await refreshWorkspace();
+  }
+
+  Future<void> confirmGroup() async {
+    _requireCreator();
+    activeSession = await repository.confirmGroup(activeGroup!.id);
     await refreshWorkspace();
   }
 
@@ -337,4 +582,13 @@ class TravelGroupController extends ChangeNotifier {
     );
     await refreshWorkspace();
   }
+
+  Future<void> endTrip() async {
+    _requireCreator();
+    await repository.endTrip(activeGroup!.id);
+    await refreshWorkspace();
+  }
+
+  String _localId(String prefix) =>
+      '${prefix}_${DateTime.now().microsecondsSinceEpoch}_${++_localIdSequence}';
 }

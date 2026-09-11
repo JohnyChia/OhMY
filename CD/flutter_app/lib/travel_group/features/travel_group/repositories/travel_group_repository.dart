@@ -10,6 +10,7 @@ abstract interface class TravelGroupRepository {
 
   Future<TravelGroup?> getGroup(String groupId);
   Future<TravelGroup> createGroup(TravelGroup group);
+  Future<void> updateGroup(TravelGroup updated);
   Future<void> updateMeetupPoint({
     required String groupId,
     required String meetupPoint,
@@ -31,6 +32,7 @@ abstract interface class TravelGroupRepository {
   });
   Future<List<GroupSuggestion>> getSuggestions(String groupId);
   Future<GroupSuggestion> addSuggestion(GroupSuggestion suggestion);
+  Future<void> removeSuggestion(String suggestionId);
   Future<void> voteSuggestion({
     required String suggestionId,
     required String userId,
@@ -38,10 +40,17 @@ abstract interface class TravelGroupRepository {
   });
   Future<ItineraryStop> confirmSuggestion(String suggestionId);
   Future<List<ItineraryStop>> getItinerary(String groupId);
-  Future<void> reorderItinerary(String groupId, List<String> orderedStopIds);
+  Future<void> removeItineraryStop({
+    required String groupId,
+    required String stopId,
+  });
+  Future<void> reorderItinerary(String groupId, List<ItineraryStop> stops);
+  Future<TravelGroupTripSession> confirmGroup(String groupId);
+  Future<TravelGroupTripSession?> getActiveTripSession(String groupId);
   Future<void> startItinerary(String groupId);
   Future<void> markStopCompleted({
     required String groupId,
     required String stopId,
   });
+  Future<void> endTrip(String groupId);
 }

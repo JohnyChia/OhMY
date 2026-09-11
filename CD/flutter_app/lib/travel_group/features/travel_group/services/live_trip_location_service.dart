@@ -35,6 +35,7 @@ typedef LiveTripLocationServiceFactory =
     LiveTripLocationService Function({
       required TravelGroup group,
       required PrototypeUser currentUser,
+      required String? sessionId,
     });
 
 abstract interface class LiveTripLocationService {
@@ -65,6 +66,7 @@ const demoGroupRoute = <GeoCoordinate>[
 LiveTripLocationService createMockLiveTripLocationService({
   required TravelGroup group,
   required PrototypeUser currentUser,
+  String? sessionId,
 }) {
   return MockLiveTripLocationService(group: group, currentUser: currentUser);
 }

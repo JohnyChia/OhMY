@@ -5,6 +5,7 @@ import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../widgets/travel_group_scaffold.dart';
 import '../widgets/travel_group_widgets.dart';
+import 'edit_group_sheet.dart';
 import 'group_lobby_screen.dart';
 import 'verification_required_screen.dart';
 
@@ -32,9 +33,29 @@ class GroupDetailsScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 9),
-              Text(
-                group.name,
-                style: Theme.of(context).textTheme.headlineMedium,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      group.name,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ),
+                  if (controller.isCreator &&
+                      group.status == GroupStatus.waiting) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      key: const Key('edit_group_button'),
+                      tooltip: 'Edit group',
+                      onPressed: () => _openEditSheet(context),
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 4),
               Text(
@@ -81,7 +102,7 @@ class GroupDetailsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '${group.memberIds.length} of ${group.maxMembers} travellers  •  Hosted by ${group.creatorName}',
+                      '${group.memberCount} of ${group.maxMembers} travellers  •  Hosted by ${group.creatorName}',
                     ),
                   ],
                 ),
@@ -108,6 +129,14 @@ class GroupDetailsScreen extends StatelessWidget {
     if (group.isFull) {
       return const FilledButton(onPressed: null, child: Text('Group full'));
     }
+    if (group.status != GroupStatus.waiting ||
+        (group.tripPhase != GroupTripPhase.recruiting &&
+            group.tripPhase != GroupTripPhase.gathering)) {
+      return const FilledButton(
+        onPressed: null,
+        child: Text('Trip already started'),
+      );
+    }
     if (controller.hasPendingRequestForCurrentUser()) {
       return const FilledButton(
         onPressed: null,
@@ -119,6 +148,17 @@ class GroupDetailsScreen extends StatelessWidget {
       child: Text(
         group.joinMode == JoinMode.open ? 'Join now' : 'Request to join',
       ),
+    );
+  }
+
+  Future<void> _openEditSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      builder: (_) => EditGroupSheet(controller: controller),
     );
   }
 

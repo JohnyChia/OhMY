@@ -21,7 +21,7 @@ create table if not exists public.travel_groups (
     check (join_mode in ('open', 'request')),
   status text not null default 'waiting'
     check (status in ('waiting', 'active', 'completed', 'cancelled')),
-  max_members integer not null default 8 check (max_members between 2 and 50),
+  max_members integer not null default 4 check (max_members between 2 and 4),
   tags text[] not null default '{}',
   trip_date date,
   created_at timestamptz not null default now(),

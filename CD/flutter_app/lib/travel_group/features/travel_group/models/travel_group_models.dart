@@ -1,6 +1,15 @@
 enum JoinMode { open, request }
 
-enum GroupStatus { waiting, active, completed }
+enum GroupStatus { waiting, active, completed, cancelled }
+
+enum GroupTripPhase {
+  recruiting,
+  gathering,
+  navigating,
+  choosingNext,
+  completed,
+  cancelled,
+}
 
 enum JoinRequestStatus { pending, accepted, declined }
 
@@ -41,7 +50,10 @@ class TravelGroup {
     this.destinationPhotoName,
     this.meetupLatitude,
     this.meetupLongitude,
-  });
+    this.confirmedAt,
+    this.tripPhase = GroupTripPhase.recruiting,
+    int? memberCount,
+  }) : memberCount = memberCount ?? memberIds.length;
 
   final String id;
   final String creatorId;
@@ -51,13 +63,16 @@ class TravelGroup {
   String description;
   String meetupPoint;
   String meetupNote;
-  final String? destinationPlaceId;
-  final String destinationAddress;
-  final double? destinationLatitude;
-  final double? destinationLongitude;
-  final String? destinationPhotoName;
+  String? destinationPlaceId;
+  String destinationAddress;
+  double? destinationLatitude;
+  double? destinationLongitude;
+  String? destinationPhotoName;
   double? meetupLatitude;
   double? meetupLongitude;
+  DateTime? confirmedAt;
+  GroupTripPhase tripPhase;
+  int memberCount;
   List<String> tags;
   int maxMembers;
   double distanceKm;
@@ -65,7 +80,24 @@ class TravelGroup {
   GroupStatus status;
   List<String> memberIds;
 
-  bool get isFull => memberIds.length >= maxMembers;
+  bool get isFull => memberCount >= maxMembers;
+  bool get isConfirmed => confirmedAt != null;
+}
+
+class TravelGroupTripSession {
+  const TravelGroupTripSession({
+    required this.id,
+    required this.groupId,
+    required this.phase,
+    this.currentStopId,
+    this.currentStopIndex = 0,
+  });
+
+  final String id;
+  final String groupId;
+  final GroupTripPhase phase;
+  final String? currentStopId;
+  final int currentStopIndex;
 }
 
 class TravelGroupPlace {
@@ -125,6 +157,9 @@ class GroupSuggestion {
     required this.tags,
     Set<String>? upvoterIds,
     Set<String>? downvoterIds,
+    this.placeId,
+    this.latitude,
+    this.longitude,
     this.isConfirmed = false,
   }) : upvoterIds = upvoterIds ?? <String>{},
        downvoterIds = downvoterIds ?? <String>{};
@@ -139,6 +174,9 @@ class GroupSuggestion {
   final String crowdLevel;
   final int durationMinutes;
   final List<String> tags;
+  final String? placeId;
+  final double? latitude;
+  final double? longitude;
   final Set<String> upvoterIds;
   final Set<String> downvoterIds;
   bool isConfirmed;
@@ -155,6 +193,10 @@ class ItineraryStop {
     required this.position,
     required this.estimatedDurationMinutes,
     required this.travelTimeFromPreviousMinutes,
+    this.travelDistanceFromPreviousKm = 0,
+    this.placeId,
+    this.latitude,
+    this.longitude,
     this.status = StopStatus.upcoming,
   });
 
@@ -162,9 +204,13 @@ class ItineraryStop {
   final String groupId;
   final String suggestionId;
   final String placeName;
+  final String? placeId;
+  final double? latitude;
+  final double? longitude;
   int position;
   int estimatedDurationMinutes;
   int travelTimeFromPreviousMinutes;
+  double travelDistanceFromPreviousKm;
   StopStatus status;
 }
 
@@ -177,6 +223,9 @@ class NearbyPlace {
     required this.crowdLevel,
     required this.durationMinutes,
     required this.tags,
+    this.placeId,
+    this.latitude,
+    this.longitude,
   });
 
   final String name;
@@ -186,6 +235,9 @@ class NearbyPlace {
   final String crowdLevel;
   final int durationMinutes;
   final List<String> tags;
+  final String? placeId;
+  final double? latitude;
+  final double? longitude;
 }
 
 class TravelGroupException implements Exception {

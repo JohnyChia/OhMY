@@ -34,11 +34,11 @@ class ItineraryBoard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Times recalculated after reorder',
+                      'Time and distance recalculated',
                       style: TextStyle(fontSize: 11),
                     ),
                     Text(
-                      'Prototype travel times update instantly',
+                      'Live traffic is applied when navigation starts',
                       style: TextStyle(fontSize: 9, color: AppColors.success),
                     ),
                   ],
@@ -81,9 +81,12 @@ class ItineraryBoard extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             buildDefaultDragHandles: false,
             itemCount: controller.itinerary.length,
-            onReorder:
+            onReorderItem:
                 group.status == GroupStatus.waiting && controller.isCreator
-                ? controller.reorderStops
+                ? (oldIndex, newIndex) => controller.reorderStops(
+                    oldIndex,
+                    newIndex == 0 ? 1 : newIndex,
+                  )
                 : (_, _) {},
             itemBuilder: (context, index) {
               final stop = controller.itinerary[index];
@@ -95,7 +98,14 @@ class ItineraryBoard extends StatelessWidget {
                   index: index,
                   canReorder:
                       group.status == GroupStatus.waiting &&
-                      controller.isCreator,
+                      controller.isCreator &&
+                      index > 0,
+                  onRemove:
+                      controller.isCreator &&
+                          stop.suggestionId.isNotEmpty &&
+                          stop.status != StopStatus.current
+                      ? () => _removeStop(context, stop)
+                      : null,
                   onComplete:
                       stop.status == StopStatus.current && controller.isCreator
                       ? () => controller.completeStop(stop)
@@ -106,16 +116,21 @@ class ItineraryBoard extends StatelessWidget {
           ),
         if (controller.itinerary.isNotEmpty) ...[
           const SizedBox(height: 4),
-          if (group.status == GroupStatus.waiting && controller.isCreator)
-            FilledButton(
-              onPressed: () => _start(context),
-              child: const Text('Start group itinerary'),
-            )
-          else if (group.status == GroupStatus.active)
+          if (group.tripPhase == GroupTripPhase.navigating)
             FilledButton.icon(
               onPressed: () => _openMap(context),
               icon: const Icon(Icons.navigation_rounded),
               label: const Text('Open active route map'),
+            )
+          else if (group.tripPhase == GroupTripPhase.choosingNext)
+            const AppPanel(
+              color: AppColors.paleBlue,
+              child: Center(
+                child: Text(
+                  'Choose and confirm the next destination in Suggestions.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
             )
           else if (group.status == GroupStatus.completed)
             const AppPanel(
@@ -133,19 +148,6 @@ class ItineraryBoard extends StatelessWidget {
     );
   }
 
-  Future<void> _start(BuildContext context) async {
-    try {
-      await controller.startItinerary();
-      if (context.mounted) {
-        await _openMap(context);
-      }
-    } on TravelGroupException catch (error) {
-      if (context.mounted) {
-        showTravelGroupMessage(context, error.message, error: true);
-      }
-    }
-  }
-
   Future<void> _openMap(BuildContext context) async {
     await Navigator.of(context, rootNavigator: true).push<void>(
       MaterialPageRoute(
@@ -154,6 +156,16 @@ class ItineraryBoard extends StatelessWidget {
     );
     await controller.refreshWorkspace();
   }
+
+  Future<void> _removeStop(BuildContext context, ItineraryStop stop) async {
+    try {
+      await controller.removeStop(stop);
+    } on TravelGroupException catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
 }
 
 class _ItineraryStopCard extends StatelessWidget {
@@ -161,12 +173,14 @@ class _ItineraryStopCard extends StatelessWidget {
     required this.stop,
     required this.index,
     required this.canReorder,
+    this.onRemove,
     this.onComplete,
   });
 
   final ItineraryStop stop;
   final int index;
   final bool canReorder;
+  final VoidCallback? onRemove;
   final VoidCallback? onComplete;
 
   @override
@@ -260,11 +274,18 @@ class _ItineraryStopCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onRemove != null)
+                      IconButton(
+                        tooltip: 'Remove from itinerary',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: onRemove,
+                        icon: const Icon(Icons.close_rounded, size: 19),
+                      ),
                   ],
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '${stop.estimatedDurationMinutes} min duration  •  ${stop.travelTimeFromPreviousMinutes} min travel',
+                  '${stop.estimatedDurationMinutes} min visit  •  ${stop.travelTimeFromPreviousMinutes} min travel  •  ${stop.travelDistanceFromPreviousKm.toStringAsFixed(1)} km',
                   style: const TextStyle(fontSize: 11),
                 ),
                 const SizedBox(height: 6),

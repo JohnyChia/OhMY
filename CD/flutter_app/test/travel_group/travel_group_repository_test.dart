@@ -60,26 +60,31 @@ void main() {
       expect(suggestion.downvoterIds.contains('USER_100'), isTrue);
     });
 
-    test('completing a stop advances the next stop', () async {
-      final repository = MockTravelGroupRepository.seeded();
-      await repository.confirmSuggestion('SUGGESTION_002');
-      await repository.startItinerary('GROUP_001');
-      var itinerary = await repository.getItinerary('GROUP_001');
-      expect(itinerary.map((stop) => stop.status), [
-        StopStatus.current,
-        StopStatus.upcoming,
-      ]);
+    test(
+      'completing a stop pauses the journey for the next decision',
+      () async {
+        final repository = MockTravelGroupRepository.seeded();
+        await repository.confirmSuggestion('SUGGESTION_002');
+        await repository.startItinerary('GROUP_001');
+        var itinerary = await repository.getItinerary('GROUP_001');
+        expect(itinerary.map((stop) => stop.status), [
+          StopStatus.current,
+          StopStatus.upcoming,
+        ]);
 
-      await repository.markStopCompleted(
-        groupId: 'GROUP_001',
-        stopId: itinerary.first.id,
-      );
-      itinerary = await repository.getItinerary('GROUP_001');
-      expect(itinerary.map((stop) => stop.status), [
-        StopStatus.completed,
-        StopStatus.current,
-      ]);
-    });
+        await repository.markStopCompleted(
+          groupId: 'GROUP_001',
+          stopId: itinerary.first.id,
+        );
+        itinerary = await repository.getItinerary('GROUP_001');
+        expect(itinerary.map((stop) => stop.status), [
+          StopStatus.completed,
+          StopStatus.upcoming,
+        ]);
+        final group = await repository.getGroup('GROUP_001');
+        expect(group!.tripPhase, GroupTripPhase.choosingNext);
+      },
+    );
   });
 
   test('mock map advances position while ETA decreases', () {

@@ -91,7 +91,7 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
   Widget build(BuildContext context) {
     final candidate = _candidate;
     final farthest = candidate == null ? null : _farthestDistance(candidate);
-    final hasEnoughMembers = _members.length >= 2;
+    final hasEnoughMembers = _members.isNotEmpty;
     final inRange =
         hasEnoughMembers &&
         farthest != null &&
@@ -168,7 +168,9 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
                   const SizedBox(height: 4),
                   Text(
                     !hasEnoughMembers
-                        ? 'Wait for another traveller to join and share their location.'
+                        ? 'Waiting for your precise location.'
+                        : _members.length == 1
+                        ? 'Using your location for now. Recheck after travellers join.'
                         : inRange
                         ? 'This point is within 5 km of every traveller.'
                         : 'Move the green pin closer to everyone. It must be within 5 km of each traveller.',

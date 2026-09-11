@@ -8,9 +8,10 @@ import '../models/travel_group_models.dart';
 import '../services/travel_place_search_service.dart';
 import '../utils/profanity_filter.dart';
 import '../widgets/travel_group_widgets.dart';
+import 'create_group_sheet.dart' show TravellerStepper;
 
-class CreateGroupSheet extends StatefulWidget {
-  const CreateGroupSheet({
+class EditGroupSheet extends StatefulWidget {
+  const EditGroupSheet({
     super.key,
     required this.controller,
     this.placeSearchService,
@@ -20,41 +21,49 @@ class CreateGroupSheet extends StatefulWidget {
   final TravelPlaceSearchService? placeSearchService;
 
   @override
-  State<CreateGroupSheet> createState() => _CreateGroupSheetState();
+  State<EditGroupSheet> createState() => _EditGroupSheetState();
 }
 
-class _CreateGroupSheetState extends State<CreateGroupSheet> {
+class _EditGroupSheetState extends State<EditGroupSheet> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _destinationQuery = TextEditingController();
   final _description = TextEditingController();
-  final _tags = <String>{};
   late final TravelPlaceSearchService _placeSearch;
   late final bool _ownsPlaceSearch;
   Timer? _searchDebounce;
   List<TravelGroupPlace> _results = const [];
   TravelGroupPlace? _destination;
   String? _searchError;
-  int _maxMembers = TravelGroupController.maxTravellersPerGroup;
-  JoinMode _joinMode = JoinMode.open;
+  late int _maxMembers;
+  late JoinMode _joinMode;
   bool _searching = false;
   bool _saving = false;
+  bool _destinationChanged = false;
 
-  static const tagOptions = [
-    'Food',
-    'Cultural',
-    'Budget',
-    'Nature',
-    'Casual',
-    'Heritage',
-    'Photography',
-  ];
+  TravelGroup get _group => widget.controller.activeGroup!;
 
   @override
   void initState() {
     super.initState();
     _ownsPlaceSearch = widget.placeSearchService == null;
     _placeSearch = widget.placeSearchService ?? TravelPlaceSearchService();
+    final group = _group;
+    _name.text = group.name;
+    _description.text = group.description;
+    _destinationQuery.text = group.destination;
+    _maxMembers = group.maxMembers;
+    _joinMode = group.joinMode;
+    _destination = group.destinationLatitude == null
+        ? null
+        : TravelGroupPlace(
+            id: group.destinationPlaceId ?? '',
+            name: group.destination,
+            address: group.destinationAddress,
+            latitude: group.destinationLatitude!,
+            longitude: group.destinationLongitude!,
+            photoName: group.destinationPhotoName,
+          );
   }
 
   @override
@@ -65,6 +74,13 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
     _description.dispose();
     if (_ownsPlaceSearch) _placeSearch.dispose();
     super.dispose();
+  }
+
+  int get _minMembers {
+    final memberCount = _group.memberCount;
+    return memberCount > TravelGroupController.minTravellersPerGroup
+        ? memberCount
+        : TravelGroupController.minTravellersPerGroup;
   }
 
   @override
@@ -86,7 +102,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Create Travel Group',
+                      'Edit travel group',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -98,63 +114,60 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                 ],
               ),
               const Text(
-                'Choose where the group is going. You can set a fair meetup point after travellers join.',
+                'Existing members are never affected by these changes. Editing is locked once the trip starts.',
                 style: TextStyle(color: AppColors.secondaryText),
               ),
               const SizedBox(height: 18),
-              _field(
-                _name,
-                'Group title',
-                'e.g. Sunset Photography Walk',
-                fieldKey: const Key('group_title'),
-                validator: _titleValidator,
+              TextFormField(
+                key: const Key('edit_group_title'),
+                controller: _name,
+                decoration: const InputDecoration(
+                  labelText: 'Group title',
+                  hintText: 'e.g. Sunset Photography Walk',
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Group title is required';
+                  }
+                  if (ProfanityFilter.hasProfanity(value)) {
+                    return 'Group titles cannot contain inappropriate language.';
+                  }
+                  return null;
+                },
               ),
+              const SizedBox(height: 12),
               _destinationSearch(),
               const SizedBox(height: 12),
-              _field(
-                _description,
-                'Description',
-                'What kind of trip is this?',
+              TextFormField(
+                key: const Key('edit_group_description'),
+                controller: _description,
                 maxLines: 3,
-                fieldKey: const Key('group_description'),
-                validator: _descriptionValidator,
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Activity tags',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 7,
-                runSpacing: 7,
-                children: tagOptions
-                    .map(
-                      (tag) => FilterChip(
-                        label: Text(tag),
-                        selected: _tags.contains(tag),
-                        showCheckmark: false,
-                        visualDensity: VisualDensity.compact,
-                        selectedColor: AppColors.primary,
-                        labelStyle: TextStyle(
-                          fontSize: 11,
-                          color: _tags.contains(tag)
-                              ? Colors.white
-                              : AppColors.secondaryText,
-                        ),
-                        onSelected: (_) => setState(
-                          () => _tags.contains(tag)
-                              ? _tags.remove(tag)
-                              : _tags.add(tag),
-                        ),
-                      ),
-                    )
-                    .toList(),
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'What kind of trip is this?',
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Description is required';
+                  }
+                  if (ProfanityFilter.hasProfanity(value)) {
+                    return 'Group descriptions cannot contain inappropriate language.';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
+              Text(
+                '${_group.memberCount} traveller(s) currently in the group',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.secondaryText,
+                ),
+              ),
+              const SizedBox(height: 6),
               TravellerStepper(
                 value: _maxMembers,
-                minValue: TravelGroupController.minTravellersPerGroup,
+                minValue: _minMembers,
                 maxValue: TravelGroupController.maxTravellersPerGroup,
                 onChanged: (value) => setState(() => _maxMembers = value),
               ),
@@ -177,7 +190,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
               const SizedBox(height: 22),
               FilledButton(
                 onPressed: _saving ? null : _save,
-                child: Text(_saving ? 'Creating...' : 'Create group'),
+                child: Text(_saving ? 'Saving...' : 'Save changes'),
               ),
             ],
           ),
@@ -191,7 +204,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextFormField(
-          key: const Key('destination_search'),
+          key: const Key('edit_destination_search'),
           controller: _destinationQuery,
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
@@ -215,8 +228,8 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
           ),
           onChanged: _queueSearch,
           onFieldSubmitted: _search,
-          validator: (_) => _destination == null
-              ? 'Select a destination from the results'
+          validator: (_) => _destinationChanged && _destination == null
+              ? 'Select a destination from the results or clear this field'
               : null,
         ),
         if (_searchError != null)
@@ -239,7 +252,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
               children: [
                 for (var index = 0; index < _results.length; index++) ...[
                   ListTile(
-                    key: Key('destination_result_$index'),
+                    key: Key('edit_destination_result_$index'),
                     dense: true,
                     leading: const Icon(
                       Icons.place_outlined,
@@ -264,10 +277,23 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
   }
 
   void _queueSearch(String value) {
-    if (_destination != null && value != _destination!.name) {
-      setState(() => _destination = null);
-    }
+    final query = value.trim();
     _searchDebounce?.cancel();
+    if (query.isEmpty) {
+      setState(() {
+        _results = const [];
+        _destination = null;
+        _destinationChanged = false;
+        _searchError = null;
+      });
+      return;
+    }
+    if (_destination == null || query != _destination!.name) {
+      setState(() {
+        _destination = null;
+        _destinationChanged = true;
+      });
+    }
     _searchDebounce = Timer(const Duration(milliseconds: 350), () {
       _search(value);
     });
@@ -299,6 +325,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
   Future<void> _selectDestination(TravelGroupPlace place) async {
     setState(() {
       _destination = place;
+      _destinationChanged = true;
       _destinationQuery.text = place.name;
       _results = const [];
       _searching = true;
@@ -316,154 +343,22 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
     }
   }
 
-  String? _titleValidator(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Group title is required';
-    }
-    if (ProfanityFilter.hasProfanity(value)) {
-      return 'Group titles cannot contain inappropriate language.';
-    }
-    return null;
-  }
-
-  String? _descriptionValidator(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Description is required';
-    }
-    if (ProfanityFilter.hasProfanity(value)) {
-      return 'Group descriptions cannot contain inappropriate language.';
-    }
-    return null;
-  }
-
-  Widget _field(
-    TextEditingController controller,
-    String label,
-    String hint, {
-    int maxLines = 1,
-    Key? fieldKey,
-    String? Function(String?)? validator,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextFormField(
-        key: fieldKey,
-        controller: controller,
-        maxLines: maxLines,
-        decoration: InputDecoration(labelText: label, hintText: hint),
-        validator:
-            validator ??
-            (value) => value == null || value.trim().isEmpty
-                ? '$label is required'
-                : null,
-      ),
-    );
-  }
-
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      final group = await widget.controller.createGroup(
+      await widget.controller.editGroup(
         name: _name.text,
-        destination: _destination!,
+        destination: _destinationChanged ? _destination : null,
         description: _description.text,
-        tags: _tags.toList(),
         maxMembers: _maxMembers,
         joinMode: _joinMode,
       );
-      if (mounted) Navigator.pop(context, group);
+      if (mounted) Navigator.pop(context, true);
     } on TravelGroupException catch (error) {
       if (mounted) showTravelGroupMessage(context, error.message, error: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-}
-
-class TravellerStepper extends StatelessWidget {
-  const TravellerStepper({
-    super.key,
-    required this.value,
-    required this.minValue,
-    required this.maxValue,
-    required this.onChanged,
-  });
-
-  final int value;
-  final int minValue;
-  final int maxValue;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Maximum travellers',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            _StepperButton(
-              icon: Icons.remove_rounded,
-              onPressed: value > minValue ? () => onChanged(value - 1) : null,
-            ),
-            SizedBox(
-              width: 64,
-              child: Text(
-                '$value',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primaryDark,
-                ),
-              ),
-            ),
-            _StepperButton(
-              icon: Icons.add_rounded,
-              onPressed: value < maxValue ? () => onChanged(value + 1) : null,
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Up to maximum of 4 travellers total',
-                style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'You are included as traveller 1.',
-          style: TextStyle(fontSize: 10, color: AppColors.secondaryText),
-        ),
-      ],
-    );
-  }
-}
-
-class _StepperButton extends StatelessWidget {
-  const _StepperButton({required this.icon, required this.onPressed});
-
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.square(
-      dimension: 40,
-      child: OutlinedButton(
-        onPressed: onPressed,
-        style: OutlinedButton.styleFrom(
-          padding: EdgeInsets.zero,
-          shape: const CircleBorder(),
-        ),
-        child: Icon(icon, size: 20),
-      ),
-    );
   }
 }
