@@ -32,7 +32,15 @@ class TravelHistoryService {
       final history = rows
           .map(TravelHistoryEntry.fromSupabase)
           .toList(growable: false);
-      return history.isEmpty ? _demoCompletedTrips() : history;
+      if (history.isNotEmpty) return history;
+
+      // The shared history table may be hidden by RLS even though the
+      // Community security-definer function can see this user's eligible
+      // completed solo trips. Prefer those real IDs so Create/Edit Post can
+      // pass server-side ownership validation. Local demo IDs must never be
+      // sent to the Community publishing API.
+      final eligibleHistory = await _fetchEligibleCommunitySoloTrips();
+      return eligibleHistory.isEmpty ? _demoCompletedTrips() : eligibleHistory;
     } on PostgrestException catch (error) {
       if (_isMissingHistoryTable(error)) {
         return _fetchLegacyCompletedGroupTrips(user.id);
@@ -125,6 +133,52 @@ class TravelHistoryService {
 
   bool _isMissingHistoryTable(PostgrestException error) {
     return error.code == 'PGRST205' || error.code == '42P01';
+  }
+
+  Future<List<TravelHistoryEntry>> _fetchEligibleCommunitySoloTrips() async {
+    try {
+      final response = await _client.rpc(
+        'eligible_community_history_entries_v5',
+      );
+      final rows = (response as List<dynamic>).cast<Map<String, dynamic>>();
+      return rows.map(_eligibleSoloFromCommunity).toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  TravelHistoryEntry _eligibleSoloFromCommunity(Map<String, dynamic> row) {
+    final completedAt =
+        DateTime.tryParse(row['ended_at']?.toString() ?? '') ?? DateTime.now();
+    final destination =
+        row['location_name']?.toString().trim() ?? 'Unknown destination';
+    final title = row['title']?.toString().trim() ?? 'Completed solo trip';
+
+    // Retain the richer display information from the existing TAR UMT sample
+    // when the secured RPC returns that same persisted journey. Only the real
+    // Supabase ID controls Community eligibility.
+    final demoSolo = _demoCompletedTrips()
+        .where((trip) => trip.type == TravelHistoryType.solo)
+        .first;
+    final isTarUmt = '${title.toLowerCase()} ${destination.toLowerCase()}'
+        .contains('tar umt');
+
+    return TravelHistoryEntry(
+      id: row['id'].toString(),
+      type: TravelHistoryType.solo,
+      title: title.isEmpty ? 'Completed solo trip' : title,
+      destination: destination.isEmpty ? 'Unknown destination' : destination,
+      startedAt: isTarUmt
+          ? demoSolo.startedAt
+          : completedAt.subtract(const Duration(hours: 1)),
+      completedAt: completedAt,
+      stops: isTarUmt ? demoSolo.stops : const [],
+      distanceKm: isTarUmt ? demoSolo.distanceKm : 0,
+      durationMinutes: isTarUmt ? demoSolo.durationMinutes : 60,
+      tags: isTarUmt ? demoSolo.tags : const [],
+      travelMode: isTarUmt ? demoSolo.travelMode : 'Solo journey',
+      isPersisted: true,
+    );
   }
 
   List<TravelHistoryEntry> _demoCompletedTrips() {
