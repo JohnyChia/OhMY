@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter_android/google_maps_flutter_android.dart';
 import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:community_discovery/community_discovery.dart';
 
 import 'app_shell/ohmy_app.dart';
-import 'community_discovery/config/supabase_config.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

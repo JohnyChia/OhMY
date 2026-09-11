@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:community_discovery/community_discovery.dart';
 
 import '../models/travel_history_entry.dart';
 import '../services/travel_history_service.dart';
@@ -11,7 +12,9 @@ const _border = Color(0xFFCCD9EF);
 enum _Filter { all, solo, group }
 
 class TravelHistoryScreen extends StatefulWidget {
-  const TravelHistoryScreen({super.key});
+  const TravelHistoryScreen({super.key, this.communityController});
+
+  final CommunityController? communityController;
 
   @override
   State<TravelHistoryScreen> createState() => _TravelHistoryScreenState();
@@ -130,14 +133,29 @@ class _TravelHistoryScreenState extends State<TravelHistoryScreen> {
                   ...visible.map(
                     (trip) => Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: _TripCard(
-                        trip: trip,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) =>
-                                TravelHistoryDetailsScreen(trip: trip),
+                      child: Column(
+                        children: [
+                          _TripCard(
+                            trip: trip,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => TravelHistoryDetailsScreen(
+                                  trip: trip,
+                                  communityController:
+                                      widget.communityController,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          if (trip.canShareToCommunity &&
+                              widget.communityController != null) ...[
+                            const SizedBox(height: 6),
+                            _CommunityPostAction(
+                              trip: trip,
+                              controller: widget.communityController!,
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -151,9 +169,14 @@ class _TravelHistoryScreenState extends State<TravelHistoryScreen> {
 }
 
 class TravelHistoryDetailsScreen extends StatelessWidget {
-  const TravelHistoryDetailsScreen({super.key, required this.trip});
+  const TravelHistoryDetailsScreen({
+    super.key,
+    required this.trip,
+    this.communityController,
+  });
 
   final TravelHistoryEntry trip;
+  final CommunityController? communityController;
 
   @override
   Widget build(BuildContext context) {
@@ -164,6 +187,10 @@ class TravelHistoryDetailsScreen extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
         children: [
           _TripCard(trip: trip),
+          if (trip.canShareToCommunity && communityController != null) ...[
+            const SizedBox(height: 8),
+            _CommunityPostAction(trip: trip, controller: communityController!),
+          ],
           const SizedBox(height: 10),
           _Metrics(
             values: [
@@ -184,6 +211,81 @@ class TravelHistoryDetailsScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CommunityPostAction extends StatefulWidget {
+  const _CommunityPostAction({required this.trip, required this.controller});
+
+  final TravelHistoryEntry trip;
+  final CommunityController controller;
+
+  @override
+  State<_CommunityPostAction> createState() => _CommunityPostActionState();
+}
+
+class _CommunityPostActionState extends State<_CommunityPostAction> {
+  late Future<CommunityPost?> _post;
+
+  @override
+  void initState() {
+    super.initState();
+    _post = widget.controller.getPostForHistoryEntry(widget.trip.id);
+  }
+
+  CompletedTrip get _communityTrip => CompletedTrip(
+    id: widget.trip.id,
+    title: widget.trip.title,
+    locationName: widget.trip.destination,
+    attractionName: widget.trip.destination,
+    completedAt: widget.trip.completedAt,
+  );
+
+  Future<void> _open() async {
+    await openTripHistoryPostAction(
+      context,
+      controller: widget.controller,
+      historyEntry: _communityTrip,
+    );
+    if (mounted) {
+      setState(
+        () => _post = widget.controller.getPostForHistoryEntry(widget.trip.id),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<CommunityPost?>(
+    future: _post,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const SizedBox(
+          height: 42,
+          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        );
+      }
+      if (snapshot.hasError) {
+        return OutlinedButton.icon(
+          onPressed: () => setState(
+            () => _post = widget.controller.getPostForHistoryEntry(
+              widget.trip.id,
+            ),
+          ),
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry Community'),
+        );
+      }
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.tonalIcon(
+          onPressed: _open,
+          icon: Icon(
+            snapshot.data == null ? Icons.add_photo_alternate : Icons.edit,
+          ),
+          label: Text(snapshot.data == null ? 'Create post' : 'Edit post'),
+        ),
+      );
+    },
+  );
 }
 
 PreferredSizeWidget _appBar(BuildContext context, String title) {

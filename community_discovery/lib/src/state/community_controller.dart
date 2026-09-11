@@ -144,8 +144,8 @@ class CommunityController extends ChangeNotifier {
   Future<List<CompletedTrip>> getEligibleTrips() =>
       _repository.getEligibleTrips();
 
-  Future<CommunityPost?> getPostForTripSession(String tripSessionId) =>
-      _repository.getPostForTripSession(tripSessionId);
+  Future<CommunityPost?> getPostForHistoryEntry(String historyEntryId) =>
+      _repository.getPostForHistoryEntry(historyEntryId);
 
   Future<void> loadTags({bool force = false}) async {
     if (_tagsLoading || (_tagsLoaded && !force)) return;

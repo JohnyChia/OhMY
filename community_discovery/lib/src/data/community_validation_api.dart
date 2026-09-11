@@ -17,13 +17,13 @@ class CommunityValidationApi {
   final http.Client _client;
 
   Future<String> createPost({
-    required String tripSessionId,
+    required String historyEntryId,
     required String title,
     required String description,
     required List<String> imagePaths,
   }) async {
     final body = await _send('/community/posts', {
-      'tripSessionId': tripSessionId,
+      'historyEntryId': historyEntryId,
       'title': title,
       'description': description,
       'imagePaths': imagePaths,

@@ -32,6 +32,7 @@ class TravelHistoryEntry {
     required this.durationMinutes,
     required this.tags,
     required this.travelMode,
+    this.isPersisted = true,
   });
 
   final String id;
@@ -45,6 +46,11 @@ class TravelHistoryEntry {
   final int durationMinutes;
   final List<String> tags;
   final String travelMode;
+
+  /// False only for local fallback cards that do not exist in Supabase.
+  final bool isPersisted;
+
+  bool get canShareToCommunity => isPersisted && type == TravelHistoryType.solo;
 
   factory TravelHistoryEntry.fromSupabase(Map<String, dynamic> row) {
     if (row['source_type'] == null && row['travel_groups'] is Map) {
@@ -78,6 +84,7 @@ class TravelHistoryEntry {
               .toList(growable: false) ??
           const [],
       travelMode: row['travel_mode']?.toString() ?? 'Not recorded',
+      isPersisted: true,
     );
   }
 
@@ -105,6 +112,7 @@ class TravelHistoryEntry {
               .toList(growable: false) ??
           const [],
       travelMode: 'Group journey',
+      isPersisted: false,
     );
   }
 }

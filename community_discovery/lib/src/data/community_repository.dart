@@ -14,13 +14,13 @@ class PostImageUpload {
 
 class CreatePostInput {
   const CreatePostInput({
-    required this.completedTripId,
+    required this.historyEntryId,
     required this.title,
     required this.description,
     required this.images,
   });
 
-  final String completedTripId;
+  final String historyEntryId;
   final String title;
   final String description;
   final List<PostImageUpload> images;
@@ -53,7 +53,7 @@ abstract interface class CommunityRepository {
   Future<List<DiscoveryTag>> getTags();
   Future<List<CommunityComment>> getComments(String postId);
   Future<List<CompletedTrip>> getEligibleTrips();
-  Future<CommunityPost?> getPostForTripSession(String tripSessionId);
+  Future<CommunityPost?> getPostForHistoryEntry(String historyEntryId);
   Future<void> setLiked(String postId, bool liked);
   Future<void> setBookmarked(String postId, bool bookmarked);
   Future<CommunityComment> addComment(String postId, String content);

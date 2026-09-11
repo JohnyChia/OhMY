@@ -62,7 +62,7 @@ function fakeDatabase(options: { eligible?: boolean } = {}) {
     },
     rpc: async (name: string, params: Record<string, unknown>) => {
       rpcCalls.push({ name, params });
-      if (name === 'community_validation_context_v4') {
+      if (name === 'community_validation_context_v5') {
         return {
           data: options.eligible === false
             ? { eligible: false, reason: 'Finish the trip before creating a post.' }
@@ -71,12 +71,15 @@ function fakeDatabase(options: { eligible?: boolean } = {}) {
                 reason: 'Trip is eligible.',
                 destination: 'Kuala Lumpur',
                 attraction: 'Kwai Chai Hong',
-                trip_session_id: 'trip-1',
+                history_entry_id: 'history-1',
               },
           error: null,
         };
       }
-      if (name === 'community_create_post_v4') {
+      if (name === 'community_create_post_v5') {
+        return { data: 'post-1', error: null };
+      }
+      if (name === 'community_update_post_v5') {
         return { data: 'post-1', error: null };
       }
       return { data: null, error: new Error(`Unexpected RPC: ${name}`) };
@@ -87,7 +90,7 @@ function fakeDatabase(options: { eligible?: boolean } = {}) {
 
 function createPayload(overrides: Record<string, unknown> = {}) {
   return {
-    tripSessionId: 'trip-1',
+    historyEntryId: 'history-1',
     title: 'Morning at Kwai Chai Hong',
     description:
       'Kwai Chai Hong in Kuala Lumpur has colourful heritage lanes before breakfast.',
@@ -135,9 +138,33 @@ test('create post succeeds after text and trip validation', async () => {
     assert.equal(body.postId, 'post-1');
     assert.deepEqual(body.detectedTags.map((tag) => tag.id), [13]);
     const createCall = fake.rpcCalls.find(
-      (call) => call.name === 'community_create_post_v4',
+      (call) => call.name === 'community_create_post_v5',
     );
     assert.deepEqual(createCall?.params.p_tag_ids, [13]);
+    assert.equal(createCall?.params.p_history_entry_id, 'history-1');
+  }, fake.database);
+});
+
+test('owner edit uses the private v5 update RPC', async () => {
+  const fake = fakeDatabase();
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/community/posts/post-1`, {
+      method: 'PATCH',
+      headers: {
+        authorization: 'Bearer valid-jwt',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        title: 'Updated Kuala Lumpur walk',
+        description: 'Kuala Lumpur was enjoyable and easy to explore on foot.',
+        imagePaths: [],
+      }),
+    });
+    assert.equal(response.status, 200);
+    const updateCall = fake.rpcCalls.find(
+      (call) => call.name === 'community_update_post_v5',
+    );
+    assert.equal(updateCall?.params.p_post_id, 'post-1');
   }, fake.database);
 });
 
@@ -155,7 +182,7 @@ test('create post rejects missing pictures before database write', async () => {
     assert.equal(response.status, 422);
     assert.equal((await response.json() as { code: string }).code, 'INVALID_IMAGES');
     assert.equal(
-      fake.rpcCalls.some((call) => call.name === 'community_create_post_v4'),
+      fake.rpcCalls.some((call) => call.name === 'community_create_post_v5'),
       false,
     );
   }, fake.database);
@@ -180,13 +207,13 @@ test('create post rejects dirty language without calling the write RPC', async (
       'INAPPROPRIATE_LANGUAGE',
     );
     assert.equal(
-      fake.rpcCalls.some((call) => call.name === 'community_create_post_v4'),
+      fake.rpcCalls.some((call) => call.name === 'community_create_post_v5'),
       false,
     );
   }, fake.database);
 });
 
-test('create post rejects an unfinished or ineligible trip', async () => {
+test('create post rejects an unavailable or unowned history entry', async () => {
   const fake = fakeDatabase({ eligible: false });
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/community/posts`, {
@@ -198,6 +225,9 @@ test('create post rejects an unfinished or ineligible trip', async () => {
       body: JSON.stringify(createPayload()),
     });
     assert.equal(response.status, 403);
-    assert.equal((await response.json() as { code: string }).code, 'TRIP_NOT_ELIGIBLE');
+    assert.equal(
+      (await response.json() as { code: string }).code,
+      'HISTORY_NOT_ELIGIBLE',
+    );
   }, fake.database);
 });

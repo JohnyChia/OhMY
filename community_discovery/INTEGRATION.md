@@ -4,15 +4,15 @@ This package contains the Flutter Community Discovery feature, its private Node.
 
 ## 1. Apply Supabase migrations
 
-Apply every file in `supabase/migrations/` in filename order. The migrations create only `community_*` structures, except for read-only references to the existing shared trip and `tags` tables. `202609100004_filter_tags_rpc.sql` exposes existing shared tags through `get_filter_tags_v1()` without inserting, updating, deleting, or changing RLS on `tags`.
+Apply `CD/supabase/migrations/20260911_travel_history.sql` first, then every file in this package's `supabase/migrations/` in filename order. The Community migrations change only Community-owned structures. They read `travel_history_entries` and `tags` but never update either shared table. `202609100004_filter_tags_rpc.sql` exposes shared tags through `get_filter_tags_v1()` without changing their RLS.
 
-`202609100005_remove_legacy_review_rpcs.sql` removes the obsolete SQL review-preview and v2/v3 client write functions after the private Node/v4 path is installed. Apply it even when earlier migrations were already run.
+`202609100005_remove_legacy_review_rpcs.sql` removes the obsolete SQL review-preview and v2/v3 client write functions. `202609110002_travel_history_integration_v5.sql` then installs the Travel History link and private Node/v5 path. Apply both even when earlier migrations were already run.
 
 The final write path is service-only:
 
-- Flutter cannot execute `community_create_post_v4` or `community_update_post_v4`.
-- Node verifies the user's bearer JWT and calls the private v4 RPCs with the server secret.
-- Supabase enforces completed-trip participation, one post per trip, and author-only editing.
+- Flutter cannot execute `community_create_post_v5` or `community_update_post_v5`.
+- Node verifies the user's bearer JWT and calls the private v5 RPCs with the server secret.
+- Supabase verifies ownership of the solo Profile Travel History row, rejects group history, enforces one post per history entry, and permits author-only editing.
 
 Enable Supabase Realtime for `community_posts`, `community_post_likes`, `community_post_bookmarks`, and `community_post_comments`.
 
@@ -46,7 +46,7 @@ Production endpoints are:
 
 Both require `Authorization: Bearer <Supabase access token>`. There is intentionally no public validation-preview endpoint. Create and edit fail closed when validation or tag configuration is unavailable.
 
-## 3. Configure Flutter
+## 3. Configure and embed Flutter
 
 Flutter receives public configuration only:
 
@@ -70,21 +70,34 @@ final communityRepository = SupabaseCommunityRepository(
 final communityController = CommunityController(communityRepository);
 ```
 
-The host owns the controller lifecycle and must call `dispose()` when its feature scope ends. `CommunityApp` remains available as a standalone shell, while an integrated app can render `CommunityFeedScreen` with the shared controller and callbacks.
+The integrated OhMY application uses the package through this path dependency:
+
+```yaml
+community_discovery:
+  path: ../../community_discovery
+```
+
+Import only `package:community_discovery/community_discovery.dart`. The host owns one controller shared by the Community tab, Profile bookmarks, and Travel History, and calls `dispose()` when the shell ends.
 
 ## 4. Trip History create/edit
 
-Only render a Community action for a completed trip. On tap call:
+Only render a Community action for a persisted Supabase `travel_history_entries` row whose `source_type` is `solo`. Group trips, itinerary stops, and local fallback/demo cards must not expose the action. Convert the host solo-history model into the public Community model and call:
 
 ```dart
 await openTripHistoryPostAction(
   context,
   controller: communityController,
-  tripSessionId: trip.id,
+  historyEntry: CompletedTrip(
+    id: trip.id,
+    title: trip.title,
+    locationName: trip.destination,
+    attractionName: trip.destination,
+    completedAt: trip.completedAt,
+  ),
 );
 ```
 
-The entrypoint calls `community_post_id_for_trip_v4`: no post opens Create; an existing owner post opens Edit. Create Post locks its destination and attraction to the supplied completed-trip ID and does not allow choosing another trip. The server rechecks eligibility, so the hidden/visible button is not the security boundary.
+The entrypoint calls `community_post_id_for_history_v5`: no post opens Create; an existing owner post opens Edit. Create Post locks the location to the solo-history row's displayed `destination`. The presence of the owned solo database row is sufficient eligibility; Community does not inspect a separate status table or its itinerary stops. The server rechecks ownership and `source_type`, so button visibility is not the security boundary.
 
 Publishing requires 1–6 JPG/JPEG/PNG images, at most 10 MB each. Node validates title and description for length, meaningfulness, repetition, abusive/obfuscated language, links, and relevance to the locked trip location. Any link is rejected. Tags are assigned separately from destination, attraction, database aliases/rules, and optional Google Places types; post text never selects tags.
 
@@ -136,13 +149,13 @@ Image-location moderation is not implemented. A future system may combine EXIF G
 - Confirm Flutter contains only URL, publishable key, and API URL.
 - Wire the host's existing authenticated Supabase client.
 - Add Community to the host navigation.
-- Wire Trip History with `openTripHistoryPostAction`.
+- Wire only persisted solo Profile Travel History rows with `openTripHistoryPostAction`.
 - Wire Profile with `openCommunityBookmarks` or `SavedPostsSection`.
 - Wire `onStartJourney` to the host journey route.
 - Enable Realtime for posts, likes, bookmarks, and comments.
 - Run `npm test`, `npm run build`, `flutter analyze`, `flutter test`, and `flutter build apk --debug`.
 - Test two signed-in sessions for comment/like synchronization and duplicate-submission protection.
-- Test completed/unposted → Create, completed/posted → Edit, and incomplete → no action.
+- Test persisted solo/unposted → Create, persisted solo/posted → Edit, and group/demo/fallback → no action.
 - Test portrait/landscape galleries, full-screen paging, pinch/double-tap zoom, pan, and X dismissal.
 - When sharing the folder directly instead of through Git, exclude `server/.env`, `config/flutter.env.json`, and `android/local.properties`; each is machine-specific and ignored by Git.
 

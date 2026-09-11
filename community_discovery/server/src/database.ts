@@ -6,7 +6,8 @@ export interface ValidationContext {
   reason: string;
   destination: string;
   attraction: string;
-  tripSessionId: string;
+  historyEntryId?: string | null;
+  tripSessionId?: string | null;
   existingPostId?: string | null;
 }
 
@@ -34,11 +35,11 @@ export async function authenticate(client: SupabaseClient, token: string): Promi
 export async function loadValidationContext(
   client: SupabaseClient,
   userId: string,
-  input: { tripSessionId?: string; postId?: string },
+  input: { historyEntryId?: string; postId?: string },
 ): Promise<ValidationContext> {
-  const { data, error } = await client.rpc('community_validation_context_v4', {
+  const { data, error } = await client.rpc('community_validation_context_v5', {
     p_user_id: userId,
-    p_trip_session_id: input.tripSessionId ?? null,
+    p_history_entry_id: input.historyEntryId ?? null,
     p_post_id: input.postId ?? null,
   });
   if (error) throw error;
@@ -48,7 +49,8 @@ export async function loadValidationContext(
     reason: String(row.reason ?? 'Trip validation failed.'),
     destination: String(row.destination ?? ''),
     attraction: String(row.attraction ?? ''),
-    tripSessionId: String(row.trip_session_id ?? ''),
+    historyEntryId: row.history_entry_id ? String(row.history_entry_id) : null,
+    tripSessionId: row.trip_session_id ? String(row.trip_session_id) : null,
     existingPostId: row.existing_post_id ? String(row.existing_post_id) : null,
   };
 }

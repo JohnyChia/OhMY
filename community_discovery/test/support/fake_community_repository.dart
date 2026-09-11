@@ -52,7 +52,7 @@ class FakeCommunityRepository implements CommunityRepository {
   Future<List<CompletedTrip>> getEligibleTrips() async => const [];
 
   @override
-  Future<CommunityPost?> getPostForTripSession(String tripSessionId) async =>
+  Future<CommunityPost?> getPostForHistoryEntry(String historyEntryId) async =>
       null;
 
   @override

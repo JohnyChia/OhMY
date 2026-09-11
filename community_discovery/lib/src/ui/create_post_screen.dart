@@ -10,15 +10,15 @@ class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({
     super.key,
     required this.controller,
-    this.completedTripId,
+    this.completedTrip,
     this.post,
   }) : assert(
-         (completedTripId == null) != (post == null),
-         'Provide either a completedTripId for Create or a post for Edit.',
+         (completedTrip == null) != (post == null),
+         'Provide either a completedTrip for Create or a post for Edit.',
        );
 
   final CommunityController controller;
-  final String? completedTripId;
+  final CompletedTrip? completedTrip;
   final CommunityPost? post;
 
   @override
@@ -43,9 +43,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     _descriptionController = TextEditingController(
       text: widget.post?.description,
     );
-    _trips = _isEditing
-        ? Future.value(const <CompletedTrip>[])
-        : widget.controller.getEligibleTrips();
+    _trips = Future.value(
+      widget.completedTrip == null
+          ? const <CompletedTrip>[]
+          : [widget.completedTrip!],
+    );
   }
 
   @override
@@ -139,7 +141,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       } else {
         await widget.controller.createPost(
           CreatePostInput(
-            completedTripId: trip!.id,
+            historyEntryId: trip!.id,
             title: title,
             description: description,
             images: List.unmodifiable(_images),
@@ -191,7 +193,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         }
         if (_selectedTrip == null && !_isEditing) {
           _selectedTrip = trips
-              .where((trip) => trip.id == widget.completedTripId)
+              .where((trip) => trip.id == widget.completedTrip?.id)
               .firstOrNull;
           if (_selectedTrip == null) {
             return const _CenteredMessage(
@@ -216,7 +218,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   leading: const Icon(Icons.location_on_outlined),
                   title: Text(_selectedTrip!.title),
                   subtitle: Text(
-                    '${_selectedTrip!.attractionName}, ${_selectedTrip!.locationName}\nLocation is locked to this completed trip.',
+                    '${_selectedTrip!.locationName}\nLocation is locked to your Travel History.',
                   ),
                   isThreeLine: true,
                 ),

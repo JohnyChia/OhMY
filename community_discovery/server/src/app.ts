@@ -43,13 +43,18 @@ export function createApp(dependencies: AppDependencies) {
 
   async function validate(
     request: AuthedRequest,
-    contextInput: { tripSessionId?: string; postId?: string },
+    contextInput: { historyEntryId?: string; postId?: string },
   ) {
     const context = await loadValidationContext(dependencies.database, request.userId!, contextInput);
     if (!context.eligible) {
       return {
         status: 403,
-        body: { approved: false, code: 'TRIP_NOT_ELIGIBLE', reason: context.reason, fieldErrors: {} },
+        body: {
+          approved: false,
+          code: 'HISTORY_NOT_ELIGIBLE',
+          reason: context.reason,
+          fieldErrors: {},
+        },
       };
     }
     const rules = await loadRuleData(dependencies.database);
@@ -97,13 +102,13 @@ export function createApp(dependencies: AppDependencies) {
       return response.status(422).json({ code: 'INVALID_IMAGES', reason: 'Select between 1 and 6 pictures.' });
     }
     try {
-      const tripSessionId = bodyString(request.body.tripSessionId);
-      const result = await validate(request, { tripSessionId });
+      const historyEntryId = bodyString(request.body.historyEntryId);
+      const result = await validate(request, { historyEntryId });
       if (result.status !== 200 || !('context' in result)) return response.status(result.status).json(result.body);
       const detectedTags = 'detectedTags' in result.body ? result.body.detectedTags : [];
-      const { data, error } = await dependencies.database.rpc('community_create_post_v4', {
+      const { data, error } = await dependencies.database.rpc('community_create_post_v5', {
         p_user_id: request.userId,
-        p_trip_session_id: tripSessionId,
+        p_history_entry_id: historyEntryId,
         p_title: bodyString(request.body.title).trim(),
         p_description: bodyString(request.body.description).trim(),
         p_image_paths: paths,
@@ -131,7 +136,7 @@ export function createApp(dependencies: AppDependencies) {
       const result = await validate(request, { postId });
       if (result.status !== 200 || !('context' in result)) return response.status(result.status).json(result.body);
       const detectedTags = 'detectedTags' in result.body ? result.body.detectedTags : [];
-      const { data, error } = await dependencies.database.rpc('community_update_post_v4', {
+      const { data, error } = await dependencies.database.rpc('community_update_post_v5', {
         p_user_id: request.userId,
         p_post_id: postId,
         p_title: bodyString(request.body.title).trim(),

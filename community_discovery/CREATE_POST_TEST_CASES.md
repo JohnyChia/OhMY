@@ -1,15 +1,15 @@
 # Create Post test cases
 
-Run these cases through the main application's authenticated Trip History integration. Use a completed Trip History row and press its Create Post or Edit Post action; this module no longer contains a standalone login, sample-history screen, or review-only endpoint.
+Run these cases through the main application's authenticated Profile Travel History integration. Use a real Supabase solo-history row and press its Create Post or Edit Post action. Do not use group history or itinerary stops for Community testing. This module contains no standalone login, sample-history screen, or review-only endpoint.
 
 ## Success cases
 
 | ID | Trip location | Input/action | Expected result |
 |---|---|---|---|
-| S1 | Kwai Chai Hong, Kuala Lumpur | Title: `Morning at Kwai Chai Hong`; Description: `Kwai Chai Hong in Kuala Lumpur has colourful heritage lanes before breakfast.`; add one valid JPG | Approved and created once; location remains locked; Heritage-related tags are assigned from location rules. |
+| S1 | Kuala Lumpur | Title: `Morning in Kuala Lumpur`; Description: `Kuala Lumpur has colourful heritage lanes to explore before breakfast.`; add one valid JPG | Approved and created once; displayed history destination remains locked; tags are assigned from location rules. |
 | S2 | KLCC Park, Kuala Lumpur | Meaningful title/description mentioning KLCC Park; add six JPG/PNG files, each at most 10 MB | Approved with all six images; gallery can page horizontally. |
 | S3 | Jalan Alor, Kuala Lumpur | Use the same neutral text style as S1 but mention Jalan Alor; add a portrait PNG | Approved; Restaurant/Local Cuisine tags come from Jalan Alor, not from post wording; portrait is cropped in feed and complete in details. |
-| S4 | Completed trip with an existing owner post | Open the Trip History action, edit title/description, keep existing images | Edit form opens; the same post is updated and no second post is created. |
+| S4 | Persisted history row with an existing owner post | Open the Travel History action, edit title/description, keep existing images | Edit form opens; the same post is updated and no second post is created. |
 | S5 | Kuala Lumpur | Include an allow-listed word such as `Scunthorpe` while still clearly describing Kuala Lumpur | Approved; substring matching does not create a false profanity result. |
 
 ## Failure cases
@@ -24,8 +24,9 @@ Run these cases through the main application's authenticated Trip History integr
 | F6 | Include any URL in the title or description (`https://`, `www.`, or a plain domain) | Rejected: `LINK_NOT_ALLOWED`; no post is inserted. |
 | F7 | Submit Langkawi-only text for a locked Kuala Lumpur trip | Rejected: `LOCATION_MISMATCH`. |
 | F8 | Submit without an image, with seven images, WebP, or an image over 10 MB | Rejected before publishing with the relevant image message. |
-| F9 | Use an unfinished trip | No Create Post action in production; direct API attempt is rejected: `TRIP_NOT_ELIGIBLE`. |
-| F10 | Try to create a second post for the same completed trip | Trip History opens Edit; a direct duplicate create is rejected by the private RPC/unique constraint. |
+| F9 | Use a local demo/fallback history card | No Create Post action is shown because the entry does not exist in Supabase. |
+| F9a | Use a persisted group-history row | No Create/Edit Post action is shown; a direct API request is rejected as `HISTORY_NOT_ELIGIBLE`. |
+| F10 | Try to create a second post for the same history row | Travel History opens Edit; a direct duplicate create is rejected by the private RPC/unique constraint. |
 | F11 | Try to edit another user's post | Edit is hidden; direct API attempt is rejected as author-only. |
 | F12 | Stop the Node validator and press Publish | Publishing is blocked; Retry/unavailable message appears; temporary uploaded images are cleaned up. |
 | F13 | Remove the configured fallback/location mappings | Publishing is blocked: `TAG_CONFIGURATION_MISSING`; Flutter never guesses a tag. |
@@ -41,4 +42,4 @@ Run these cases through the main application's authenticated Trip History integr
 
 ## Automated coverage
 
-Run `npm test` inside `server/`. It covers successful create, missing images, dirty/disguised language, invalid trip status, authentication, short text, links, spam, unrelated locations, allow-list behavior, location-only tag assignment, and fallback tags. Run `flutter test` for the production-facing Community feed and integration surface.
+Run `npm test` inside `server/`. It covers successful create, missing images, dirty/disguised language, ineligible history rows, authentication, short text, links, spam, unrelated locations, allow-list behavior, location-only tag assignment, and fallback tags. Run `flutter test` for the production-facing Community feed and integration surface.

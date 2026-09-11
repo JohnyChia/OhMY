@@ -158,6 +158,7 @@ class TravelHistoryService {
         durationMinutes: 495,
         tags: const ['Food', 'Nature'],
         travelMode: 'Car + Walking',
+        isPersisted: false,
       ),
       TravelHistoryEntry(
         id: 'demo-solo-tarumt',
@@ -180,6 +181,7 @@ class TravelHistoryService {
         durationMinutes: 90,
         tags: const ['Education', 'Solo'],
         travelMode: 'Driving',
+        isPersisted: false,
       ),
     ];
   }

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:community_discovery/community_discovery.dart';
 
-import '../../community_discovery/state/community_controller.dart';
 import '../models/app_user_profile.dart';
 import '../models/traveler_profile.dart';
 import '../services/auth_service.dart';
 import '../services/traveler_profile_service.dart';
-import 'bookmarks_screen.dart';
 import 'edit_profile_screen.dart';
 import 'travel_history_screen.dart';
 import 'verification/verification_capture_screen.dart';
@@ -94,16 +93,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _showLaterMessage('Bookmarks');
       return;
     }
-    await Navigator.of(context, rootNavigator: true).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => BookmarksScreen(controller: controller),
-      ),
-    );
+    await openCommunityBookmarks(context, controller: controller);
   }
 
   Future<void> _openTravelHistory() async {
     await Navigator.of(context, rootNavigator: true).push<void>(
-      MaterialPageRoute<void>(builder: (_) => const TravelHistoryScreen()),
+      MaterialPageRoute<void>(
+        builder: (_) => TravelHistoryScreen(
+          communityController: widget.communityController,
+        ),
+      ),
     );
   }
 

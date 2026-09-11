@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:community_discovery/community_discovery.dart';
 
-import 'community_discovery/config/supabase_config.dart';
 import 'user_management/app.dart';
 
 Future<void> main() async {

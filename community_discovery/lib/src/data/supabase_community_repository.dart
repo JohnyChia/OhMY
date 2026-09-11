@@ -69,7 +69,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
     bool bookmarkedOnly = false,
   }) async {
     final rows = await _client.rpc(
-      'community_feed_v3',
+      'community_feed_v5',
       params: {
         'search_query': query.trim(),
         'tag_filters': tagIds.toList(),
@@ -135,7 +135,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<List<CompletedTrip>> getEligibleTrips() async {
-    final rows = await _client.rpc('eligible_community_trips_v2');
+    final rows = await _client.rpc('eligible_community_history_entries_v5');
     return (rows as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(CompletedTrip.fromMap)
@@ -143,10 +143,10 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   @override
-  Future<CommunityPost?> getPostForTripSession(String tripSessionId) async {
+  Future<CommunityPost?> getPostForHistoryEntry(String historyEntryId) async {
     final postId = await _client.rpc(
-      'community_post_id_for_trip_v4',
-      params: {'p_trip_session_id': tripSessionId},
+      'community_post_id_for_history_v5',
+      params: {'p_history_entry_id': historyEntryId},
     );
     if (postId == null) return null;
     final posts = await getPosts();
@@ -207,7 +207,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
     final imagePaths = await _uploadImages(input.images);
     try {
       final postId = await _validationApi.createPost(
-        tripSessionId: input.completedTripId,
+        historyEntryId: input.historyEntryId,
         title: input.title.trim(),
         description: input.description.trim(),
         imagePaths: imagePaths,

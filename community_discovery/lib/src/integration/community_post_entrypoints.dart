@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/community_post.dart';
+import '../models/completed_trip.dart';
 import '../state/community_controller.dart';
 import '../ui/create_post_screen.dart';
 import '../ui/bookmarked_posts_screen.dart';
@@ -20,38 +21,36 @@ Future<void> openCommunityBookmarks(
   ),
 );
 
-/// Preferred Trip History entrypoint: it looks up the trip and opens Create or
-/// Edit automatically. Incomplete trips are rejected by Supabase and Node.
+/// Preferred Profile Travel History entrypoint. A persisted history entry is
+/// sufficient eligibility; the server still verifies that it belongs to the
+/// signed-in user before creating or editing a post.
 Future<void> openTripHistoryPostAction(
   BuildContext context, {
   required CommunityController controller,
-  required String tripSessionId,
+  required CompletedTrip historyEntry,
 }) async {
-  final existing = await controller.getPostForTripSession(tripSessionId);
+  final existing = await controller.getPostForHistoryEntry(historyEntry.id);
   if (!context.mounted) return;
   await Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => CreatePostScreen(
         controller: controller,
-        completedTripId: existing == null ? tripSessionId : null,
+        completedTrip: existing == null ? historyEntry : null,
         post: existing,
       ),
     ),
   );
 }
 
-/// Use only from an eligible Trip History row. Supabase rejects unfinished,
-/// unrelated, non-participant, and already-posted trip sessions.
+/// Opens Create Post for a persisted Profile Travel History row.
 Future<void> openTripHistoryPostEditor(
   BuildContext context, {
   required CommunityController controller,
-  required String tripSessionId,
+  required CompletedTrip historyEntry,
 }) => Navigator.of(context).push(
   MaterialPageRoute<void>(
-    builder: (_) => CreatePostScreen(
-      controller: controller,
-      completedTripId: tripSessionId,
-    ),
+    builder: (_) =>
+        CreatePostScreen(controller: controller, completedTrip: historyEntry),
   ),
 );
 

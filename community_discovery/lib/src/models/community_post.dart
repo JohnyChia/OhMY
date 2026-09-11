@@ -19,6 +19,7 @@ class CommunityPost {
     required this.moderationStatus,
     this.authorId,
     this.tripSessionId,
+    this.historyEntryId,
     this.imagePath,
     this.imageUrl,
     this.imagePaths = const [],
@@ -31,6 +32,7 @@ class CommunityPost {
   final String? authorId;
   final String authorName;
   final String? tripSessionId;
+  final String? historyEntryId;
   final String locationName;
   final String attractionName;
   final String description;
@@ -74,6 +76,7 @@ class CommunityPost {
     authorId: authorId,
     authorName: authorName,
     tripSessionId: tripSessionId,
+    historyEntryId: historyEntryId,
     locationName: locationName,
     attractionName: attractionName,
     description: description ?? this.description,
@@ -105,6 +108,7 @@ class CommunityPost {
     authorId: map['author_id'] as String?,
     authorName: map['author_name'] as String? ?? 'Traveller',
     tripSessionId: map['trip_session_id'] as String?,
+    historyEntryId: map['history_entry_id'] as String?,
     locationName: map['location_name'] as String,
     attractionName: map['attraction_name'] as String,
     description: map['description'] as String,
