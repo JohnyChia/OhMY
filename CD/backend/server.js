@@ -10,21 +10,29 @@ const {
     searchNearbyPlaces,
     getPlaceDetails,
     getPlacePhoto
-} = require("./googlePlacesService");
+} = require("./modules/preference_recommender/googlePlacesService");
 const {
     TaggingService,
     GENERAL_TAGS,
     CULTURAL_TAGS
-} = require("./tagging-service");
+} = require("./modules/preference_recommender/tagging-service");
 const {
     buildNearbySearchPlan
-} = require("./candidate-query-planner");
+} = require("./modules/preference_recommender/candidate-query-planner");
 const {
     calculateRecommendationScore,
     rankTaggedPlaces
-} = require("./ranking-service");
-const { getWeatherOverview } = require("./weather-service");
-const { computeDrivingRoutes } = require("./routing-service");
+} = require("./modules/preference_recommender/ranking-service");
+const {
+    getCachedTaggedPlaces,
+    storeTaggedPlace
+} = require("./modules/preference_recommender/place-cache-service");
+const {
+    getWeatherOverview
+} = require("./modules/weather_traffic/weather-service");
+const {
+    computeDrivingRoutes
+} = require("./modules/weather_traffic/routing-service");
 const app = express();
 
 app.use(cors());
@@ -883,7 +891,7 @@ app.post(
                 "postal_code"
             ]);
 
-            const places =
+            let places =
                 (data.places || []).map(
                     place => ({
                         ...place,
@@ -893,6 +901,14 @@ app.post(
                             )
                     })
                 );
+
+            // Route origin/destination pickers use the same Malaysia-scoped
+            // search as the main map, but do not need selectable area rows.
+            if (req.body.placesOnly === true) {
+                places = places.filter(
+                    place => !place.isArea
+                );
+            }
 
 
             res.json({
@@ -1061,7 +1077,7 @@ app.post(
                         : null,
 
                     photos: (data.photos || [])
-                        .slice(0, 5)
+                        .slice(0, 9)
                         .map(photo => ({
                             name: photo.name,
                             authorAttributions:
@@ -1146,6 +1162,23 @@ app.post(
             const analysis =
                 tagger.aggregatePlace(reviewTexts);
 
+            let persisted = false;
+            try {
+                await storeTaggedPlace(
+                    supabase,
+                    place,
+                    analysis,
+                    TAGGER_VERSION,
+                    GENERAL_TAGS
+                );
+                persisted = true;
+            } catch (cacheError) {
+                console.warn(
+                    `Could not cache ${placeId}; returning live analysis:`,
+                    cacheError.message
+                );
+            }
+
             const taggingMs =
                 Number(
                     process.hrtime.bigint()
@@ -1160,6 +1193,7 @@ app.post(
 
             res.json({
                 success: true,
+                persisted,
                 place: {
                     id: place.id,
                     displayName: place.displayName,
@@ -1185,7 +1219,7 @@ app.post(
                         }
                         : null,
                     photos: (place.photos || [])
-                        .slice(0, 5)
+                        .slice(0, 9)
                         .map(photo => ({
                             name: photo.name,
                             authorAttributions:
@@ -1274,6 +1308,7 @@ const NEARBY_RADIUS_METRES = 10_000;
 const NEARBY_CANDIDATE_LIMIT = 30;
 const DETAILS_CONCURRENCY = 4;
 const MAXIMUM_SEARCH_TYPES = 6;
+const TAGGER_VERSION = process.env.TAGGER_VERSION || "rule-nlp-2026-09-10";
 const RESULTS_PER_SEARCH_TYPE = 8;
 
 const PREFERENCE_PLACE_TYPES = {
@@ -1634,12 +1669,135 @@ app.post(
                     )
                     .slice(0, NEARBY_CANDIDATE_LIMIT);
 
+            let cachedCandidates = new Map();
+            try {
+                cachedCandidates = await getCachedTaggedPlaces(
+                    supabase,
+                    candidates.map(candidate => candidate.id),
+                    TAGGER_VERSION
+                );
+            } catch (cacheError) {
+                console.warn(
+                    "Supabase recommendation cache lookup failed; using live processing:",
+                    cacheError.message
+                );
+            }
+
             const processed =
                 await mapWithConcurrency(
                     candidates,
                     DETAILS_CONCURRENCY,
                     async candidate => {
                         try {
+                            const cached = cachedCandidates.get(candidate.id);
+                            if (cached) {
+                                const analysis = cached.analysis;
+                                const assignedTags = [
+                                    ...analysis.generalTags,
+                                    ...analysis.culturalTags
+                                ];
+                                const validatedGeneralTags =
+                                    analysis.generalTags.filter(tag =>
+                                        matchesPreference(
+                                            tag,
+                                            assignedTags,
+                                            candidate.types
+                                        )
+                                    );
+                                const ranking = calculateRecommendationScore({
+                                    referenceGeneralTags: reference.generalTags,
+                                    referenceCulturalTags: reference.culturalTags,
+                                    candidateGeneralTags: validatedGeneralTags,
+                                    candidateCulturalTags: analysis.culturalTags,
+                                    statistics: analysis.statistics
+                                });
+                                const routeLeg =
+                                    candidate.routingSummary?.legs?.[0] || null;
+                                const durationSeconds = Number.parseFloat(
+                                    String(routeLeg?.duration || "").replace("s", "")
+                                );
+                                const routeDistanceMetres = Number(
+                                    routeLeg?.distanceMeters
+                                );
+                                const fresh = cached.metadataFresh
+                                    ? cached.place
+                                    : {};
+                                const photos = (
+                                    candidate.photos || fresh.photos || []
+                                ).slice(0, 9).map(photo => ({
+                                    name: photo.name,
+                                    authorAttributions:
+                                        photo.authorAttributions || []
+                                }));
+                                return {
+                                    status: "tagged",
+                                    place: {
+                                        id: candidate.id,
+                                        displayName:
+                                            candidate.displayName
+                                            || fresh.displayName,
+                                        formattedAddress:
+                                            candidate.formattedAddress
+                                            || fresh.formattedAddress,
+                                        location: candidate.location,
+                                        rating: fresh.rating ?? null,
+                                        googleMapsUri:
+                                            candidate.googleMapsUri
+                                            || fresh.googleMapsUri,
+                                        description:
+                                            fresh.description || null,
+                                        primaryType:
+                                            candidate.primaryType
+                                            || fresh.primaryType
+                                            || null,
+                                        photo: photos[0] || null,
+                                        photos,
+                                        types: candidate.types || fresh.types || [],
+                                        distanceMetres: Math.round(
+                                            candidate.distanceMetres
+                                        ),
+                                        distanceKm: Number((
+                                            candidate.distanceMetres / 1000
+                                        ).toFixed(2)),
+                                        routeDistanceMetres:
+                                            Number.isFinite(routeDistanceMetres)
+                                                ? routeDistanceMetres
+                                                : null,
+                                        routeDistanceKm:
+                                            Number.isFinite(routeDistanceMetres)
+                                                ? Number((
+                                                    routeDistanceMetres / 1000
+                                                ).toFixed(2))
+                                                : null,
+                                        etaMinutes:
+                                            Number.isFinite(durationSeconds)
+                                                ? Math.max(
+                                                    1,
+                                                    Math.ceil(durationSeconds / 60)
+                                                )
+                                                : Math.max(
+                                                    2,
+                                                    Math.ceil(
+                                                        candidate.distanceMetres / 500
+                                                    )
+                                                ),
+                                        etaEstimated:
+                                            !Number.isFinite(durationSeconds),
+                                        directionsUri:
+                                            candidate.routingSummary?.directionsUri
+                                            || null
+                                    },
+                                    analysis,
+                                    matchedPreferences: ranking.matchingTags,
+                                    ranking,
+                                    discoveredFrom: candidate.discoveredFrom,
+                                    eligible: ranking.matchingTags.length > 0,
+                                    performance: { taggingMs: 0 },
+                                    persisted: true,
+                                    source: "supabase_cache"
+                                };
+                            }
+
                             const place =
                                 await getPlaceDetails(
                                     candidate.id
@@ -1675,6 +1833,23 @@ app.post(
                                 tagger.aggregatePlace(
                                     reviewTexts
                                 );
+
+                            let persisted = false;
+                            try {
+                                await storeTaggedPlace(
+                                    supabase,
+                                    place,
+                                    analysis,
+                                    TAGGER_VERSION,
+                                    GENERAL_TAGS
+                                );
+                                persisted = true;
+                            } catch (cacheError) {
+                                console.warn(
+                                    `Could not cache ${candidate.id}; continuing with live result:`,
+                                    cacheError.message
+                                );
+                            }
 
                             const taggingMs =
                                 Number(
@@ -1775,7 +1950,7 @@ app.post(
                                             : null,
                                     photos:
                                         (place.photos || [])
-                                            .slice(0, 5)
+                                            .slice(0, 9)
                                             .map(photo => ({
                                                 name: photo.name,
                                                 authorAttributions:
@@ -1855,6 +2030,7 @@ app.post(
                                             taggingMs.toFixed(3)
                                         )
                                 },
+                                persisted,
                                 source: "live_google_places"
                             };
                         } catch (error) {
@@ -1883,6 +2059,20 @@ app.post(
                     item => item.eligible
                 );
 
+            const cacheHits = taggedPlaces.filter(
+                item => item.source === "supabase_cache"
+            ).length;
+            const liveProcessed = taggedPlaces.filter(
+                item => item.source === "live_google_places"
+            ).length;
+            const persistedCount = taggedPlaces.filter(
+                item => item.persisted
+            ).length;
+
+            console.log(
+                `[recommendation-cache] hits=${cacheHits} live=${liveProcessed} persisted=${persistedCount}`
+            );
+
             const totalMs =
                 Number(
                     process.hrtime.bigint()
@@ -1893,7 +2083,13 @@ app.post(
                 success: true,
                 mode,
                 ranked: true,
-                persisted: false,
+                persisted:
+                    taggedPlaces.some(item => item.persisted),
+                cache: {
+                    hits: cacheHits,
+                    liveProcessed,
+                    persistedCount
+                },
                 origin: {
                     latitude,
                     longitude

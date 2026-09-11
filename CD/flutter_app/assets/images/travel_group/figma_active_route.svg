@@ -1,0 +1,17 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="402" height="657" viewBox="0 0 402 657" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Map/Group itinerary active route" clip-path="url(#clip0_0_39)">
+<path id="Vector" d="M402 0H0V657H402V0Z" fill="#E7F2EB"/>
+<path id="Vector_2" d="M-30 100C65 58 115 145 205 104C284 68 338 76 430 28M-20 468C87 404 181 455 253 405C322 357 361 361 430 316M78 -20C120 104 58 200 124 286C180 359 142 487 100 680M292 -20C254 96 315 191 270 284C225 374 285 499 350 690" stroke="white" stroke-width="20"/>
+<path id="Vector_3" d="M-30 100C65 58 115 145 205 104C284 68 338 76 430 28M-20 468C87 404 181 455 253 405C322 357 361 361 430 316M78 -20C120 104 58 200 124 286C180 359 142 487 100 680M292 -20C254 96 315 191 270 284C225 374 285 499 350 690" stroke="#CDD9E7" stroke-width="3"/>
+<path id="Vector_4" d="M78 520C126 480 188 470 218 408C250 343 245 277 294 200C319 161 320 130 311 92" stroke="#8DB7FF" stroke-width="14" stroke-linecap="round"/>
+<path id="Vector_5" d="M78 520C126 480 188 470 218 408C250 343 245 277 294 200C319 161 320 130 311 92" stroke="#2E61C7" stroke-width="8" stroke-linecap="round"/>
+<g id="Route/Upcoming itinerary">
+<path id="Vector_6" d="M316 92C330 72 344 50 365 28" stroke="#AFC2DC" stroke-width="5" stroke-linecap="round" stroke-dasharray="8 8"/>
+</g>
+</g>
+<defs>
+<clipPath id="clip0_0_39">
+<rect width="402" height="657" fill="white"/>
+</clipPath>
+</defs>
+</svg>
