@@ -35,12 +35,13 @@ class _PasswordFieldState extends State<PasswordField> {
       decoration: InputDecoration(
         labelText: widget.label.toUpperCase(),
         floatingLabelBehavior: FloatingLabelBehavior.always,
-        hintText: '••••••••',
         suffixIcon: IconButton(
           tooltip: _obscureText ? 'Show password' : 'Hide password',
           onPressed: () => setState(() => _obscureText = !_obscureText),
           icon: Icon(
-            _obscureText ? Icons.visibility_outlined : Icons.visibility_off,
+            _obscureText
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
           ),
         ),
       ),
