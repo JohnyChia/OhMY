@@ -13,10 +13,15 @@ class CommunityFeedScreen extends StatefulWidget {
     super.key,
     required this.controller,
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
+    this.showBottomNavigation = true,
   });
 
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
+
+  /// Keep this enabled only when Community Discovery runs as a standalone app.
+  /// The host OhMY shell owns the real navigation after integration.
+  final bool showBottomNavigation;
 
   @override
   State<CommunityFeedScreen> createState() => _CommunityFeedScreenState();
@@ -177,51 +182,53 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
             ),
           ),
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: 3,
-          onDestinationSelected: (index) {
-            if (index == 4) {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => BookmarkedPostsScreen(
-                    controller: state,
-                    integrationCallbacks: widget.integrationCallbacks,
+        bottomNavigationBar: widget.showBottomNavigation
+            ? NavigationBar(
+                selectedIndex: 3,
+                onDestinationSelected: (index) {
+                  if (index == 4) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => BookmarkedPostsScreen(
+                          controller: state,
+                          integrationCallbacks: widget.integrationCallbacks,
+                        ),
+                      ),
+                    );
+                  } else if (index != 3) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'This build contains Community Discovery only.',
+                        ),
+                      ),
+                    );
+                  }
+                },
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home_outlined),
+                    label: 'Home',
                   ),
-                ),
-              );
-            } else if (index != 3) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'This build contains Community Discovery only.',
+                  NavigationDestination(
+                    icon: Icon(Icons.smart_toy_outlined),
+                    label: 'AI Chat',
                   ),
-                ),
-              );
-            }
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              label: 'Home',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.smart_toy_outlined),
-              label: 'AI Chat',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.luggage_outlined),
-              label: 'Start Trip',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.map_outlined),
-              label: 'Community',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              label: 'Profile',
-            ),
-          ],
-        ),
+                  NavigationDestination(
+                    icon: Icon(Icons.luggage_outlined),
+                    label: 'Start Trip',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.map_outlined),
+                    label: 'Community',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.person_outline),
+                    label: 'Profile',
+                  ),
+                ],
+              )
+            : null,
       );
     },
   );

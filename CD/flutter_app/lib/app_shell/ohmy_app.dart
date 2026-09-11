@@ -813,7 +813,10 @@ class CommunityModulePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CommunityFeedScreen(controller: controller);
+    return CommunityFeedScreen(
+      controller: controller,
+      showBottomNavigation: false,
+    );
   }
 }
 
