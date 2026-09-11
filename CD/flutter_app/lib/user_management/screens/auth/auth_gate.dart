@@ -39,6 +39,7 @@ class _AuthGateState extends State<AuthGate> {
         setState(() {
           _session = authState.session;
           if (authState.session == null) {
+            clearCurrentTravelerPreferences();
             _onboardingCompletedThisSession = false;
             _onboardingCheck = null;
           } else if (!_onboardingCompletedThisSession) {

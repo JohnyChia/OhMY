@@ -12,6 +12,8 @@ import 'package:http/http.dart' as http;
 import '../weather/weather_feature.dart';
 import 'navigation_sensor.dart';
 import 'native_navigation_map.dart';
+import '../../../user_management/services/traveler_profile_service.dart';
+import '../../../community_discovery/config/supabase_config.dart';
 import '../../widgets/wau_loading_indicator.dart';
 
 const _routeBlue = Color(0xff3266cc);
@@ -890,13 +892,6 @@ class ActiveNavigationPage extends StatefulWidget {
 }
 
 class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
-  static const navigationPreferences = [
-    'Museum',
-    'Heritage',
-    'Cultural Learning',
-    'Nature',
-    'Religious Heritage',
-  ];
   final navigationMapKey = GlobalKey<NativeNavigationMapState>();
   late int selectedRoute;
   late RouteLocation activeDestination;
@@ -914,6 +909,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   bool arrivalHandled = false;
   final bool useNativeNavigationFooter = false;
   final Set<String> bookmarkedRecommendations = {};
+
+  List<String> get navigationPreferences => currentTravelerPreferences.value;
 
   DrivingRoute get route => activeRoutes[selectedRoute];
   NavigationStep? get step => route.steps.isEmpty
@@ -1146,12 +1143,27 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       showRecommendationCarousel = false;
     });
     try {
+      var preferences = navigationPreferences;
+      if (mode == 'preferences' && preferences.isEmpty) {
+        if (!SupabaseConfig.isConfigured) {
+          throw Exception(
+            'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
+          );
+        }
+        preferences =
+            (await TravelerProfileService().fetchCurrentProfile())
+                ?.favoriteCategories ??
+            const [];
+        if (preferences.isEmpty) {
+          throw Exception('Your travel preferences are unavailable.');
+        }
+      }
       final body = <String, dynamic>{
         'latitude': current.latitude,
         'longitude': current.longitude,
         'mode': mode,
         if (mode == 'destination') 'destinationPlaceId': activeDestination.id,
-        if (mode == 'preferences') 'preferences': navigationPreferences,
+        if (mode == 'preferences') 'preferences': preferences,
       };
       final response = await http
           .post(

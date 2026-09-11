@@ -56,6 +56,19 @@ function Resolve-CommandPath([string]$Name) {
     return $command.Source
 }
 
+function Resolve-FlutterPath([hashtable]$AndroidProperties) {
+    $command = Get-Command 'flutter' -ErrorAction SilentlyContinue
+    if ($null -ne $command) { return $command.Source }
+
+    $flutterSdk = "$($AndroidProperties['flutter.sdk'])"
+    if (Test-ConfiguredValue $flutterSdk) {
+        $flutterBat = Join-Path $flutterSdk 'bin\flutter.bat'
+        if (Test-Path -LiteralPath $flutterBat) { return $flutterBat }
+    }
+
+    throw 'Flutter was not found in PATH or android\local.properties (flutter.sdk).'
+}
+
 function Read-EnvFile([string]$Path) {
     $values = @{}
     if (-not (Test-Path -LiteralPath $Path)) { return $values }
@@ -115,7 +128,12 @@ function Get-AdbDeviceState([string]$TargetDevice) {
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
     try {
-        return "$(& $adbExe -s $TargetDevice get-state 2>$null)".Trim()
+        foreach ($line in @(& $adbExe devices)) {
+            if ($line -match "^$([regex]::Escape($TargetDevice))\s+(\S+)") {
+                return $Matches[1]
+            }
+        }
+        return ''
     } finally {
         $ErrorActionPreference = $previousPreference
     }
@@ -205,11 +223,6 @@ try {
 if (-not (Test-Path -LiteralPath $adbExe)) {
     throw "adb was not found at $adbExe. Install Android SDK Platform-Tools."
 }
-if (-not (Test-Path -LiteralPath $emulatorExe)) {
-    throw "Android Emulator was not found at $emulatorExe."
-}
-
-$flutterExe = Resolve-CommandPath 'flutter'
 $nodeExe = Resolve-CommandPath 'node'
 $npmExe = Resolve-CommandPath 'npm.cmd'
 
@@ -226,6 +239,7 @@ if (-not (Test-Path -LiteralPath $androidLocalProperties)) {
 
 $backendEnvironment = Read-EnvFile $backendEnvFile
 $androidProperties = Read-EnvFile $androidLocalProperties
+$flutterExe = Resolve-FlutterPath $androidProperties
 Assert-ConfiguredValues $backendEnvironment @(
     'GOOGLE_PLACES_API_KEY',
     'SUPABASE_URL',
@@ -255,6 +269,9 @@ Write-Host '=== ohMY launcher ===' -ForegroundColor Magenta
 
 $isEmulator = $Device -like 'emulator-*'
 if ($isEmulator) {
+    if (-not (Test-Path -LiteralPath $emulatorExe)) {
+        throw "Android Emulator was not found at $emulatorExe."
+    }
     $deviceState = Get-AdbDeviceState $Device
     if ($ColdBoot -and $deviceState -eq 'device') {
         Write-Host "[boot] Stopping $Device for a cold boot" -ForegroundColor Cyan
@@ -275,6 +292,23 @@ if ($isEmulator) {
     } else {
         Write-Host "[ok]   $Device is already running" -ForegroundColor Green
     }
+}
+
+$deviceState = Get-AdbDeviceState $Device
+if ($deviceState -eq 'unauthorized') {
+    throw "Android phone '$Device' is unauthorized. Unlock it, accept the USB debugging prompt, then run: .\run-ohmy.ps1 -Device $Device"
+}
+if ($deviceState -eq 'offline') {
+    throw "Android device '$Device' is offline. Reconnect USB, choose File transfer, and retry."
+}
+if (-not $isEmulator -and $deviceState -ne 'device') {
+    $listedDevices = @(
+        & $adbExe devices |
+            Select-Object -Skip 1 |
+            Where-Object { $_.Trim() } |
+            ForEach-Object { ($_ -split '\s+')[0] }
+    )
+    throw "Android device '$Device' was not found. Connected devices: $($listedDevices -join ', ')."
 }
 
 Write-Host "[wait] Waiting for $Device to finish booting" -ForegroundColor Cyan
@@ -345,9 +379,21 @@ if (-not $SkipVerification) {
 
 foreach ($port in @(3000, 3001)) {
     & $adbExe -s $Device reverse "tcp:$port" "tcp:$port" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not forward backend port $port to Android device '$Device'."
+    }
 }
 if ($verificationStarted -or (Test-PortListening 8000)) {
     & $adbExe -s $Device reverse tcp:8000 tcp:8000 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not forward verification port 8000 to Android device '$Device'."
+    }
+}
+$reverseRules = @(& $adbExe -s $Device reverse --list)
+foreach ($port in @(3000, 3001)) {
+    if (-not ($reverseRules -match "tcp:$port\s+tcp:$port")) {
+        throw "Android reverse forwarding for port $port could not be verified."
+    }
 }
 Write-Host '[ok]   Android port forwarding configured' -ForegroundColor Green
 

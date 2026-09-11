@@ -1,9 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/traveler_profile.dart';
+
+/// Session-scoped copy of the authenticated traveller's compulsory interests.
+/// AuthGate loads this before the app shell is shown and profile edits refresh it.
+final ValueNotifier<List<String>> currentTravelerPreferences =
+    ValueNotifier<List<String>>(const []);
+
+void clearCurrentTravelerPreferences() {
+  currentTravelerPreferences.value = const [];
+}
 
 class TravelerProfileFailure implements Exception {
   const TravelerProfileFailure(this.message);
@@ -33,7 +43,10 @@ class TravelerProfileService {
           .eq('user_id', user.id)
           .maybeSingle();
 
-      return data == null ? null : TravelerProfile.fromJson(data);
+      final profile = data == null ? null : TravelerProfile.fromJson(data);
+      currentTravelerPreferences.value =
+          List<String>.unmodifiable(profile?.favoriteCategories ?? const []);
+      return profile;
     } catch (error) {
       throw _friendlyFailure(error);
     }
@@ -64,7 +77,10 @@ class TravelerProfileService {
           )
           .single();
 
-      return TravelerProfile.fromJson(data);
+      final profile = TravelerProfile.fromJson(data);
+      currentTravelerPreferences.value =
+          List<String>.unmodifiable(profile.favoriteCategories);
+      return profile;
     } catch (error) {
       throw _friendlyFailure(error);
     }

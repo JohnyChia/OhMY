@@ -13,6 +13,8 @@ import '../features/routes/route_feature.dart';
 import '../features/routes/navigation_sensor.dart';
 import '../features/weather/weather_feature.dart';
 import '../widgets/wau_loading_indicator.dart';
+import '../../user_management/services/traveler_profile_service.dart';
+import '../../community_discovery/config/supabase_config.dart';
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -31,13 +33,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     'BACKEND_URL',
     defaultValue: 'http://127.0.0.1:3000',
   );
-  static const preferences = [
-    'Museum',
-    'Heritage',
-    'Cultural Learning',
-    'Nature',
-    'Religious Heritage',
-  ];
   final search = TextEditingController();
   final searchFocus = FocusNode();
   final Object searchTapGroup = Object();
@@ -324,6 +319,25 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     }
   }
 
+  Future<List<String>> _travelerPreferences() async {
+    var values = currentTravelerPreferences.value;
+    if (values.isEmpty) {
+      if (!SupabaseConfig.isConfigured) {
+        throw Exception(
+          'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
+        );
+      }
+      final profile = await TravelerProfileService().fetchCurrentProfile();
+      values = profile?.favoriteCategories ?? const [];
+    }
+    if (values.isEmpty) {
+      throw Exception(
+        'Your travel preferences are unavailable. Complete your profile first.',
+      );
+    }
+    return values;
+  }
+
   Future<void> choose(Map<String, dynamic> item, bool create) async {
     final p = item['place'] as Map<String, dynamic>,
         l = p['location'] as Map<String, dynamic>;
@@ -359,6 +373,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     try {
       final pos = await position();
       if (pos == null) throw Exception('Location permission is required.');
+      final preferences = await _travelerPreferences();
       final d = await post('/api/recommendations/nearby-tagged', {
         'latitude': pos.latitude,
         'longitude': pos.longitude,
