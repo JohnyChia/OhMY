@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/travel_place_search_service.dart';
+import '../utils/profanity_filter.dart';
 import '../widgets/travel_group_widgets.dart';
 
 class CreateGroupSheet extends StatefulWidget {
@@ -34,7 +36,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
   List<TravelGroupPlace> _results = const [];
   TravelGroupPlace? _destination;
   String? _searchError;
-  int _maxMembers = 6;
+  int _maxMembers = TravelGroupController.maxTravellersPerGroup;
   JoinMode _joinMode = JoinMode.open;
   bool _searching = false;
   bool _saving = false;
@@ -106,6 +108,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                 'Group title',
                 'e.g. Sunset Photography Walk',
                 fieldKey: const Key('group_title'),
+                validator: _titleValidator,
               ),
               _destinationSearch(),
               const SizedBox(height: 12),
@@ -115,6 +118,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                 'What kind of trip is this?',
                 maxLines: 3,
                 fieldKey: const Key('group_description'),
+                validator: _descriptionValidator,
               ),
               const SizedBox(height: 4),
               const Text(
@@ -149,20 +153,11 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                     .toList(),
               ),
               const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                initialValue: _maxMembers,
-                decoration: const InputDecoration(
-                  labelText: 'Maximum travellers',
-                ),
-                items: [2, 3, 4, 5, 6, 8]
-                    .map(
-                      (size) => DropdownMenuItem(
-                        value: size,
-                        child: Text('$size travellers'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() => _maxMembers = value ?? 6),
+              TravellerStepper(
+                value: _maxMembers,
+                minValue: TravelGroupController.minTravellersPerGroup,
+                maxValue: TravelGroupController.maxTravellersPerGroup,
+                onChanged: (value) => setState(() => _maxMembers = value),
               ),
               const SizedBox(height: 14),
               SegmentedButton<JoinMode>(
@@ -209,7 +204,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                     padding: EdgeInsets.all(14),
                     child: SizedBox.square(
                       dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: WauLoadingIndicator(size: 18),
                     ),
                   )
                 : _destination != null
@@ -322,12 +317,33 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
     }
   }
 
+  String? _titleValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Group title is required';
+    }
+    if (ProfanityFilter.hasProfanity(value)) {
+      return 'Group titles cannot contain inappropriate language.';
+    }
+    return null;
+  }
+
+  String? _descriptionValidator(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Description is required';
+    }
+    if (ProfanityFilter.hasProfanity(value)) {
+      return 'Group descriptions cannot contain inappropriate language.';
+    }
+    return null;
+  }
+
   Widget _field(
     TextEditingController controller,
     String label,
     String hint, {
     int maxLines = 1,
     Key? fieldKey,
+    String? Function(String?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -336,8 +352,11 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
         controller: controller,
         maxLines: maxLines,
         decoration: InputDecoration(labelText: label, hintText: hint),
-        validator: (value) =>
-            value == null || value.trim().isEmpty ? '$label is required' : null,
+        validator:
+            validator ??
+            (value) => value == null || value.trim().isEmpty
+                ? '$label is required'
+                : null,
       ),
     );
   }
@@ -360,5 +379,92 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+class TravellerStepper extends StatelessWidget {
+  const TravellerStepper({
+    super.key,
+    required this.value,
+    required this.minValue,
+    required this.maxValue,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int minValue;
+  final int maxValue;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Maximum travellers',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _StepperButton(
+              icon: Icons.remove_rounded,
+              onPressed: value > minValue ? () => onChanged(value - 1) : null,
+            ),
+            SizedBox(
+              width: 64,
+              child: Text(
+                '$value',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.primaryDark,
+                ),
+              ),
+            ),
+            _StepperButton(
+              icon: Icons.add_rounded,
+              onPressed: value < maxValue ? () => onChanged(value + 1) : null,
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Up to maximum of 4 travellers total',
+                style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'You are included as traveller 1.',
+          style: TextStyle(fontSize: 10, color: AppColors.secondaryText),
+        ),
+      ],
+    );
+  }
+}
+
+class _StepperButton extends StatelessWidget {
+  const _StepperButton({required this.icon, required this.onPressed});
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: 40,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          padding: EdgeInsets.zero,
+          shape: const CircleBorder(),
+        ),
+        child: Icon(icon, size: 20),
+      ),
+    );
   }
 }

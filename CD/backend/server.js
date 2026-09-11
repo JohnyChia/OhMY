@@ -1241,9 +1241,13 @@ app.post(
                 error
             );
 
-            res.status(500).json({
+            const outsideMalaysia =
+                error.code === "PLACE_OUTSIDE_MALAYSIA";
+            res.status(outsideMalaysia ? 422 : 500).json({
                 error:
-                    "Failed to fetch and tag this place.",
+                    outsideMalaysia
+                        ? "Only places in Malaysia can be selected."
+                        : "Failed to fetch and tag this place.",
                 details: error.message
             });
         }

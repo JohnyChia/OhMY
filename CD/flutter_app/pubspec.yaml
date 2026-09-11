@@ -83,6 +83,7 @@ flutter:
     - assets/images/travel_group/
     - assets/images/preference_recommender/
     - assets/images/branding/
+    - assets/images/navigation/
 
 flutter_launcher_icons:
   android: true

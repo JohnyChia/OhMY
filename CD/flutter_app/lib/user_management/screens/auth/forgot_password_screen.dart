@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../../services/auth_service.dart';
 import '../../utils/auth_validators.dart';
@@ -46,7 +48,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   void _showMessage(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
+      OhMySnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red.shade700,
+      ),
     );
   }
 
@@ -89,7 +94,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               child: _isLoading
                   ? const SizedBox.square(
                       dimension: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: WauLoadingIndicator(size: 22),
                     )
                   : const Text('Send OTP'),
             ),

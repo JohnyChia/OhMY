@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:community_discovery/community_discovery.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../models/app_user_profile.dart';
 import '../models/traveler_profile.dart';
@@ -113,7 +115,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } on AuthFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+        OhMySnackBar(content: Text(error.message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _isLoggingOut = false);
@@ -132,7 +134,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildBody() {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_isLoading) return const Center(child: WauLoadingIndicator(size: 58));
     if (_loadError != null) {
       return Center(
         child: Padding(
@@ -199,7 +201,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: _isLoggingOut
               ? const SizedBox.square(
                   dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: WauLoadingIndicator(size: 18),
                 )
               : const Icon(Icons.logout),
           label: const Text('Log out'),
@@ -210,7 +212,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _showLaterMessage(String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature will be connected in a later stage.')),
+      OhMySnackBar(
+        content: Text('$feature will be connected in a later stage.'),
+      ),
     );
   }
 }

@@ -1,18 +1,31 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+
+import '../../../../preference_recommender/features/routes/navigation_sensor.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
+import '../services/live_trip_location_service.dart';
 import '../widgets/travel_group_scaffold.dart';
 import '../widgets/travel_group_widgets.dart';
 import 'itinerary_board.dart';
+import 'active_itinerary_map_screen.dart';
+import 'group_member_profile_screen.dart';
 import 'meetup_picker_screen.dart';
 import 'suggestion_board.dart';
 
 class GroupLobbyScreen extends StatefulWidget {
-  const GroupLobbyScreen({super.key, required this.controller});
+  const GroupLobbyScreen({
+    super.key,
+    required this.controller,
+    this.initialMessage,
+  });
 
   final TravelGroupController controller;
+  final String? initialMessage;
 
   @override
   State<GroupLobbyScreen> createState() => _GroupLobbyScreenState();
@@ -20,13 +33,125 @@ class GroupLobbyScreen extends StatefulWidget {
 
 class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   int _tabIndex = 0;
+  LiveTripLocationService? _locationService;
+  StreamSubscription<Position>? _positionSubscription;
+  bool _startingLocationSharing = false;
+  Position? _lastPosition;
+  String? _locationSharingError;
 
   TravelGroupController get controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
-    controller.refreshWorkspace();
+    controller.addListener(_handleControllerUpdate);
+    unawaited(_refresh());
+    final message = widget.initialMessage;
+    if (message != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) showTravelGroupMessage(context, message);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_handleControllerUpdate);
+    _positionSubscription?.cancel();
+    final service = _locationService;
+    if (service != null) unawaited(service.dispose());
+    super.dispose();
+  }
+
+  void _handleControllerUpdate() {
+    if (controller.isMember &&
+        controller.activeSession != null &&
+        _locationService == null &&
+        !_startingLocationSharing) {
+      unawaited(_startLocationSharing());
+    } else if (_locationService != null && _lastPosition != null) {
+      unawaited(_publishLocation(_locationService!, _lastPosition!));
+    }
+  }
+
+  Future<void> _refresh() async {
+    await controller.refreshWorkspace();
+    if (mounted &&
+        controller.isMember &&
+        controller.activeSession != null &&
+        _locationService == null) {
+      await _startLocationSharing();
+    }
+  }
+
+  Future<void> _startLocationSharing() async {
+    if (_locationService != null || _startingLocationSharing) return;
+    _startingLocationSharing = true;
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      final service = controller.createLiveTripLocationService();
+      _locationService = service;
+      _positionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: navigationLocationSettings,
+          ).listen(
+            (position) => unawaited(_publishLocation(service, position)),
+            onError: (Object error) => _setLocationSharingError(error),
+          );
+      try {
+        await _publishLocation(
+          service,
+          await Geolocator.getCurrentPosition(
+            locationSettings: navigationLocationSettings,
+          ),
+        );
+      } catch (error) {
+        _setLocationSharingError(error);
+      }
+    } finally {
+      _startingLocationSharing = false;
+    }
+  }
+
+  Future<void> _publishLocation(
+    LiveTripLocationService service,
+    Position position,
+  ) async {
+    _lastPosition = position;
+    final coordinate = controller.effectiveLocation(
+      position.latitude,
+      position.longitude,
+    );
+    try {
+      await service.publishOwnLocation(
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+        accuracyMeters: controller.isUsingSimulatedLocation
+            ? 5
+            : position.accuracy,
+      );
+      if (mounted && _locationSharingError != null) {
+        setState(() => _locationSharingError = null);
+      }
+    } catch (error) {
+      _setLocationSharingError(error);
+    }
+  }
+
+  void _setLocationSharingError(Object error) {
+    if (!mounted) return;
+    setState(() {
+      _locationSharingError =
+          'Live location could not reach the group. ${error.toString()}';
+    });
   }
 
   @override
@@ -97,7 +222,37 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
                         ),
-                        _StatusBadge(status: group.status),
+                        IconButton(
+                          tooltip: 'Refresh lobby',
+                          onPressed: _refresh,
+                          icon: const Icon(Icons.refresh_rounded),
+                        ),
+                        if (controller.isCreator)
+                          PopupMenuButton<String>(
+                            key: const Key('group_actions_menu'),
+                            tooltip: 'Group actions',
+                            onSelected: (value) {
+                              if (value == 'delete') {
+                                unawaited(_deleteGroup());
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem<String>(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.delete_outline_rounded,
+                                      color: Color(0xFFB3261E),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('Delete group'),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        _StatusBadge(group: group),
                       ],
                     ),
                     const SizedBox(height: 3),
@@ -122,6 +277,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                   children: [
                     _LobbyTab(
                       controller: controller,
+                      locationSharingError: _locationSharingError,
                       onSuggest: () => setState(() => _tabIndex = 1),
                     ),
                     SuggestionBoard(controller: controller),
@@ -135,21 +291,59 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
       ),
     );
   }
+
+  Future<void> _deleteGroup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this group?'),
+        content: const Text(
+          'This permanently removes the lobby, members, suggestions, and itinerary.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm_delete_group_button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB3261E),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete group'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await controller.deleteActiveGroup();
+      if (mounted) Navigator.pop(context, true);
+    } on TravelGroupException catch (error) {
+      if (mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
 }
 
 class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.status});
+  const _StatusBadge({required this.group});
 
-  final GroupStatus status;
+  final TravelGroup group;
 
   @override
   Widget build(BuildContext context) {
-    final label = switch (status) {
-      GroupStatus.waiting => 'WAITING TO START',
-      GroupStatus.active => 'TRIP ACTIVE',
-      GroupStatus.completed => 'COMPLETED',
+    final label = switch (group.tripPhase) {
+      GroupTripPhase.recruiting => 'RECRUITING',
+      GroupTripPhase.gathering => 'MEETING UP',
+      GroupTripPhase.navigating => 'ON THE WAY',
+      GroupTripPhase.choosingNext => 'CHOOSING NEXT',
+      GroupTripPhase.completed => 'COMPLETED',
+      GroupTripPhase.cancelled => 'CANCELLED',
     };
-    final color = status == GroupStatus.completed
+    final color = group.tripPhase == GroupTripPhase.completed
         ? AppColors.success
         : AppColors.primary;
     return Container(
@@ -157,11 +351,11 @@ class _StatusBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 13),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: status == GroupStatus.completed
+        color: group.tripPhase == GroupTripPhase.completed
             ? AppColors.successSurface
             : AppColors.paleBlue,
         border: Border.all(
-          color: status == GroupStatus.completed
+          color: group.tripPhase == GroupTripPhase.completed
               ? const Color(0xFF8CDBB0)
               : AppColors.border,
         ),
@@ -173,9 +367,14 @@ class _StatusBadge extends StatelessWidget {
 }
 
 class _LobbyTab extends StatelessWidget {
-  const _LobbyTab({required this.controller, required this.onSuggest});
+  const _LobbyTab({
+    required this.controller,
+    required this.locationSharingError,
+    required this.onSuggest,
+  });
 
   final TravelGroupController controller;
+  final String? locationSharingError;
   final VoidCallback onSuggest;
 
   @override
@@ -184,13 +383,50 @@ class _LobbyTab extends StatelessWidget {
     final pending = controller.joinRequests
         .where((request) => request.status == JoinRequestStatus.pending)
         .toList();
-    final confirmed = controller.suggestions
-        .where((suggestion) => suggestion.isConfirmed)
-        .length;
-    final avatarCount = group.memberIds.length > 5 ? 5 : group.memberIds.length;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
+        if (locationSharingError != null) ...[
+          AppPanel(
+            color: const Color(0xFFFFECEA),
+            borderColor: const Color(0xFFF0A39B),
+            child: Text(
+              locationSharingError!,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF8C1D18)),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (kDebugMode) ...[
+          AppPanel(
+            color: const Color(0xFFFFF6E8),
+            borderColor: const Color(0xFFF2CB8D),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    controller.isUsingSimulatedLocation
+                        ? 'Test location is being published at the destination.'
+                        : 'Testing from another city?',
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                ),
+                TextButton(
+                  key: const Key('lobby_test_location_button'),
+                  onPressed: controller.isUsingSimulatedLocation
+                      ? controller.useActualLocation
+                      : controller.simulateLocationNearDestination,
+                  child: Text(
+                    controller.isUsingSimulatedLocation
+                        ? 'Use GPS'
+                        : 'Test at destination',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         if (controller.isMember) ...[
           AppPanel(
             color: const Color(0xFFE8FAF0),
@@ -212,13 +448,44 @@ class _LobbyTab extends StatelessWidget {
                         style: TextStyle(fontSize: 14),
                       ),
                       Text(
-                        '${group.memberIds.length} of ${group.maxMembers} members',
+                        '${group.memberCount} of ${group.maxMembers} members',
                         style: const TextStyle(
                           fontSize: 10,
                           color: AppColors.secondaryText,
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
+        if (controller.isCreator && !group.isConfirmed) ...[
+          AppPanel(
+            color: const Color(0xFFFFF6E8),
+            borderColor: const Color(0xFFF2CB8D),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Confirm your travellers',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'When your group is ready, confirm it to unlock live locations and meetup selection.',
+                  style: TextStyle(fontSize: 11),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const Key('confirm_group_button'),
+                    onPressed: () => _confirmGroup(context),
+                    icon: const Icon(Icons.group_add_rounded),
+                    label: const Text('Confirm group'),
                   ),
                 ),
               ],
@@ -239,7 +506,7 @@ class _LobbyTab extends StatelessWidget {
                       style: TextStyle(fontSize: 10, color: AppColors.primary),
                     ),
                   ),
-                  if (controller.isCreator)
+                  if (controller.isCreator && group.isConfirmed)
                     OutlinedButton(
                       onPressed: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
@@ -295,86 +562,31 @@ class _LobbyTab extends StatelessWidget {
                   const Text('Members', style: TextStyle(fontSize: 14)),
                   const SizedBox(width: 12),
                   Text(
-                    '${group.memberIds.length} / ${group.maxMembers}',
+                    '${group.memberCount} / ${group.maxMembers}',
                     style: const TextStyle(
                       fontSize: 11,
                       color: AppColors.primary,
                     ),
                   ),
                   const Spacer(),
-                  OutlinedButton(
-                    onPressed: () => showTravelGroupMessage(
-                      context,
-                      'Group chat is mocked for this module.',
-                    ),
-                    child: const Text('Group chat'),
-                  ),
                 ],
               ),
               const SizedBox(height: 6),
-              Row(
-                children: [
-                  for (var index = 0; index < avatarCount; index++) ...[
-                    MemberAvatar(
-                      label: index == 0 ? 'AS' : 'M$index',
-                      color: Colors
-                          .primaries[index % Colors.primaries.length]
-                          .shade400,
-                    ),
-                    const SizedBox(width: 7),
-                  ],
-                  const Spacer(),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        '${group.creatorName} · Creator',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                      const Text(
-                        'Group creator',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: AppColors.secondaryText,
-                        ),
-                      ),
-                    ],
+              if (controller.members.isEmpty)
+                const Text(
+                  'Member profiles are loading…',
+                  style: TextStyle(color: AppColors.secondaryText),
+                )
+              else
+                for (var index = 0; index < controller.members.length; index++)
+                  _MemberProfileTile(
+                    member: controller.members[index],
+                    isCurrentUser:
+                        controller.members[index].userId ==
+                        controller.currentUser.id,
+                    onTap: () =>
+                        _openProfile(context, controller.members[index]),
                   ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        AppPanel(
-          color: AppColors.paleBlue,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Planning progress', style: TextStyle(fontSize: 14)),
-              const Text(
-                'Collaborate before the creator starts the trip.',
-                style: TextStyle(fontSize: 10, color: AppColors.secondaryText),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  _ProgressStat(
-                    value: '${controller.suggestions.length}',
-                    label: 'Suggestions',
-                  ),
-                  const SizedBox(width: 9),
-                  _ProgressStat(value: '$confirmed', label: 'Confirmed stops'),
-                  const SizedBox(width: 9),
-                  _ProgressStat(
-                    value: group.status == GroupStatus.waiting
-                        ? 'Not started'
-                        : group.status.name,
-                    label: 'Trip status',
-                    warning: group.status == GroupStatus.waiting,
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -420,10 +632,39 @@ class _LobbyTab extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
-        FilledButton(
-          onPressed: onSuggest,
-          child: const Text('+  Suggest a stop'),
-        ),
+        if (controller.isCreator && group.tripPhase == GroupTripPhase.gathering)
+          FilledButton.icon(
+            key: const Key('begin_group_trip_button'),
+            onPressed: group.meetupPoint.isEmpty || group.memberCount < 2
+                ? null
+                : () => _beginTrip(context),
+            icon: const Icon(Icons.navigation_rounded),
+            label: Text(
+              group.meetupPoint.isEmpty
+                  ? 'Set meetup point first'
+                  : group.memberCount < 2
+                  ? 'Wait for another traveller'
+                  : 'Begin group trip',
+            ),
+          )
+        else if (group.tripPhase == GroupTripPhase.choosingNext)
+          FilledButton.icon(
+            key: const Key('choose_next_stop_button'),
+            onPressed: onSuggest,
+            icon: const Icon(Icons.add_location_alt_rounded),
+            label: const Text('Choose where to go next'),
+          )
+        else if (group.tripPhase == GroupTripPhase.navigating)
+          FilledButton.icon(
+            onPressed: () => _openNavigation(context),
+            icon: const Icon(Icons.navigation_rounded),
+            label: const Text('Return to navigation'),
+          )
+        else
+          FilledButton(
+            onPressed: onSuggest,
+            child: const Text('+  Suggest a stop'),
+          ),
         const SizedBox(height: 8),
         Text(
           controller.isCreator
@@ -435,49 +676,123 @@ class _LobbyTab extends StatelessWidget {
       ],
     );
   }
+
+  Future<void> _confirmGroup(BuildContext context) async {
+    try {
+      await controller.confirmGroup();
+      if (context.mounted) {
+        showTravelGroupMessage(
+          context,
+          'Group confirmed. Live meetup planning is now available.',
+        );
+      }
+    } on TravelGroupException catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
+
+  Future<void> _beginTrip(BuildContext context) async {
+    try {
+      await controller.startItinerary();
+      if (context.mounted) await _openNavigation(context);
+    } on TravelGroupException catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
+
+  Future<void> _openNavigation(BuildContext context) =>
+      Navigator.of(context, rootNavigator: true).push<void>(
+        MaterialPageRoute(
+          builder: (_) => ActiveItineraryMapScreen(controller: controller),
+        ),
+      );
+
+  void _openProfile(BuildContext context, GroupMemberProfile member) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => GroupMemberProfileScreen(
+          member: member,
+          groupName: controller.activeGroup!.name,
+          isCurrentUser: member.userId == controller.currentUser.id,
+        ),
+      ),
+    );
+  }
 }
 
-class _ProgressStat extends StatelessWidget {
-  const _ProgressStat({
-    required this.value,
-    required this.label,
-    this.warning = false,
+class _MemberProfileTile extends StatelessWidget {
+  const _MemberProfileTile({
+    required this.member,
+    required this.isCurrentUser,
+    required this.onTap,
   });
 
-  final String value;
-  final String label;
-  final bool warning;
+  final GroupMemberProfile member;
+  final bool isCurrentUser;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        height: 52,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            FittedBox(
-              child: Text(
-                value,
-                style: TextStyle(
-                  fontSize: value.length > 4 ? 11 : 17,
-                  color: warning ? AppColors.warning : AppColors.primary,
+    return Semantics(
+      button: true,
+      label: 'View ${member.displayName} profile',
+      child: InkWell(
+        key: Key('member_profile_${member.userId}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: AppColors.primary,
+                foregroundImage:
+                    member.avatarUrl == null || member.avatarUrl!.isEmpty
+                    ? null
+                    : NetworkImage(member.avatarUrl!),
+                child: Text(
+                  member.initials,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            ),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 9,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      member.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      [
+                        member.isCreator ? 'Creator' : 'Traveller',
+                        if (isCurrentUser) 'You',
+                      ].join(' · '),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
                 color: AppColors.secondaryText,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

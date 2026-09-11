@@ -35,12 +35,13 @@ typedef LiveTripLocationServiceFactory =
     LiveTripLocationService Function({
       required TravelGroup group,
       required PrototypeUser currentUser,
+      required String? sessionId,
     });
 
 abstract interface class LiveTripLocationService {
   Stream<List<LiveMemberLocation>> watchLocations();
 
-  void publishOwnLocation({
+  Future<void> publishOwnLocation({
     required double latitude,
     required double longitude,
     double? accuracyMeters,
@@ -65,6 +66,7 @@ const demoGroupRoute = <GeoCoordinate>[
 LiveTripLocationService createMockLiveTripLocationService({
   required TravelGroup group,
   required PrototypeUser currentUser,
+  String? sessionId,
 }) {
   return MockLiveTripLocationService(group: group, currentUser: currentUser);
 }
@@ -108,7 +110,7 @@ class MockLiveTripLocationService implements LiveTripLocationService {
   }
 
   @override
-  void publishOwnLocation({
+  Future<void> publishOwnLocation({
     required double latitude,
     required double longitude,
     double? accuracyMeters,
@@ -116,6 +118,7 @@ class MockLiveTripLocationService implements LiveTripLocationService {
     _deviceCoordinate = GeoCoordinate(latitude, longitude);
     _deviceAccuracyMeters = accuracyMeters;
     _emit();
+    return Future<void>.value();
   }
 
   void _emit() {

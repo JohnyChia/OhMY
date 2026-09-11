@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:community_discovery/community_discovery.dart';
@@ -5,10 +7,22 @@ import 'package:community_discovery/community_discovery.dart';
 import '../ai_chatbot/main.dart' show ChatScreen;
 import '../preference_recommender/pages/place_map_page.dart';
 import '../travel_group/features/travel_group/controllers/travel_group_controller.dart';
+import '../travel_group/features/travel_group/models/travel_group_models.dart';
 import '../travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
+import '../travel_group/features/travel_group/repositories/supabase_travel_group_repository.dart';
 import '../travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
+import '../travel_group/features/travel_group/services/live_trip_location_service.dart';
+import '../travel_group/features/travel_group/services/supabase_live_trip_location_service.dart';
 import '../user_management/screens/auth/auth_gate.dart';
 import '../user_management/screens/profile_screen.dart';
+import 'ohmy_bottom_navigation_bar.dart';
+
+// Temporary development switch. Pass
+// --dart-define=BYPASS_TRAVEL_GROUP_VERIFICATION=false to restore the gate.
+const _bypassTravelGroupVerification = bool.fromEnvironment(
+  'BYPASS_TRAVEL_GROUP_VERIFICATION',
+  defaultValue: true,
+);
 
 class OhMyApp extends StatelessWidget {
   const OhMyApp({super.key, required this.supabaseEnabled});
@@ -24,11 +38,8 @@ class OhMyApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3266CC)),
         scaffoldBackgroundColor: const Color(0xFFF8FBFF),
-        navigationBarTheme: const NavigationBarThemeData(
-          height: 72,
-          backgroundColor: Colors.white,
-          indicatorColor: Color(0xFFDDE8FF),
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
         ),
       ),
       home: supabaseEnabled
@@ -51,12 +62,38 @@ class _OhMyShellState extends State<OhMyShell> {
   int _selectedIndex = 0;
   final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
   CommunityController? _communityController;
+  late final TravelGroupController _travelGroupController;
   late final List<WidgetBuilder> _rootBuilders;
+  StreamSubscription<AuthState>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
+    final authUser = widget.supabaseEnabled
+        ? Supabase.instance.client.auth.currentUser
+        : null;
+    final travelUser = authUser == null ? null : _prototypeUser(authUser);
+    _travelGroupController = TravelGroupController(
+      repository: widget.supabaseEnabled
+          ? SupabaseTravelGroupRepository(Supabase.instance.client)
+          : MockTravelGroupRepository.seeded(),
+      currentUser: travelUser,
+      allowDemoVerification:
+          !widget.supabaseEnabled || _bypassTravelGroupVerification,
+      liveTripLocationServiceFactory: widget.supabaseEnabled
+          ? createSupabaseLiveTripLocationService
+          : createMockLiveTripLocationService,
+    )..addListener(_onTravelGroupChanged);
     if (widget.supabaseEnabled) {
+      _authSubscription = Supabase.instance.client.auth.onAuthStateChange
+          .listen((authState) {
+            final user = authState.session?.user;
+            if (user == null ||
+                user.id != _travelGroupController.currentUser.id) {
+              return;
+            }
+            _travelGroupController.switchUser(_prototypeUser(user));
+          });
       final CommunityRepository communityRepository =
           SupabaseCommunityRepository(
             Supabase.instance.client,
@@ -67,7 +104,7 @@ class _OhMyShellState extends State<OhMyShell> {
     _rootBuilders = [
       (context) => HomeModulePage(onOpenTab: _selectTab),
       (context) => const ChatScreen(showBottomNavigation: false),
-      (context) => const StartTripHubPage(),
+      (context) => StartTripHubPage(controller: _travelGroupController),
       (context) => _communityController == null
           ? const ModuleSetupPage(
               icon: Icons.groups_outlined,
@@ -92,8 +129,36 @@ class _OhMyShellState extends State<OhMyShell> {
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
+    _travelGroupController
+      ..removeListener(_onTravelGroupChanged)
+      ..dispose();
     _communityController?.dispose();
     super.dispose();
+  }
+
+  PrototypeUser _prototypeUser(User user) {
+    final metadata = user.userMetadata ?? const <String, dynamic>{};
+    final appMetadata = user.appMetadata;
+    return PrototypeUser(
+      id: user.id,
+      name:
+          (metadata['username'] ??
+                  metadata['full_name'] ??
+                  user.email ??
+                  'Traveller')
+              .toString(),
+      isVerified:
+          _bypassTravelGroupVerification || appMetadata['is_verified'] == true,
+    );
+  }
+
+  void _onTravelGroupChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _returnToGroup() {
+    if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
   }
 
   void _selectTab(int index) {
@@ -125,58 +190,37 @@ class _OhMyShellState extends State<OhMyShell> {
         }
       },
       child: Scaffold(
-        body: IndexedStack(
-          index: _selectedIndex,
-          children: List.generate(
-            _rootBuilders.length,
-            (index) => Navigator(
-              key: _navigatorKeys[index],
-              onGenerateRoute: (_) =>
-                  MaterialPageRoute<void>(builder: _rootBuilders[index]),
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _selectedIndex,
+              children: List.generate(
+                _rootBuilders.length,
+                (index) => Navigator(
+                  key: _navigatorKeys[index],
+                  onGenerateRoute: (_) =>
+                      MaterialPageRoute<void>(builder: _rootBuilders[index]),
+                ),
+              ),
             ),
-          ),
+            if (_selectedIndex != 2 &&
+                _travelGroupController.activeGroup != null &&
+                _travelGroupController.isMember)
+              Positioned(
+                right: 14,
+                bottom: 12,
+                child: _ReturnToGroupButton(
+                  group: _travelGroupController.activeGroup!,
+                  onPressed: _returnToGroup,
+                ),
+              ),
+          ],
         ),
         bottomNavigationBar: SafeArea(
-          minimum: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-          child: Material(
-            elevation: 10,
-            shadowColor: Colors.black26,
-            clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
-              side: const BorderSide(color: Color(0xFFE5E8ED)),
-            ),
-            child: NavigationBar(
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: _selectTab,
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: 'Home',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.smart_toy_outlined),
-                  selectedIcon: Icon(Icons.smart_toy),
-                  label: 'AI Chat',
-                ),
-                NavigationDestination(
-                  icon: _StartTripNavigationIcon(),
-                  selectedIcon: _StartTripNavigationIcon(selected: true),
-                  label: 'Start Trip',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.map_outlined),
-                  selectedIcon: Icon(Icons.map),
-                  label: 'Community',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
-                  label: 'Profile',
-                ),
-              ],
-            ),
+          top: false,
+          child: OhMyBottomNavigationBar(
+            selectedIndex: _selectedIndex,
+            onSelected: _selectTab,
           ),
         ),
       ),
@@ -681,32 +725,10 @@ class _GroupPreviewCard extends StatelessWidget {
   }
 }
 
-class _StartTripNavigationIcon extends StatelessWidget {
-  const _StartTripNavigationIcon({this.selected = false});
-
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: const BoxDecoration(
-        color: Color(0xFF3B73E8),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Icon(
-        selected ? Icons.luggage : Icons.luggage_outlined,
-        color: Colors.white,
-        size: 23,
-      ),
-    );
-  }
-}
-
 class StartTripHubPage extends StatelessWidget {
-  const StartTripHubPage({super.key});
+  const StartTripHubPage({super.key, required this.controller});
+
+  final TravelGroupController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -746,7 +768,7 @@ class StartTripHubPage extends StatelessWidget {
                 'Discover or create a travel group, vote on stops and manage a shared itinerary.',
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const TravelGroupModulePage(),
+                builder: (_) => TravelGroupModulePage(controller: controller),
               ),
             ),
           ),
@@ -820,33 +842,46 @@ class CommunityModulePage extends StatelessWidget {
   }
 }
 
-class TravelGroupModulePage extends StatefulWidget {
-  const TravelGroupModulePage({super.key});
+class TravelGroupModulePage extends StatelessWidget {
+  const TravelGroupModulePage({super.key, required this.controller});
 
-  @override
-  State<TravelGroupModulePage> createState() => _TravelGroupModulePageState();
-}
-
-class _TravelGroupModulePageState extends State<TravelGroupModulePage> {
-  late final TravelGroupController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TravelGroupController(
-      repository: MockTravelGroupRepository.seeded(),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final TravelGroupController controller;
 
   @override
   Widget build(BuildContext context) {
-    return TravelGroupDiscoveryScreen(controller: _controller);
+    return TravelGroupDiscoveryScreen(controller: controller);
+  }
+}
+
+class _ReturnToGroupButton extends StatelessWidget {
+  const _ReturnToGroupButton({required this.group, required this.onPressed});
+
+  final TravelGroup group;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: FilledButton.icon(
+        key: const Key('return_to_group_button'),
+        onPressed: onPressed,
+        icon: const Badge(
+          smallSize: 9,
+          backgroundColor: Color(0xFF45C878),
+          child: Icon(Icons.groups_rounded),
+        ),
+        label: Text(
+          'Return to ${group.name}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        style: FilledButton.styleFrom(
+          elevation: 7,
+          maximumSize: const Size(240, 48),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        ),
+      ),
+    );
   }
 }
 

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/travel_place_search_service.dart';
 import '../widgets/travel_group_scaffold.dart';
+import '../widgets/travel_group_widgets.dart';
 import 'create_group_sheet.dart';
 import 'group_details_screen.dart';
 import 'group_lobby_screen.dart';
@@ -27,13 +29,6 @@ class TravelGroupDiscoveryScreen extends StatefulWidget {
 
 class _TravelGroupDiscoveryScreenState
     extends State<TravelGroupDiscoveryScreen> {
-  static const _areas = [
-    'Bukit Bintang, Kuala Lumpur',
-    'Kuala Lumpur City Centre',
-    'Subang Jaya',
-    'Setapak, Kuala Lumpur',
-  ];
-
   late final TravelPlaceSearchService _placeSearch;
   late final bool _ownsPlaceSearch;
   final Map<String, Future<String?>> _photoFutures = {};
@@ -45,6 +40,25 @@ class _TravelGroupDiscoveryScreenState
     _ownsPlaceSearch = widget.placeSearchService == null;
     _placeSearch = widget.placeSearchService ?? TravelPlaceSearchService();
     controller.loadGroups();
+    _resolveDefaultArea();
+  }
+
+  Future<void> _resolveDefaultArea() async {
+    try {
+      final matches = await _placeSearch.search(
+        controller.selectedArea,
+        placesOnly: false,
+      );
+      if (!mounted || matches.isEmpty) return;
+      final area = matches.first;
+      await controller.setArea(
+        area.name,
+        latitude: area.latitude,
+        longitude: area.longitude,
+      );
+    } catch (_) {
+      // Groups keep their repository distances until an area resolves.
+    }
   }
 
   @override
@@ -82,7 +96,7 @@ class _TravelGroupDiscoveryScreenState
               ),
               const SizedBox(height: 3),
               const Text(
-                'Find travellers. Explore together.',
+                'Groups with destinations within 10 km of your selected area.',
                 style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
               ),
               const SizedBox(height: 14),
@@ -91,7 +105,7 @@ class _TravelGroupDiscoveryScreenState
               if (controller.isLoading)
                 const Padding(
                   padding: EdgeInsets.all(40),
-                  child: Center(child: CircularProgressIndicator()),
+                  child: Center(child: WauLoadingIndicator(size: 58)),
                 )
               else if (controller.groups.isEmpty)
                 const _EmptyGroups()
@@ -120,13 +134,10 @@ class _TravelGroupDiscoveryScreenState
   }
 
   Widget _areaSelector() {
-    return PopupMenuButton<String>(
+    return InkWell(
       key: const Key('area_dropdown'),
-      initialValue: controller.selectedArea,
-      onSelected: controller.setArea,
-      itemBuilder: (context) => _areas
-          .map((area) => PopupMenuItem<String>(value: area, child: Text(area)))
-          .toList(),
+      borderRadius: BorderRadius.circular(15),
+      onTap: _openAreaPicker,
       child: Container(
         height: 50,
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -171,6 +182,18 @@ class _TravelGroupDiscoveryScreenState
     );
   }
 
+  Future<void> _openAreaPicker() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) =>
+          _AreaPickerSheet(placeSearch: _placeSearch, controller: controller),
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openCreateGroup() async {
     if (!controller.currentUser.isVerified) {
       await Navigator.push<void>(
@@ -193,24 +216,36 @@ class _TravelGroupDiscoveryScreenState
       ),
     );
     if (!mounted || created == null) return;
-    await Navigator.push<void>(
+    final deleted = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => GroupLobbyScreen(controller: controller),
+        builder: (_) => GroupLobbyScreen(
+          controller: controller,
+          initialMessage: 'Group successfully created',
+        ),
       ),
     );
+    if (deleted == true && mounted) {
+      await controller.loadGroups();
+      if (mounted) showTravelGroupMessage(context, 'Group deleted');
+    }
   }
 
   Future<void> _openGroup(TravelGroup group) async {
     await controller.openGroup(group.id);
     if (!mounted) return;
-    await Navigator.push<void>(
+    final deleted = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => GroupDetailsScreen(controller: controller),
       ),
     );
-    await controller.loadGroups();
+    if (mounted) {
+      await controller.loadGroups();
+      if (deleted == true && mounted) {
+        showTravelGroupMessage(context, 'Group deleted');
+      }
+    }
   }
 }
 
@@ -300,7 +335,7 @@ class _DestinationGroupCard extends StatelessWidget {
                       _DetailLine(
                         icon: Icons.groups_rounded,
                         text:
-                            '${group.memberIds.length} / ${group.maxMembers} travellers',
+                            '${group.memberCount} / ${group.maxMembers} travellers',
                       ),
                       const SizedBox(height: 4),
                       _DetailLine(
@@ -438,4 +473,213 @@ class _EmptyGroups extends StatelessWidget {
       ],
     ),
   );
+}
+
+class _AreaPickerSheet extends StatefulWidget {
+  const _AreaPickerSheet({required this.placeSearch, required this.controller});
+
+  final TravelPlaceSearchService placeSearch;
+  final TravelGroupController controller;
+
+  @override
+  State<_AreaPickerSheet> createState() => _AreaPickerSheetState();
+}
+
+class _AreaPickerSheetState extends State<_AreaPickerSheet> {
+  static const quickAreas = [
+    'Bukit Bintang, Kuala Lumpur',
+    'Kuala Lumpur City Centre',
+    'Subang Jaya',
+    'Setapak, Kuala Lumpur',
+  ];
+
+  final _query = TextEditingController();
+  List<TravelGroupPlace> _results = const [];
+  bool _searching = false;
+  bool _resolving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search(String value) async {
+    final query = value.trim();
+    if (query.length < 2) {
+      setState(() => _results = const []);
+      return;
+    }
+    setState(() {
+      _searching = true;
+      _error = null;
+    });
+    try {
+      final results = await widget.placeSearch.search(query, placesOnly: false);
+      if (!mounted || _query.text.trim() != query) return;
+      setState(() => _results = results);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error = 'Could not search areas. Check the backend service.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  Future<void> _selectArea(TravelGroupPlace area) async {
+    setState(() => _resolving = true);
+    try {
+      await widget.controller.setArea(
+        area.name,
+        latitude: area.latitude,
+        longitude: area.longitude,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _resolving = false;
+          _error = 'Could not select this area. Try again.';
+        });
+      }
+    }
+  }
+
+  Future<void> _selectQuickArea(String name) async {
+    setState(() => _resolving = true);
+    try {
+      final matches = await widget.placeSearch.search(name, placesOnly: false);
+      if (!mounted) return;
+      if (matches.isEmpty) {
+        setState(() {
+          _resolving = false;
+          _error = 'Could not resolve this area. Try searching instead.';
+        });
+        return;
+      }
+      await _selectArea(matches.first);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _resolving = false;
+          _error = 'Could not resolve this area. Try searching instead.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        18,
+        4,
+        18,
+        24 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Choose your area',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Group distances are measured from the centre of this area.',
+            style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('area_search_field'),
+            controller: _query,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              labelText: 'Search area',
+              hintText: 'e.g. Bangsar, Petaling Jaya',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _searching
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : null,
+            ),
+            onChanged: _search,
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _error!,
+                style: const TextStyle(fontSize: 11, color: Colors.red),
+              ),
+            ),
+          const SizedBox(height: 14),
+          const Text(
+            'Popular areas',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: quickAreas
+                .map(
+                  (area) => ActionChip(
+                    label: Text(area),
+                    onPressed: _resolving ? null : () => _selectQuickArea(area),
+                  ),
+                )
+                .toList(),
+          ),
+          if (_results.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (var index = 0; index < _results.length; index++) ...[
+                    ListTile(
+                      key: Key('area_result_$index'),
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(
+                        Icons.location_on_outlined,
+                        color: AppColors.primary,
+                      ),
+                      title: Text(_results[index].name),
+                      subtitle: Text(
+                        _results[index].address,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: _resolving
+                          ? null
+                          : () => _selectArea(_results[index]),
+                    ),
+                    if (index < _results.length - 1)
+                      const Divider(height: 1, indent: 40),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          if (_resolving)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+        ],
+      ),
+    );
+  }
 }

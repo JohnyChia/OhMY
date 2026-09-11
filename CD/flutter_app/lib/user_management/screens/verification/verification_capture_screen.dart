@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/verification_result.dart';
@@ -168,7 +170,7 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showSnackBar(OhMySnackBar(content: Text(message)));
   }
 
   @override
@@ -379,7 +381,10 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
   void _showMessage(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
+      OhMySnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red.shade700,
+      ),
     );
   }
 
@@ -618,7 +623,7 @@ class _DocumentCameraPanel extends StatelessWidget {
           else
             Center(
               child: error == null
-                  ? const CircularProgressIndicator(color: Colors.white)
+                  ? const WauLoadingIndicator(size: 58)
                   : Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
@@ -691,7 +696,7 @@ class _SelfieCameraPanel extends StatelessWidget {
           else
             Center(
               child: error == null
-                  ? const CircularProgressIndicator(color: Colors.white)
+                  ? const WauLoadingIndicator(size: 58)
                   : Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(

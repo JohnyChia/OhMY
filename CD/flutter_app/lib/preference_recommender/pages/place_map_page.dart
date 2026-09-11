@@ -13,6 +13,9 @@ import '../features/routes/route_feature.dart';
 import '../features/routes/navigation_sensor.dart';
 import '../features/weather/weather_feature.dart';
 import '../widgets/wau_loading_indicator.dart';
+import '../../user_management/services/traveler_profile_service.dart';
+import 'package:community_discovery/community_discovery.dart'
+    show SupabaseConfig;
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -31,18 +34,12 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     'BACKEND_URL',
     defaultValue: 'http://127.0.0.1:3000',
   );
-  static const preferences = [
-    'Museum',
-    'Heritage',
-    'Cultural Learning',
-    'Nature',
-    'Religious Heritage',
-  ];
   final search = TextEditingController();
   final searchFocus = FocusNode();
   final Object searchTapGroup = Object();
   final recommendationPage = PageController(viewportFraction: .9);
   Timer? searchDebounce;
+  Timer? messageTimer;
   int searchRequest = 0;
   Future<BitmapDescriptor>? recommendationMarkerFuture;
   GoogleMapController? controller;
@@ -134,55 +131,51 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     const scale = 3.0;
     const width = 46.0;
     const height = 56.0;
+    final flowerData = await rootBundle.load(
+      'assets/images/preference_recommender/location_mark.png',
+    );
+    final flowerCodec = await ui.instantiateImageCodec(
+      flowerData.buffer.asUint8List(),
+      targetWidth: (42 * scale).round(),
+      targetHeight: (42 * scale).round(),
+    );
+    final flowerFrame = await flowerCodec.getNextFrame();
+    final flowerImage = flowerFrame.image;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(scale);
-    const center = Offset(width / 2, 23);
-    final bluePaint = Paint()..color = blue;
-
-    for (var petal = 0; petal < 5; petal++) {
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate((math.pi * 2 / 5) * petal);
-      canvas.drawOval(
-        Rect.fromCenter(center: const Offset(0, -11), width: 20, height: 27),
-        bluePaint,
-      );
-      canvas.restore();
-    }
-    canvas.drawCircle(center, 12, bluePaint);
+    final pointer = Path()
+      ..moveTo(15.5, 33)
+      ..quadraticBezierTo(18, 45, width / 2, height)
+      ..quadraticBezierTo(28, 45, 30.5, 33)
+      ..close();
     canvas.drawPath(
-      Path()
-        ..moveTo(17, 38)
-        ..lineTo(width / 2, height)
-        ..lineTo(29, 38)
-        ..close(),
-      bluePaint,
+      pointer,
+      Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = 3.2,
     );
-
-    final flowerLine = Paint()
-      ..color = const Color(0xffffdf65)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.7
-      ..strokeCap = StrokeCap.round;
-    for (var petal = 0; petal < 5; petal++) {
-      canvas.save();
-      canvas.translate(center.dx, center.dy);
-      canvas.rotate((math.pi * 2 / 5) * petal);
-      canvas.drawOval(
-        Rect.fromCenter(center: const Offset(0, -10), width: 13, height: 21),
-        flowerLine,
-      );
-      canvas.restore();
-    }
-    canvas.drawCircle(center, 3.5, flowerLine);
-    canvas.drawLine(center, const Offset(35, 11), flowerLine);
-    canvas.drawCircle(const Offset(36.5, 9.5), 1.2, flowerLine);
+    canvas.drawPath(pointer, Paint()..color = const Color(0xFFFF5A7D));
+    canvas.drawImageRect(
+      flowerImage,
+      Rect.fromLTWH(
+        0,
+        0,
+        flowerImage.width.toDouble(),
+        flowerImage.height.toDouble(),
+      ),
+      const Rect.fromLTWH(2, 0, 42, 42),
+      Paint()..filterQuality = FilterQuality.high,
+    );
 
     final image = await recorder.endRecording().toImage(
       (width * scale).round(),
       (height * scale).round(),
     );
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    flowerImage.dispose();
+    flowerCodec.dispose();
     return BitmapDescriptor.bytes(
       bytes!.buffer.asUint8List(),
       imagePixelRatio: scale * 1.5,
@@ -287,6 +280,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           results = List<Map<String, dynamic>>.from(d['places'] ?? []);
           message = results.isEmpty ? 'No places found.' : null;
         });
+        _scheduleMessageDismissal();
       }
     } catch (e) {
       if (requestedId == searchRequest) fail(e);
@@ -326,6 +320,25 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     }
   }
 
+  Future<List<String>> _travelerPreferences() async {
+    var values = currentTravelerPreferences.value;
+    if (values.isEmpty) {
+      if (!SupabaseConfig.isConfigured) {
+        throw Exception(
+          'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
+        );
+      }
+      final profile = await TravelerProfileService().fetchCurrentProfile();
+      values = profile?.favoriteCategories ?? const [];
+    }
+    if (values.isEmpty) {
+      throw Exception(
+        'Your travel preferences are unavailable. Complete your profile first.',
+      );
+    }
+    return values;
+  }
+
   Future<void> choose(Map<String, dynamic> item, bool create) async {
     final p = item['place'] as Map<String, dynamic>,
         l = p['location'] as Map<String, dynamic>;
@@ -361,6 +374,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     try {
       final pos = await position();
       if (pos == null) throw Exception('Location permission is required.');
+      final preferences = await _travelerPreferences();
       final d = await post('/api/recommendations/nearby-tagged', {
         'latitude': pos.latitude,
         'longitude': pos.longitude,
@@ -397,6 +411,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           showCarousel = recommendations.isNotEmpty;
           message = recommendations.isEmpty ? 'No matches found.' : null;
         });
+        _scheduleMessageDismissal();
       }
       await Future<void>.delayed(const Duration(milliseconds: 180));
       await _showNearbyArea(visiblePoints);
@@ -475,6 +490,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
             ? 'No similar places found within 10 km.'
             : null;
       });
+      _scheduleMessageDismissal();
       await Future<void>.delayed(const Duration(milliseconds: 180));
       await _showNearbyArea(visiblePoints);
     } catch (error) {
@@ -537,7 +553,18 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   void fail(Object e) {
     if (mounted) {
       setState(() => message = e.toString().replaceFirst('Exception: ', ''));
+      _scheduleMessageDismissal();
     }
+  }
+
+  void _scheduleMessageDismissal() {
+    messageTimer?.cancel();
+    final currentMessage = message;
+    if (currentMessage == null) return;
+    messageTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted || message != currentMessage) return;
+      setState(() => message = null);
+    });
   }
 
   void toggleTraffic() => setState(() => trafficEnabled = !trafficEnabled);
@@ -578,6 +605,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           showWeatherPanel = false;
           message = error.toString().replaceFirst('Exception: ', '');
         });
+        _scheduleMessageDismissal();
       }
     } finally {
       if (mounted) setState(() => weatherLoading = false);
@@ -1207,6 +1235,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   void dispose() {
     completedJourneyLocation.removeListener(_resumeAtCompletedJourneyLocation);
     searchDebounce?.cancel();
+    messageTimer?.cancel();
     search.dispose();
     searchFocus.dispose();
     recommendationPage.dispose();

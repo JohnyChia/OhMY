@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:community_discovery/community_discovery.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../models/travel_history_entry.dart';
 import '../services/travel_history_service.dart';
@@ -46,7 +47,7 @@ class _TravelHistoryScreenState extends State<TravelHistoryScreen> {
         future: _history,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(child: WauLoadingIndicator(size: 58));
           }
           if (snapshot.hasError) {
             final message = snapshot.error is TravelHistoryFailure

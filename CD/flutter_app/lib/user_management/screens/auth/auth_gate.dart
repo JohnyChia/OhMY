@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/auth_service.dart';
@@ -25,7 +26,8 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<AuthState>? _subscription;
   Session? _session;
   Future<bool>? _onboardingCheck;
-  bool _onboardingCompletedThisSession = false;
+  String? _onboardingCheckUserId;
+  String? _onboardingCompletedUserId;
 
   @override
   void initState() {
@@ -35,13 +37,18 @@ class _AuthGateState extends State<AuthGate> {
     _subscription = _authService.authStateChanges.listen(
       (authState) {
         if (!mounted) return;
+        final previousUserId = _session?.user.id;
+        final nextUserId = authState.session?.user.id;
         setState(() {
           _session = authState.session;
           if (authState.session == null) {
-            _onboardingCompletedThisSession = false;
+            clearCurrentTravelerPreferences();
+            _onboardingCompletedUserId = null;
+            _onboardingCheckUserId = null;
             _onboardingCheck = null;
-          } else if (!_onboardingCompletedThisSession) {
-            _onboardingCheck = _hasCompletedOnboarding();
+          } else if (previousUserId != nextUserId ||
+              _onboardingCompletedUserId != nextUserId) {
+            _refreshOnboardingCheck();
           }
         });
       },
@@ -52,6 +59,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _refreshOnboardingCheck() {
+    _onboardingCheckUserId = _session?.user.id;
     _onboardingCheck = _hasCompletedOnboarding();
   }
 
@@ -62,7 +70,8 @@ class _AuthGateState extends State<AuthGate> {
 
   void _onOnboardingSaved(List<String> _) {
     setState(() {
-      _onboardingCompletedThisSession = true;
+      _onboardingCompletedUserId = _session?.user.id;
+      _onboardingCheckUserId = _session?.user.id;
       _onboardingCheck = Future.value(true);
     });
   }
@@ -78,15 +87,19 @@ class _AuthGateState extends State<AuthGate> {
     if (_session == null) {
       return const LoginScreen();
     }
-    if (_onboardingCompletedThisSession) {
+    final userId = _session!.user.id;
+    if (_onboardingCompletedUserId == userId) {
       return widget.authenticatedHome ?? const ProfileScreen();
+    }
+    if (_onboardingCheckUserId != userId) {
+      _refreshOnboardingCheck();
     }
     return FutureBuilder<bool>(
       future: _onboardingCheck ??= _hasCompletedOnboarding(),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(child: WauLoadingIndicator(size: 58)),
           );
         }
         if (snapshot.hasError) {

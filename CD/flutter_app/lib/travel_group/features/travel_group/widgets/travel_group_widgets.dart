@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../../../core/theme/app_theme.dart';
 
@@ -149,7 +150,7 @@ void showTravelGroupMessage(
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(
-      SnackBar(
+      OhMySnackBar(
         content: Text(message),
         backgroundColor: error ? const Color(0xFFBF2424) : AppColors.ink,
         behavior: SnackBarBehavior.floating,
