@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../preference_recommender/features/routes/native_navigation_map.dart';
+import '../../../../user_management/models/travel_history_entry.dart';
+import '../../../../user_management/services/travel_history_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
@@ -20,6 +22,7 @@ class ActiveItineraryMapScreen extends StatefulWidget {
 }
 
 class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
+  final TravelHistoryService _travelHistoryService = TravelHistoryService();
   late final LiveTripLocationService _locationService;
   StreamSubscription<List<LiveMemberLocation>>? _memberSubscription;
   List<LiveMemberLocation> _members = const [];
@@ -238,10 +241,63 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     );
     if (shouldEnd != true || !mounted) return;
     try {
+      final group = widget.controller.activeGroup!;
+      final completedAt = DateTime.now();
       await widget.controller.endTrip();
-      if (mounted) Navigator.pop(context);
+      await _recordCompletedTrip(group, completedAt);
+      if (mounted) {
+        showTravelGroupMessage(context, 'Group journey saved to your history.');
+        Navigator.pop(context);
+      }
     } on TravelGroupException catch (error) {
       if (mounted) showTravelGroupMessage(context, error.message, error: true);
+    }
+  }
+
+  Future<void> _recordCompletedTrip(
+    TravelGroup group,
+    DateTime completedAt,
+  ) async {
+    final estimatedMinutes = widget.controller.itinerary.fold<int>(
+      0,
+      (total, item) =>
+          total +
+          item.estimatedDurationMinutes +
+          item.travelTimeFromPreviousMinutes,
+    );
+    final startedAt =
+        widget.controller.activeTripStartedAt ??
+        completedAt.subtract(Duration(minutes: estimatedMinutes));
+    var elapsedMinutes = 0;
+    final recordedStops = widget.controller.itinerary
+        .map((item) {
+          elapsedMinutes += item.travelTimeFromPreviousMinutes;
+          final visitedAt = startedAt.add(Duration(minutes: elapsedMinutes));
+          elapsedMinutes += item.estimatedDurationMinutes;
+          return TravelHistoryStop(name: item.placeName, visitedAt: visitedAt);
+        })
+        .toList(growable: false);
+    try {
+      await _travelHistoryService.recordCompletedTrip(
+        CompletedTravelDraft(
+          type: TravelHistoryType.group,
+          sourceReference:
+              'group-${group.id}-${startedAt.microsecondsSinceEpoch}',
+          title: group.name,
+          destination: group.destination,
+          startedAt: startedAt,
+          completedAt: completedAt,
+          stops: recordedStops,
+          distanceKm: group.distanceKm,
+          durationMinutes: completedAt.difference(startedAt).inMinutes,
+          tags: group.tags,
+          travelMode: 'Group journey',
+        ),
+      );
+    } on TravelHistoryFailure catch (error) {
+      if (mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
     }
   }
 

@@ -36,6 +36,7 @@ class TravelGroupController extends ChangeNotifier {
   List<GroupSuggestion> suggestions = [];
   List<ItineraryStop> itinerary = [];
   TravelGroupTripSession? activeSession;
+  DateTime? activeTripStartedAt;
   double radiusKm = 10;
   String selectedArea = 'Bukit Bintang, Kuala Lumpur';
   double? areaLatitude;
@@ -565,6 +566,7 @@ class TravelGroupController extends ChangeNotifier {
       );
     }
     await repository.startItinerary(activeGroup!.id);
+    activeTripStartedAt = DateTime.now();
     await refreshWorkspace();
   }
 

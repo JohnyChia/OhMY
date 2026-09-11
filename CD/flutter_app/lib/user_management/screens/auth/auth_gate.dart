@@ -25,7 +25,8 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<AuthState>? _subscription;
   Session? _session;
   Future<bool>? _onboardingCheck;
-  bool _onboardingCompletedThisSession = false;
+  String? _onboardingCheckUserId;
+  String? _onboardingCompletedUserId;
 
   @override
   void initState() {
@@ -35,13 +36,17 @@ class _AuthGateState extends State<AuthGate> {
     _subscription = _authService.authStateChanges.listen(
       (authState) {
         if (!mounted) return;
+        final previousUserId = _session?.user.id;
+        final nextUserId = authState.session?.user.id;
         setState(() {
           _session = authState.session;
           if (authState.session == null) {
-            _onboardingCompletedThisSession = false;
+            _onboardingCompletedUserId = null;
+            _onboardingCheckUserId = null;
             _onboardingCheck = null;
-          } else if (!_onboardingCompletedThisSession) {
-            _onboardingCheck = _hasCompletedOnboarding();
+          } else if (previousUserId != nextUserId ||
+              _onboardingCompletedUserId != nextUserId) {
+            _refreshOnboardingCheck();
           }
         });
       },
@@ -52,6 +57,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _refreshOnboardingCheck() {
+    _onboardingCheckUserId = _session?.user.id;
     _onboardingCheck = _hasCompletedOnboarding();
   }
 
@@ -62,7 +68,8 @@ class _AuthGateState extends State<AuthGate> {
 
   void _onOnboardingSaved(List<String> _) {
     setState(() {
-      _onboardingCompletedThisSession = true;
+      _onboardingCompletedUserId = _session?.user.id;
+      _onboardingCheckUserId = _session?.user.id;
       _onboardingCheck = Future.value(true);
     });
   }
@@ -78,8 +85,12 @@ class _AuthGateState extends State<AuthGate> {
     if (_session == null) {
       return const LoginScreen();
     }
-    if (_onboardingCompletedThisSession) {
+    final userId = _session!.user.id;
+    if (_onboardingCompletedUserId == userId) {
       return widget.authenticatedHome ?? const ProfileScreen();
+    }
+    if (_onboardingCheckUserId != userId) {
+      _refreshOnboardingCheck();
     }
     return FutureBuilder<bool>(
       future: _onboardingCheck ??= _hasCompletedOnboarding(),

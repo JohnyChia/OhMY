@@ -18,4 +18,27 @@ void main() {
     expect(entry.destination, 'Kuala Lumpur');
     expect(entry.completedAt, DateTime.utc(2026, 9, 1, 4));
   });
+
+  test('maps a completed unified trip with itinerary details', () {
+    final entry = TravelHistoryEntry.fromSupabase({
+      'id': 'history-id',
+      'source_type': 'solo',
+      'title': 'Batu Caves Solo Trip',
+      'destination': 'Batu Caves',
+      'started_at': '2026-09-10T01:00:00Z',
+      'ended_at': '2026-09-10T02:15:00Z',
+      'distance_km': 12.4,
+      'duration_minutes': 75,
+      'tags': ['Cultural'],
+      'travel_mode': 'Driving',
+      'itinerary': [
+        {'name': 'Batu Caves', 'visited_at': '2026-09-10T02:15:00Z'},
+      ],
+    });
+
+    expect(entry.type, TravelHistoryType.solo);
+    expect(entry.stops.single.name, 'Batu Caves');
+    expect(entry.distanceKm, 12.4);
+    expect(entry.durationMinutes, 75);
+  });
 }
