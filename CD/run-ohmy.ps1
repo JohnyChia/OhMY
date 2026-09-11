@@ -39,6 +39,8 @@ $backendRoot = Join-Path $projectRoot 'backend'
 $flutterApp = Join-Path $projectRoot 'flutter_app'
 $chatbotRoot = Join-Path $backendRoot 'modules\ai_chatbot'
 $verifiedRoot = Join-Path $backendRoot 'modules\verified_traveller'
+$communityRoot = Join-Path (Split-Path -Parent $projectRoot) `
+    'community_discovery\server'
 $backendEnvFile = Join-Path $backendRoot '.env'
 $chatbotEnvFile = Join-Path $chatbotRoot '.env'
 $verifiedEnvFile = Join-Path $verifiedRoot '.env'
@@ -258,6 +260,13 @@ if (-not (Test-ConfiguredValue "$androidMapsKey")) {
 
 Install-NodeDependencies 'recommendation backend' $backendRoot $npmExe
 Install-NodeDependencies 'AI chatbot' $chatbotRoot $npmExe
+Install-NodeDependencies 'Community validation service' $communityRoot $npmExe
+if ($InstallDependencies -or
+    -not (Test-Path -LiteralPath (Join-Path $communityRoot 'dist\index.js'))) {
+    Write-Host '[setup] Building Community validation service' -ForegroundColor Cyan
+    Push-Location $communityRoot
+    try { & $npmExe run build } finally { Pop-Location }
+}
 if ($InstallDependencies -or
     -not (Test-Path -LiteralPath (Join-Path $flutterApp '.dart_tool\package_config.json'))) {
     Write-Host '[setup] Installing Flutter dependencies' -ForegroundColor Cyan
@@ -345,6 +354,19 @@ Start-BackgroundService `
     'Nova AI chatbot and voice transcription' 3001 $nodeExe @('server.js') `
     $chatbotRoot $chatbotEnvironment
 
+$communityEnvironment = @{
+    'PORT' = '3002'
+    'SUPABASE_URL' = $backendEnvironment['SUPABASE_URL']
+    'SUPABASE_SERVICE_ROLE_KEY' = $backendEnvironment['SUPABASE_SERVICE_ROLE_KEY']
+}
+if ($backendEnvironment.ContainsKey('GOOGLE_PLACES_API_KEY')) {
+    $communityEnvironment['GOOGLE_PLACES_API_KEY'] =
+        $backendEnvironment['GOOGLE_PLACES_API_KEY']
+}
+Start-BackgroundService `
+    'Community validation service' 3002 $nodeExe @('dist/index.js') `
+    $communityRoot $communityEnvironment
+
 $verificationStarted = $false
 if (-not $SkipVerification) {
     $venvPython = Join-Path $verifiedRoot '.venv\Scripts\python.exe'
@@ -377,7 +399,7 @@ if (-not $SkipVerification) {
     }
 }
 
-foreach ($port in @(3000, 3001)) {
+foreach ($port in @(3000, 3001, 3002)) {
     & $adbExe -s $Device reverse "tcp:$port" "tcp:$port" | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Could not forward backend port $port to Android device '$Device'."
@@ -404,6 +426,7 @@ $flutterArguments = @(
     "--dart-define=SUPABASE_ANON_KEY=$($backendEnvironment['SUPABASE_ANON_KEY'])",
     '--dart-define=BACKEND_URL=http://127.0.0.1:3000',
     '--dart-define=AI_CHATBOT_URL=http://127.0.0.1:3001',
+    '--dart-define=COMMUNITY_API_URL=http://127.0.0.1:3002',
     '--dart-define=VERIFICATION_API_URL=http://127.0.0.1:8000',
     '--dart-define=NAVIGATION_SIMULATION=true'
 )
