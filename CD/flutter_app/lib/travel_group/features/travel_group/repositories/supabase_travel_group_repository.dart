@@ -84,6 +84,57 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<List<GroupMemberProfile>> getMembers(String groupId) async {
+    try {
+      final memberRows = await _client
+          .from('travel_group_members')
+          .select('user_id, display_name, avatar_url, role, joined_at')
+          .eq('group_id', groupId)
+          .order('joined_at');
+      final userIds = memberRows
+          .map((row) => row['user_id'].toString())
+          .toList(growable: false);
+      final profileRows = userIds.isEmpty
+          ? <Map<String, dynamic>>[]
+          : await _client
+                .from('traveler_profiles')
+                .select(
+                  'user_id, preferred_language, travel_style, '
+                  'favorite_categories, budget_preference',
+                )
+                .inFilter('user_id', userIds);
+      final profilesByUser = {
+        for (final row in profileRows) row['user_id'].toString(): row,
+      };
+      return memberRows
+          .map((member) {
+            final userId = member['user_id'].toString();
+            final profile = profilesByUser[userId];
+            return GroupMemberProfile(
+              userId: userId,
+              displayName:
+                  member['display_name']?.toString().trim().isNotEmpty == true
+                  ? member['display_name'].toString().trim()
+                  : 'Traveller',
+              avatarUrl: member['avatar_url']?.toString(),
+              role: member['role']?.toString() ?? 'member',
+              interests: List<String>.from(
+                (profile?['favorite_categories'] as List? ?? const []).map(
+                  (item) => item.toString(),
+                ),
+              ),
+              preferredLanguage: profile?['preferred_language']?.toString(),
+              travelStyle: profile?['travel_style']?.toString(),
+              budgetPreference: profile?['budget_preference']?.toString(),
+            );
+          })
+          .toList(growable: false);
+    } catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
   Future<TravelGroup> createGroup(TravelGroup group) async {
     try {
       final groupId = await _client.rpc(
@@ -104,6 +155,19 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
         },
       );
       return (await getGroup(groupId.toString()))!;
+    } catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
+  Future<void> deleteGroup(String groupId) async {
+    try {
+      await _client
+          .from('travel_groups')
+          .delete()
+          .eq('id', groupId)
+          .eq('creator_id', _user.id);
     } catch (error) {
       throw _failure(error);
     }
@@ -155,9 +219,34 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<int> simulateDemoMembersTowardMeetup({
+    required String sessionId,
+    required double latitude,
+    required double longitude,
+    bool resetPositions = false,
+  }) async {
+    try {
+      final result = await _client.rpc(
+        'simulate_travel_group_members_toward_meetup',
+        params: {
+          'target_session_id': sessionId,
+          'target_latitude': latitude,
+          'target_longitude': longitude,
+          'reset_positions': resetPositions,
+        },
+      );
+      return (result as num?)?.toInt() ?? 0;
+    } catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
   Future<void> joinOpenGroup({
     required String groupId,
     required String travellerId,
+    required double latitude,
+    required double longitude,
   }) async {
     try {
       await _client.rpc(
@@ -165,6 +254,8 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
         params: {
           'target_group_id': groupId,
           'member_display_name': _displayName,
+          'member_latitude': latitude,
+          'member_longitude': longitude,
         },
       );
     } catch (error) {
@@ -176,6 +267,8 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   Future<JoinRequest> requestToJoin({
     required String groupId,
     required PrototypeUser traveller,
+    required double latitude,
+    required double longitude,
   }) async {
     try {
       final row = await _client
@@ -184,6 +277,8 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
             'group_id': groupId,
             'user_id': traveller.id,
             'traveller_name': traveller.name,
+            'request_latitude': latitude,
+            'request_longitude': longitude,
           })
           .select()
           .single();

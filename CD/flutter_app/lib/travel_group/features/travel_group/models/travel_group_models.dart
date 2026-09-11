@@ -27,6 +27,41 @@ class PrototypeUser {
   bool isVerified;
 }
 
+class GroupMemberProfile {
+  const GroupMemberProfile({
+    required this.userId,
+    required this.displayName,
+    required this.role,
+    this.avatarUrl,
+    this.interests = const [],
+    this.preferredLanguage,
+    this.travelStyle,
+    this.budgetPreference,
+  });
+
+  final String userId;
+  final String displayName;
+  final String role;
+  final String? avatarUrl;
+  final List<String> interests;
+  final String? preferredLanguage;
+  final String? travelStyle;
+  final String? budgetPreference;
+
+  bool get isCreator => role == 'creator';
+
+  String get initials {
+    final words = displayName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .take(2)
+        .toList();
+    if (words.isEmpty) return '?';
+    return words.map((word) => word[0].toUpperCase()).join();
+  }
+}
+
 class TravelGroup {
   TravelGroup({
     required this.id,

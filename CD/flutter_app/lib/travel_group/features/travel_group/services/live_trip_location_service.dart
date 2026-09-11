@@ -41,7 +41,7 @@ typedef LiveTripLocationServiceFactory =
 abstract interface class LiveTripLocationService {
   Stream<List<LiveMemberLocation>> watchLocations();
 
-  void publishOwnLocation({
+  Future<void> publishOwnLocation({
     required double latitude,
     required double longitude,
     double? accuracyMeters,
@@ -110,7 +110,7 @@ class MockLiveTripLocationService implements LiveTripLocationService {
   }
 
   @override
-  void publishOwnLocation({
+  Future<void> publishOwnLocation({
     required double latitude,
     required double longitude,
     double? accuracyMeters,
@@ -118,6 +118,7 @@ class MockLiveTripLocationService implements LiveTripLocationService {
     _deviceCoordinate = GeoCoordinate(latitude, longitude);
     _deviceAccuracyMeters = accuracyMeters;
     _emit();
+    return Future<void>.value();
   }
 
   void _emit() {

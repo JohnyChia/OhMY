@@ -192,6 +192,66 @@ void main() {
       expect(group.memberIds.length, lessThan(group.maxMembers));
     });
 
+    test('createGroup follows the repository-assigned group id', () async {
+      final remoteRepository = _RemoteIdRepository();
+      final remoteController = TravelGroupController(
+        repository: remoteRepository,
+      );
+
+      final group = await remoteController.createGroup(
+        name: 'Ampang Gang',
+        destination: _ampangPlace(),
+        description: 'A hike around Ampang.',
+        tags: const ['Nature'],
+        maxMembers: 4,
+        joinMode: JoinMode.open,
+      );
+
+      expect(group.id, 'REMOTE_GROUP_ID');
+      expect(remoteController.activeGroup?.id, 'REMOTE_GROUP_ID');
+    });
+
+    test('only the creator can delete a group', () async {
+      await controller.openGroup('GROUP_001');
+      await controller.deleteActiveGroup();
+      expect(await repository.getGroup('GROUP_001'), isNull);
+      expect(controller.activeGroup, isNull);
+
+      await controller.openGroup('GROUP_002');
+      await expectLater(
+        controller.deleteActiveGroup(),
+        throwsA(
+          isA<TravelGroupException>().having(
+            (error) => error.code,
+            'code',
+            'creator_only',
+          ),
+        ),
+      );
+    });
+
+    test('only travellers within 10 km of the destination can join', () async {
+      await controller.openGroup('GROUP_002');
+
+      await expectLater(
+        controller.joinActiveGroup(
+          location: const GeoCoordinate(3.1094685, 101.4602178),
+        ),
+        throwsA(
+          isA<TravelGroupException>().having(
+            (error) => error.code,
+            'code',
+            'outside_destination_radius',
+          ),
+        ),
+      );
+
+      await controller.joinActiveGroup(
+        location: const GeoCoordinate(3.1580, 101.7120),
+      );
+      expect(controller.isMember, isTrue);
+    });
+
     test('the first destination cannot be suggested again', () async {
       await controller.createGroup(
         name: 'KLCC Evening Stroll',
@@ -226,6 +286,22 @@ void main() {
         ),
       );
     });
+
+    test(
+      'creator can simulate demo travellers after confirming group',
+      () async {
+        await controller.openGroup('GROUP_001');
+        await controller.confirmGroup();
+
+        final simulated = await controller.simulateDemoMembersTowardMeetup(
+          latitude: 3.1500,
+          longitude: 101.7100,
+          resetPositions: true,
+        );
+
+        expect(simulated, 2);
+      },
+    );
 
     test(
       'reorder recalculates legs and itinerary stops can be removed',
@@ -405,3 +481,42 @@ TravelGroupPlace _place() => const TravelGroupPlace(
   latitude: 3.1532,
   longitude: 101.7149,
 );
+
+TravelGroupPlace _ampangPlace() => const TravelGroupPlace(
+  id: 'places/saga-hill',
+  name: 'Saga Hill',
+  address: 'Taman Saga, 68000 Ampang, Selangor',
+  latitude: 3.1096205,
+  longitude: 101.7790292,
+);
+
+class _RemoteIdRepository extends MockTravelGroupRepository {
+  _RemoteIdRepository()
+    : super(groups: [], requests: [], suggestions: [], itinerary: []);
+
+  @override
+  Future<TravelGroup> createGroup(TravelGroup group) {
+    return super.createGroup(
+      TravelGroup(
+        id: 'REMOTE_GROUP_ID',
+        creatorId: group.creatorId,
+        creatorName: group.creatorName,
+        name: group.name,
+        destination: group.destination,
+        description: group.description,
+        meetupPoint: group.meetupPoint,
+        tags: List<String>.from(group.tags),
+        maxMembers: group.maxMembers,
+        distanceKm: group.distanceKm,
+        joinMode: group.joinMode,
+        status: group.status,
+        memberIds: List<String>.from(group.memberIds),
+        destinationPlaceId: group.destinationPlaceId,
+        destinationAddress: group.destinationAddress,
+        destinationLatitude: group.destinationLatitude,
+        destinationLongitude: group.destinationLongitude,
+        destinationPhotoName: group.destinationPhotoName,
+      ),
+    );
+  }
+}

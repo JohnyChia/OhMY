@@ -19,6 +19,7 @@ class TravelGroupController extends ChangeNotifier {
 
   static const minTravellersPerGroup = 2;
   static const maxTravellersPerGroup = 4;
+  static const maximumJoinDistanceKm = 10.0;
 
   final TravelGroupRepository repository;
   final bool allowDemoVerification;
@@ -32,6 +33,7 @@ class TravelGroupController extends ChangeNotifier {
   late PrototypeUser currentUser;
   List<TravelGroup> groups = [];
   TravelGroup? activeGroup;
+  List<GroupMemberProfile> members = [];
   List<JoinRequest> joinRequests = [];
   List<GroupSuggestion> suggestions = [];
   List<ItineraryStop> itinerary = [];
@@ -45,9 +47,32 @@ class TravelGroupController extends ChangeNotifier {
   bool openOnly = false;
   bool isLoading = false;
   int _localIdSequence = 0;
+  GeoCoordinate? simulatedLocationOverride;
 
   bool get isCreator => activeGroup?.creatorId == currentUser.id;
   bool get isMember => activeGroup?.memberIds.contains(currentUser.id) ?? false;
+  bool get isUsingSimulatedLocation => simulatedLocationOverride != null;
+
+  GeoCoordinate effectiveLocation(double latitude, double longitude) =>
+      simulatedLocationOverride ?? GeoCoordinate(latitude, longitude);
+
+  void simulateLocationNearDestination() {
+    final group = activeGroup;
+    final latitude = group?.destinationLatitude;
+    final longitude = group?.destinationLongitude;
+    if (latitude == null || longitude == null) return;
+    simulateLocationAt(latitude, longitude);
+  }
+
+  void simulateLocationAt(double latitude, double longitude) {
+    simulatedLocationOverride = GeoCoordinate(latitude, longitude);
+    notifyListeners();
+  }
+
+  void useActualLocation() {
+    simulatedLocationOverride = null;
+    notifyListeners();
+  }
 
   LiveTripLocationService createLiveTripLocationService() {
     final group = activeGroup;
@@ -142,6 +167,7 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   Future<void> openGroup(String groupId) async {
+    if (activeGroup?.id != groupId) simulatedLocationOverride = null;
     activeGroup = await repository.getGroup(groupId);
     if (activeGroup == null) {
       throw const TravelGroupException('Travel group not found.', 'not_found');
@@ -152,6 +178,7 @@ class TravelGroupController extends ChangeNotifier {
   Future<void> refreshWorkspace() async {
     final group = activeGroup;
     if (group == null) return;
+    members = await repository.getMembers(group.id);
     joinRequests = await repository.getJoinRequests(group.id);
     suggestions = await repository.getSuggestions(group.id);
     itinerary = await repository.getItinerary(group.id);
@@ -266,10 +293,23 @@ class TravelGroupController extends ChangeNotifier {
       destinationLongitude: destination.longitude,
       destinationPhotoName: destination.photoName,
     );
-    await repository.createGroup(group);
+    final created = await repository.createGroup(group);
     await loadGroups();
-    await openGroup(group.id);
-    return group;
+    await openGroup(created.id);
+    return activeGroup ?? created;
+  }
+
+  Future<void> deleteActiveGroup() async {
+    _requireCreator();
+    final groupId = activeGroup!.id;
+    await repository.deleteGroup(groupId);
+    groups.removeWhere((group) => group.id == groupId);
+    activeGroup = null;
+    members = [];
+    joinRequests = [];
+    suggestions = [];
+    itinerary = [];
+    activeSession = null;
   }
 
   Future<void> editGroup({
@@ -352,6 +392,27 @@ class TravelGroupController extends ChangeNotifier {
     if (isCreator) await _persistRecalculatedItinerary();
   }
 
+  Future<int> simulateDemoMembersTowardMeetup({
+    required double latitude,
+    required double longitude,
+    bool resetPositions = false,
+  }) async {
+    _requireCreator();
+    final session = activeSession;
+    if (session == null || session.phase != GroupTripPhase.gathering) {
+      throw const TravelGroupException(
+        'Confirm the group before simulating meetup locations.',
+        'group_not_confirmed',
+      );
+    }
+    return repository.simulateDemoMembersTowardMeetup(
+      sessionId: session.id,
+      latitude: latitude,
+      longitude: longitude,
+      resetPositions: resetPositions,
+    );
+  }
+
   static double _distanceBetween(
     double startLatitude,
     double startLongitude,
@@ -373,16 +434,46 @@ class TravelGroupController extends ChangeNotifier {
     return earthRadiusMeters * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
   }
 
-  Future<void> joinActiveGroup() async {
+  Future<void> joinActiveGroup({required GeoCoordinate location}) async {
     _requireVerified();
     final group = activeGroup!;
+    final destinationLatitude = group.destinationLatitude;
+    final destinationLongitude = group.destinationLongitude;
+    if (destinationLatitude == null || destinationLongitude == null) {
+      throw const TravelGroupException(
+        'This group has no valid destination location.',
+        'destination_location_missing',
+      );
+    }
+    final effective = simulatedLocationOverride ?? location;
+    final distanceKm =
+        _distanceBetween(
+          effective.latitude,
+          effective.longitude,
+          destinationLatitude,
+          destinationLongitude,
+        ) /
+        1000;
+    if (distanceKm > maximumJoinDistanceKm) {
+      throw TravelGroupException(
+        'You are ${distanceKm.toStringAsFixed(1)} km from ${group.destination}. Move within 10 km to join.',
+        'outside_destination_radius',
+      );
+    }
     if (group.joinMode == JoinMode.open) {
       await repository.joinOpenGroup(
         groupId: group.id,
         travellerId: currentUser.id,
+        latitude: effective.latitude,
+        longitude: effective.longitude,
       );
     } else {
-      await repository.requestToJoin(groupId: group.id, traveller: currentUser);
+      await repository.requestToJoin(
+        groupId: group.id,
+        traveller: currentUser,
+        latitude: effective.latitude,
+        longitude: effective.longitude,
+      );
     }
     await refreshWorkspace();
     await loadGroups();

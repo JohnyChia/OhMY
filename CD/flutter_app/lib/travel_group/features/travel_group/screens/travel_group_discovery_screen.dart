@@ -6,6 +6,7 @@ import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/travel_place_search_service.dart';
 import '../widgets/travel_group_scaffold.dart';
+import '../widgets/travel_group_widgets.dart';
 import 'create_group_sheet.dart';
 import 'group_details_screen.dart';
 import 'group_lobby_screen.dart';
@@ -95,7 +96,7 @@ class _TravelGroupDiscoveryScreenState
               ),
               const SizedBox(height: 3),
               const Text(
-                'Find travellers. Explore together.',
+                'Groups with destinations within 10 km of your selected area.',
                 style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
               ),
               const SizedBox(height: 14),
@@ -215,24 +216,36 @@ class _TravelGroupDiscoveryScreenState
       ),
     );
     if (!mounted || created == null) return;
-    await Navigator.push<void>(
+    final deleted = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => GroupLobbyScreen(controller: controller),
+        builder: (_) => GroupLobbyScreen(
+          controller: controller,
+          initialMessage: 'Group successfully created',
+        ),
       ),
     );
+    if (deleted == true && mounted) {
+      await controller.loadGroups();
+      if (mounted) showTravelGroupMessage(context, 'Group deleted');
+    }
   }
 
   Future<void> _openGroup(TravelGroup group) async {
     await controller.openGroup(group.id);
     if (!mounted) return;
-    await Navigator.push<void>(
+    final deleted = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => GroupDetailsScreen(controller: controller),
       ),
     );
-    await controller.loadGroups();
+    if (mounted) {
+      await controller.loadGroups();
+      if (deleted == true && mounted) {
+        showTravelGroupMessage(context, 'Group deleted');
+      }
+    }
   }
 }
 

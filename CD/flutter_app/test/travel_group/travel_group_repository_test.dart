@@ -14,10 +14,14 @@ void main() {
       await repository.joinOpenGroup(
         groupId: 'GROUP_002',
         travellerId: 'USER_TEST',
+        latitude: 3.1580,
+        longitude: 101.7120,
       );
       await repository.joinOpenGroup(
         groupId: 'GROUP_002',
         travellerId: 'USER_TEST',
+        latitude: 3.1580,
+        longitude: 101.7120,
       );
       final group = await repository.getGroup('GROUP_002');
       expect(group!.memberIds.where((id) => id == 'USER_TEST').length, 1);
@@ -33,10 +37,14 @@ void main() {
       final first = await repository.requestToJoin(
         groupId: 'GROUP_003',
         traveller: user,
+        latitude: 3.2379,
+        longitude: 101.6806,
       );
       final second = await repository.requestToJoin(
         groupId: 'GROUP_003',
         traveller: user,
+        latitude: 3.2379,
+        longitude: 101.6806,
       );
       expect(second.id, first.id);
     });
@@ -58,6 +66,20 @@ void main() {
       )).firstWhere((item) => item.id == 'SUGGESTION_002');
       expect(suggestion.upvoterIds.contains('USER_100'), isFalse);
       expect(suggestion.downvoterIds.contains('USER_100'), isTrue);
+    });
+
+    test('returns group-safe member profiles for every member', () async {
+      final repository = MockTravelGroupRepository.seeded();
+      final group = (await repository.getGroup('GROUP_001'))!;
+      final members = await repository.getMembers(group.id);
+
+      expect(members.length, group.memberIds.length);
+      expect(members.first.displayName, group.creatorName);
+      expect(members.first.isCreator, isTrue);
+      expect(
+        members.firstWhere((member) => member.userId == 'USER_101').interests,
+        contains('Heritage'),
+      );
     });
 
     test(
@@ -114,7 +136,7 @@ void main() {
 
     final updatedFuture = service.watchLocations().skip(1).first;
     await Future<void>.delayed(Duration.zero);
-    service.publishOwnLocation(
+    await service.publishOwnLocation(
       latitude: 3.139,
       longitude: 101.6869,
       accuracyMeters: 5,

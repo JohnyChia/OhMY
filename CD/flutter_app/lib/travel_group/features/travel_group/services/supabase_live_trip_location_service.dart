@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/travel_group_models.dart';
@@ -74,22 +72,35 @@ class SupabaseLiveTripLocationService implements LiveTripLocationService {
   }
 
   @override
-  void publishOwnLocation({
+  Future<void> publishOwnLocation({
     required double latitude,
     required double longitude,
     double? accuracyMeters,
   }) {
-    if (_disposed) return;
-    unawaited(
-      _client.from('travel_group_live_locations').upsert({
-        'session_id': sessionId,
-        'user_id': currentUser.id,
-        'latitude': latitude,
-        'longitude': longitude,
-        'accuracy_m': accuracyMeters,
-        'recorded_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'session_id,user_id'),
-    );
+    if (_disposed) return Future<void>.value();
+    final now = DateTime.now().toUtc().toIso8601String();
+    return _publish(latitude, longitude, accuracyMeters, now);
+  }
+
+  Future<void> _publish(
+    double latitude,
+    double longitude,
+    double? accuracyMeters,
+    String now,
+  ) async {
+    await _client.from('travel_group_live_locations').upsert({
+      'session_id': sessionId,
+      'user_id': currentUser.id,
+      'latitude': latitude,
+      'longitude': longitude,
+      'accuracy_m': accuracyMeters,
+      'recorded_at': now,
+    }, onConflict: 'session_id,user_id');
+    await _client
+        .from('travel_group_trip_participants')
+        .update({'sharing_enabled': true, 'last_seen_at': now})
+        .eq('session_id', sessionId)
+        .eq('user_id', currentUser.id);
   }
 
   @override

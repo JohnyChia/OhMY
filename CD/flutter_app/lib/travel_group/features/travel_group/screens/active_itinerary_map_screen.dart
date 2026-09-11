@@ -91,32 +91,51 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     }
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           Positioned.fill(
-            child: NativeNavigationMap(
-              destinationName: stop.placeName,
-              destinationLatitude: stop.latitude!,
-              destinationLongitude: stop.longitude!,
-              routeToken: '',
-              trafficEnabled: true,
-              onArrived: () => unawaited(_completeStop()),
-              onLocation: (latitude, longitude) {
-                _locationService.publishOwnLocation(
-                  latitude: latitude,
-                  longitude: longitude,
-                );
-              },
-              onProgress: (distanceMeters, timeSeconds, _) {
-                if (!mounted) return;
-                setState(() {
-                  _remainingDistanceMeters = distanceMeters;
-                  _remainingTimeSeconds = timeSeconds;
-                });
-              },
-              onStatus: (message) {
-                if (mounted) setState(() => _statusMessage = message);
-              },
+            child: SafeArea(
+              bottom: false,
+              child: NativeNavigationMap(
+                destinationName: stop.placeName,
+                destinationLatitude: stop.latitude!,
+                destinationLongitude: stop.longitude!,
+                routeToken: '',
+                trafficEnabled: true,
+                onArrived: () => unawaited(_completeStop()),
+                onLocation: (latitude, longitude) {
+                  final coordinate = widget.controller.effectiveLocation(
+                    latitude,
+                    longitude,
+                  );
+                  unawaited(
+                    _locationService
+                        .publishOwnLocation(
+                          latitude: coordinate.latitude,
+                          longitude: coordinate.longitude,
+                        )
+                        .catchError((Object error) {
+                          if (mounted) {
+                            setState(() {
+                              _statusMessage =
+                                  'Live location sharing failed: $error';
+                            });
+                          }
+                        }),
+                  );
+                },
+                onProgress: (distanceMeters, timeSeconds, _) {
+                  if (!mounted) return;
+                  setState(() {
+                    _remainingDistanceMeters = distanceMeters;
+                    _remainingTimeSeconds = timeSeconds;
+                  });
+                },
+                onStatus: (message) {
+                  if (mounted) setState(() => _statusMessage = message);
+                },
+              ),
             ),
           ),
           SafeArea(

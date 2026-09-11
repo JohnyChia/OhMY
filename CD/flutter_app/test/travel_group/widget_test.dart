@@ -35,7 +35,8 @@ void main() {
     expect(find.text('Travel Groups'), findsOneWidget);
     expect(find.text('Petaling Street'), findsOneWidget);
     expect(find.text('Petaling Street Food Hunt'), findsOneWidget);
-    expect(find.textContaining('km'), findsNothing);
+    expect(find.textContaining('km away'), findsNothing);
+    expect(find.textContaining('within 10 km'), findsOneWidget);
     expect(find.textContaining('Verified'), findsNothing);
     expect(find.byKey(const Key('create_group_fab')), findsOneWidget);
   });
@@ -86,6 +87,8 @@ void main() {
     expect(controller.activeGroup?.meetupPoint, isEmpty);
     expect(find.text('KL Sunset Walk'), findsWidgets);
     expect(find.text('1 of 4 members'), findsOneWidget);
+    expect(find.text('Create Travel Group'), findsNothing);
+    expect(find.text('Group successfully created'), findsOneWidget);
   });
 
   testWidgets('suggestion cards fit a phone viewport without overflow', (
@@ -104,6 +107,37 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Member suggestions'), findsOneWidget);
   });
+
+  testWidgets(
+    'lobby lists members, opens profiles, and has no progress panel',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(375, 812));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await controller.openGroup('GROUP_001');
+      await tester.pumpWidget(
+        MaterialApp(home: GroupLobbyScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Planning Progress'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('member_profile_USER_101')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('member_profile_USER_101')), findsOneWidget);
+
+      tester
+          .widget<InkWell>(find.byKey(const Key('member_profile_USER_101')))
+          .onTap!();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Traveller profile'), findsOneWidget);
+      expect(find.text('Farah Imani'), findsOneWidget);
+      expect(find.text('Travel preferences'), findsOneWidget);
+      expect(find.text('Heritage'), findsOneWidget);
+    },
+  );
 
   test('creator meetup must be within 5 km of every live member', () async {
     await controller.openGroup('GROUP_001');

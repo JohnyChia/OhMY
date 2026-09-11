@@ -89,6 +89,40 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<List<GroupMemberProfile>> getMembers(String groupId) async {
+    final group = _requireGroup(groupId);
+    const names = {
+      'USER_100': 'Aina Sofea',
+      'USER_101': 'Farah Imani',
+      'USER_102': 'Jason Lee',
+      'USER_200': 'Hakim Zain',
+      'USER_201': 'Siti Nur',
+      'USER_300': 'Priya Kumar',
+      'USER_301': 'Arun Raj',
+      'USER_400': 'Daniel Lim',
+      'USER_401': 'Mei Ling',
+      'USER_402': 'Nadia Amir',
+    };
+    return group.memberIds
+        .map(
+          (id) => GroupMemberProfile(
+            userId: id,
+            displayName: id == group.creatorId
+                ? group.creatorName
+                : names[id] ?? 'Traveller',
+            role: id == group.creatorId ? 'creator' : 'member',
+            interests: id == group.creatorId
+                ? group.tags
+                : const ['Culture', 'Food', 'Heritage'],
+            preferredLanguage: 'English',
+            travelStyle: 'Explore together',
+            budgetPreference: 'Moderate',
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
   Future<TravelGroup> createGroup(TravelGroup group) async {
     _groups.add(group);
     _itinerary.add(
@@ -106,6 +140,16 @@ class MockTravelGroupRepository implements TravelGroupRepository {
       ),
     );
     return group;
+  }
+
+  @override
+  Future<void> deleteGroup(String groupId) async {
+    _requireGroup(groupId);
+    _groups.removeWhere((group) => group.id == groupId);
+    _requests.removeWhere((request) => request.groupId == groupId);
+    _suggestions.removeWhere((suggestion) => suggestion.groupId == groupId);
+    _itinerary.removeWhere((stop) => stop.groupId == groupId);
+    _sessions.remove(groupId);
   }
 
   @override
@@ -158,9 +202,29 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<int> simulateDemoMembersTowardMeetup({
+    required String sessionId,
+    required double latitude,
+    required double longitude,
+    bool resetPositions = false,
+  }) async {
+    final session = _sessions.values.firstWhere(
+      (item) => item.id == sessionId,
+      orElse: () => throw const TravelGroupException(
+        'Confirm the group before simulating meetup locations.',
+        'group_not_confirmed',
+      ),
+    );
+    final group = _requireGroup(session.groupId);
+    return (group.memberCount - 1).clamp(0, group.maxMembers);
+  }
+
+  @override
   Future<void> joinOpenGroup({
     required String groupId,
     required String travellerId,
+    required double latitude,
+    required double longitude,
   }) async {
     final group = _requireGroup(groupId);
     if (group.joinMode != JoinMode.open) {
@@ -184,6 +248,8 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   Future<JoinRequest> requestToJoin({
     required String groupId,
     required PrototypeUser traveller,
+    required double latitude,
+    required double longitude,
   }) async {
     final group = _requireGroup(groupId);
     if (group.memberIds.contains(traveller.id)) {
