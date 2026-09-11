@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../config/travel_preference_options.dart';
 import '../services/traveler_profile_service.dart';
@@ -54,7 +56,7 @@ class _TravelPreferencesScreenState extends State<TravelPreferencesScreen> {
   void _showMessage(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      OhMySnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red.shade700 : null,
       ),
@@ -179,7 +181,7 @@ class _TravelPreferencesScreenState extends State<TravelPreferencesScreen> {
                     child: _isSaving
                         ? const SizedBox.square(
                             dimension: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: WauLoadingIndicator(size: 22),
                           )
                         : Text(
                             widget.isEditing ? 'Save preferences' : 'Continue',

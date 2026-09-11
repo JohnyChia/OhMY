@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +12,8 @@ import 'package:http/http.dart' as http;
 import '../weather/weather_feature.dart';
 import 'navigation_sensor.dart';
 import 'native_navigation_map.dart';
+import '../../../user_management/services/traveler_profile_service.dart';
+import '../../../community_discovery/config/supabase_config.dart';
 import '../../widgets/wau_loading_indicator.dart';
 import '../../../user_management/models/travel_history_entry.dart';
 import '../../../user_management/services/travel_history_service.dart';
@@ -316,7 +319,11 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
           ),
         ),
         if (activeField == 1 && results.isEmpty) categoryTabs(),
-        if (searching) const LinearProgressIndicator(color: _routeBlue),
+        if (searching)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: WauLoadingIndicator(size: 28),
+          ),
         if (error != null)
           Padding(
             padding: const EdgeInsets.all(12),
@@ -887,13 +894,6 @@ class ActiveNavigationPage extends StatefulWidget {
 }
 
 class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
-  static const navigationPreferences = [
-    'Museum',
-    'Heritage',
-    'Cultural Learning',
-    'Nature',
-    'Religious Heritage',
-  ];
   final navigationMapKey = GlobalKey<NativeNavigationMapState>();
   final TravelHistoryService travelHistoryService = TravelHistoryService();
   late int selectedRoute;
@@ -913,6 +913,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   bool arrivalHandled = false;
   final bool useNativeNavigationFooter = false;
   final Set<String> bookmarkedRecommendations = {};
+
+  List<String> get navigationPreferences => currentTravelerPreferences.value;
 
   DrivingRoute get route => activeRoutes[selectedRoute];
   NavigationStep? get step => route.steps.isEmpty
@@ -1017,7 +1019,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          OhMySnackBar(
             content: Text(error.toString().replaceFirst('Exception: ', '')),
           ),
         );
@@ -1127,13 +1129,15 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     final current = position;
     if (current == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for your current GPS location.')),
+        const OhMySnackBar(
+          content: Text('Waiting for your current GPS location.'),
+        ),
       );
       return;
     }
     if (mode == 'destination' && activeDestination.id == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        const OhMySnackBar(
           content: Text('Destination tags are unavailable for this location.'),
         ),
       );
@@ -1144,12 +1148,27 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       showRecommendationCarousel = false;
     });
     try {
+      var preferences = navigationPreferences;
+      if (mode == 'preferences' && preferences.isEmpty) {
+        if (!SupabaseConfig.isConfigured) {
+          throw Exception(
+            'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
+          );
+        }
+        preferences =
+            (await TravelerProfileService().fetchCurrentProfile())
+                ?.favoriteCategories ??
+            const [];
+        if (preferences.isEmpty) {
+          throw Exception('Your travel preferences are unavailable.');
+        }
+      }
       final body = <String, dynamic>{
         'latitude': current.latitude,
         'longitude': current.longitude,
         'mode': mode,
         if (mode == 'destination') 'destinationPlaceId': activeDestination.id,
-        if (mode == 'preferences') 'preferences': navigationPreferences,
+        if (mode == 'preferences') 'preferences': preferences,
       };
       final response = await http
           .post(
@@ -1176,13 +1195,13 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       });
       if (recommendations.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No matching stops found nearby.')),
+          const OhMySnackBar(content: Text('No matching stops found nearby.')),
         );
       }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          OhMySnackBar(
             content: Text(error.toString().replaceFirst('Exception: ', '')),
           ),
         );
@@ -1289,7 +1308,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         location['latitude'] is! num ||
         location['longitude'] is! num) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        const OhMySnackBar(
           content: Text('Current or destination location is unavailable.'),
         ),
       );
@@ -1337,14 +1356,14 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       await navigationMapKey.currentState?.recenter();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        OhMySnackBar(
           content: Text('Fastest route changed to ${newDestination.name}.'),
         ),
       );
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          OhMySnackBar(
             content: Text(error.toString().replaceFirst('Exception: ', '')),
           ),
         );

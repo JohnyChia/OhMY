@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_app/app_shell/ohmy_app.dart';
+import 'package:flutter_app/app_shell/ohmy_bottom_navigation_bar.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -10,7 +11,9 @@ void main() {
     await tester.pump();
 
     final contentBottom = tester.getBottomLeft(find.byType(IndexedStack)).dy;
-    final navigationTop = tester.getTopLeft(find.byType(NavigationBar)).dy;
+    final navigationTop = tester
+        .getTopLeft(find.byType(OhMyBottomNavigationBar))
+        .dy;
 
     expect(contentBottom, lessThanOrEqualTo(navigationTop));
     await tester.pump(const Duration(milliseconds: 300));
@@ -34,7 +37,7 @@ void main() {
     await _openTab(tester, 'Community');
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(OhMyBottomNavigationBar), findsOneWidget);
 
     await _openTab(tester, 'Profile');
     expect(find.text('Profile setup required'), findsWidgets);
@@ -42,7 +45,7 @@ void main() {
 }
 
 Future<void> _openTab(WidgetTester tester, String label) async {
-  final navigationBar = find.byType(NavigationBar);
+  final navigationBar = find.byType(OhMyBottomNavigationBar);
   final destination = find.descendant(
     of: navigationBar,
     matching: find.text(label),

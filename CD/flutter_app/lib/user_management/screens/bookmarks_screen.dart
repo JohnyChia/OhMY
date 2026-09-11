@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../community_discovery/state/community_controller.dart';
 import '../../community_discovery/ui/widgets/post_card.dart';
@@ -51,7 +52,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
           child: RefreshIndicator(
             onRefresh: _refresh,
             child: controller.isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: WauLoadingIndicator(size: 58))
                 : controller.error != null
                 ? _BookmarkMessage(
                     icon: Icons.cloud_off_outlined,

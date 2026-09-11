@@ -19,6 +19,7 @@ import '../travel_group/features/travel_group/services/live_trip_location_servic
 import '../travel_group/features/travel_group/services/supabase_live_trip_location_service.dart';
 import '../user_management/screens/auth/auth_gate.dart';
 import '../user_management/screens/profile_screen.dart';
+import 'ohmy_bottom_navigation_bar.dart';
 
 // Community Discovery can be moved to its live Supabase repository separately
 // from authentication. Keeping this off preserves the teammate's prototype
@@ -50,11 +51,8 @@ class OhMyApp extends StatelessWidget {
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3266CC)),
         scaffoldBackgroundColor: const Color(0xFFF8FBFF),
-        navigationBarTheme: const NavigationBarThemeData(
-          height: 72,
-          backgroundColor: Colors.white,
-          indicatorColor: Color(0xFFDDE8FF),
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        snackBarTheme: const SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
         ),
       ),
       home: supabaseEnabled ? AuthGate(authenticatedHome: shell) : shell,
@@ -222,46 +220,10 @@ class _OhMyShellState extends State<OhMyShell> {
           ],
         ),
         bottomNavigationBar: SafeArea(
-          minimum: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-          child: Material(
-            elevation: 10,
-            shadowColor: Colors.black26,
-            clipBehavior: Clip.antiAlias,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24),
-              side: const BorderSide(color: Color(0xFFE5E8ED)),
-            ),
-            child: NavigationBar(
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: _selectTab,
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home_outlined),
-                  selectedIcon: Icon(Icons.home),
-                  label: 'Home',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.smart_toy_outlined),
-                  selectedIcon: Icon(Icons.smart_toy),
-                  label: 'AI Chat',
-                ),
-                NavigationDestination(
-                  icon: _StartTripNavigationIcon(),
-                  selectedIcon: _StartTripNavigationIcon(selected: true),
-                  label: 'Start Trip',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.map_outlined),
-                  selectedIcon: Icon(Icons.map),
-                  label: 'Community',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_outline),
-                  selectedIcon: Icon(Icons.person),
-                  label: 'Profile',
-                ),
-              ],
-            ),
+          top: false,
+          child: OhMyBottomNavigationBar(
+            selectedIndex: _selectedIndex,
+            onSelected: _selectTab,
           ),
         ),
       ),
@@ -761,30 +723,6 @@ class _GroupPreviewCard extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _StartTripNavigationIcon extends StatelessWidget {
-  const _StartTripNavigationIcon({this.selected = false});
-
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: const BoxDecoration(
-        color: Color(0xFF3B73E8),
-        shape: BoxShape.circle,
-      ),
-      alignment: Alignment.center,
-      child: Icon(
-        selected ? Icons.luggage : Icons.luggage_outlined,
-        color: Colors.white,
-        size: 23,
       ),
     );
   }

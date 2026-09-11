@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../models/app_user_profile.dart';
 import '../services/auth_service.dart';
@@ -22,7 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } on AuthFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        OhMySnackBar(
           content: Text(error.message),
           backgroundColor: Colors.red.shade700,
         ),
@@ -60,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: _isLoggingOut
                 ? const SizedBox.square(
                     dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: WauLoadingIndicator(size: 20),
                   )
                 : const Icon(Icons.logout),
           ),

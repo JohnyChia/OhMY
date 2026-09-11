@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../data/community_repository.dart';
@@ -49,7 +51,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     if (bytes.lengthInBytes > 8 * 1024 * 1024) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          const OhMySnackBar(
             content: Text('Please select an image smaller than 8 MB.'),
           ),
         );
@@ -76,7 +78,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         description.isEmpty ||
         _tagIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        const OhMySnackBar(
           content: Text(
             'Select a completed trip, picture, description, and at least one tag.',
           ),
@@ -99,7 +101,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Post could not be published: $error')),
+          OhMySnackBar(content: Text('Post could not be published: $error')),
         );
       }
     } finally {
@@ -114,7 +116,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       future: _trips,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: WauLoadingIndicator(size: 58));
         }
         if (snapshot.hasError) {
           return _CenteredMessage(
@@ -243,7 +245,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               icon: _publishing
                   ? const SizedBox.square(
                       dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: WauLoadingIndicator(size: 18),
                     )
                   : const Icon(Icons.publish),
               label: Text(_publishing ? 'Publishing…' : 'Publish post'),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_navigation_flutter/google_navigation_flutter.dart'
     as navigation;
@@ -59,8 +60,11 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   _locationSubscription;
   StreamSubscription<navigation.RemainingTimeOrDistanceChangedEvent>?
   _progressSubscription;
+  StreamSubscription<navigation.GpsAvailabilityChangeEvent>?
+  _gpsSubscription;
   bool _sessionInitialized = false;
   bool _hasLocation = false;
+  bool _gpsValidForNavigation = false;
   bool _routeStarted = false;
   bool _simulationRunning = false;
   bool _closing = false;
@@ -151,6 +155,18 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
             remainingTimeThresholdSeconds: 15,
             remainingDistanceThresholdMeters: 25,
           );
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        _gpsSubscription = await navigation.GoogleMapsNavigator
+            .setOnGpsAvailabilityChangeListener((event) {
+          _gpsValidForNavigation = event.isGpsValidForNavigation;
+          if (_gpsValidForNavigation &&
+              _hasLocation &&
+              !_routeStarted &&
+              _controller != null) {
+            unawaited(_setDestinationAndStart());
+          }
+        });
+      }
       _locationSubscription =
           await navigation
               .GoogleMapsNavigator.setRoadSnappedLocationUpdatedListener((
@@ -161,7 +177,10 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
               event.location.latitude,
               event.location.longitude,
             );
-            if (!_routeStarted && _controller != null) {
+            if (!_routeStarted &&
+                _controller != null &&
+                (defaultTargetPlatform != TargetPlatform.android ||
+                    _gpsValidForNavigation)) {
               unawaited(_setDestinationAndStart());
             }
           });
@@ -187,7 +206,11 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
       await controller.setRecenterButtonEnabled(false);
       await controller.settings.setMyLocationButtonEnabled(false);
       await controller.setPadding(const EdgeInsets.only(bottom: 118));
-      if (_hasLocation) await _setDestinationAndStart();
+      if (_hasLocation &&
+          (defaultTargetPlatform != TargetPlatform.android ||
+              _gpsValidForNavigation)) {
+        await _setDestinationAndStart();
+      }
     } catch (error) {
       if (!_closing) _fail(_friendlyError(error));
     }
@@ -232,6 +255,21 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
         ),
       );
       if (status != navigation.NavigationRouteStatus.statusOk) {
+        if ((status == navigation.NavigationRouteStatus.locationUnavailable ||
+                status == navigation.NavigationRouteStatus.locationUnknown) &&
+            !_closing) {
+          _routeStarted = false;
+          if (mounted) {
+            setState(() {
+              _startupMessage =
+                  'Improving GPS accuracy before calculating the route…';
+            });
+          }
+          widget.onStatus(
+            'Improving GPS accuracy before calculating the route…',
+          );
+          return;
+        }
         if (status == navigation.NavigationRouteStatus.networkError &&
             _routeAttempt < 2 &&
             !_closing) {
@@ -332,6 +370,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
     _closing = true;
     await _arrivalSubscription?.cancel();
     await _progressSubscription?.cancel();
+    await _gpsSubscription?.cancel();
     await _locationSubscription?.cancel();
     if (_sessionInitialized) {
       try {
@@ -363,7 +402,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(color: Color(0xff3266cc)),
+                const WauLoadingIndicator(size: 58),
                 const SizedBox(height: 16),
                 Text(
                   _startupMessage ?? 'Starting Google Navigation…',

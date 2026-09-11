@@ -235,6 +235,7 @@ async function getPlaceDetails(placeId) {
                     "types",
                     "primaryType",
                     "primaryTypeDisplayName",
+                    "addressComponents",
                     "editorialSummary",
                     "photos",
                     "reviews"
@@ -250,6 +251,12 @@ async function getPlaceDetails(placeId) {
         throw new Error(
             JSON.stringify(data)
         );
+    }
+
+    if (!isMalaysianPlace(data)) {
+        const error = new Error("Only places in Malaysia can be selected.");
+        error.code = "PLACE_OUTSIDE_MALAYSIA";
+        throw error;
     }
 
     return data;
@@ -304,5 +311,6 @@ module.exports = {
     searchPlacesAndAttractions,
     searchNearbyPlaces,
     getPlaceDetails,
-    getPlacePhoto
+    getPlacePhoto,
+    isMalaysianPlace
 };
