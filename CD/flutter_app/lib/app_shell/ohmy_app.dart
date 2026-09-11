@@ -2,13 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:community_discovery/community_discovery.dart';
 
 import '../ai_chatbot/main.dart' show ChatScreen;
-import '../community_discovery/data/community_repository.dart';
-import '../community_discovery/data/demo_community_repository.dart';
-import '../community_discovery/data/supabase_community_repository.dart';
-import '../community_discovery/state/community_controller.dart';
-import '../community_discovery/ui/community_feed_screen.dart';
 import '../preference_recommender/pages/place_map_page.dart';
 import '../travel_group/features/travel_group/controllers/travel_group_controller.dart';
 import '../travel_group/features/travel_group/models/travel_group_models.dart';
@@ -20,14 +16,6 @@ import '../travel_group/features/travel_group/services/supabase_live_trip_locati
 import '../user_management/screens/auth/auth_gate.dart';
 import '../user_management/screens/profile_screen.dart';
 import 'ohmy_bottom_navigation_bar.dart';
-
-// Community Discovery can be moved to its live Supabase repository separately
-// from authentication. Keeping this off preserves the teammate's prototype
-// posts while User Management still uses Supabase Auth and profile data.
-const _useSupabaseCommunity = bool.fromEnvironment(
-  'USE_SUPABASE_COMMUNITY',
-  defaultValue: false,
-);
 
 // Temporary development switch. Pass
 // --dart-define=BYPASS_TRAVEL_GROUP_VERIFICATION=false to restore the gate.
@@ -43,7 +31,6 @@ class OhMyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final shell = OhMyShell(supabaseEnabled: supabaseEnabled);
     return MaterialApp(
       title: 'ohMY',
       debugShowCheckedModeBanner: false,
@@ -55,7 +42,9 @@ class OhMyApp extends StatelessWidget {
           behavior: SnackBarBehavior.floating,
         ),
       ),
-      home: supabaseEnabled ? AuthGate(authenticatedHome: shell) : shell,
+      home: supabaseEnabled
+          ? AuthGate(authenticatedHome: const OhMyShell(supabaseEnabled: true))
+          : const OhMyShell(supabaseEnabled: false),
     );
   }
 }
@@ -72,7 +61,7 @@ class OhMyShell extends StatefulWidget {
 class _OhMyShellState extends State<OhMyShell> {
   int _selectedIndex = 0;
   final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
-  late final CommunityController _communityController;
+  CommunityController? _communityController;
   late final TravelGroupController _travelGroupController;
   late final List<WidgetBuilder> _rootBuilders;
   StreamSubscription<AuthState>? _authSubscription;
@@ -80,11 +69,6 @@ class _OhMyShellState extends State<OhMyShell> {
   @override
   void initState() {
     super.initState();
-    final CommunityRepository communityRepository =
-        widget.supabaseEnabled && _useSupabaseCommunity
-        ? SupabaseCommunityRepository(Supabase.instance.client)
-        : DemoCommunityRepository();
-    _communityController = CommunityController(communityRepository);
     final authUser = widget.supabaseEnabled
         ? Supabase.instance.client.auth.currentUser
         : null;
@@ -110,12 +94,25 @@ class _OhMyShellState extends State<OhMyShell> {
             }
             _travelGroupController.switchUser(_prototypeUser(user));
           });
+      final CommunityRepository communityRepository =
+          SupabaseCommunityRepository(
+            Supabase.instance.client,
+            communityApiUrl: SupabaseConfig.communityApiUrl,
+          );
+      _communityController = CommunityController(communityRepository);
     }
     _rootBuilders = [
       (context) => HomeModulePage(onOpenTab: _selectTab),
       (context) => const ChatScreen(showBottomNavigation: false),
       (context) => StartTripHubPage(controller: _travelGroupController),
-      (context) => CommunityModulePage(controller: _communityController),
+      (context) => _communityController == null
+          ? const ModuleSetupPage(
+              icon: Icons.groups_outlined,
+              title: 'Community setup required',
+              message:
+                  'Start Flutter with SUPABASE_URL, SUPABASE_ANON_KEY, and COMMUNITY_API_URL.',
+            )
+          : CommunityModulePage(controller: _communityController!),
       (context) => widget.supabaseEnabled
           ? ProfileScreen(
               showBottomNavigation: false,
@@ -136,7 +133,7 @@ class _OhMyShellState extends State<OhMyShell> {
     _travelGroupController
       ..removeListener(_onTravelGroupChanged)
       ..dispose();
-    _communityController.dispose();
+    _communityController?.dispose();
     super.dispose();
   }
 

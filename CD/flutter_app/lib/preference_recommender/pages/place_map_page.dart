@@ -14,7 +14,8 @@ import '../features/routes/navigation_sensor.dart';
 import '../features/weather/weather_feature.dart';
 import '../widgets/wau_loading_indicator.dart';
 import '../../user_management/services/traveler_profile_service.dart';
-import '../../community_discovery/config/supabase_config.dart';
+import 'package:community_discovery/community_discovery.dart'
+    show SupabaseConfig;
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),

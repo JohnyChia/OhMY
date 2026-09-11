@@ -17,6 +17,7 @@ void main() {
     expect(entry.title, 'KL Food Journey');
     expect(entry.destination, 'Kuala Lumpur');
     expect(entry.completedAt, DateTime.utc(2026, 9, 1, 4));
+    expect(entry.isPersisted, isFalse);
   });
 
   test('maps a completed unified trip with itinerary details', () {
@@ -40,5 +41,25 @@ void main() {
     expect(entry.stops.single.name, 'Batu Caves');
     expect(entry.distanceKm, 12.4);
     expect(entry.durationMinutes, 75);
+    expect(entry.isPersisted, isTrue);
+    expect(entry.canShareToCommunity, isTrue);
   });
+
+  test(
+    'does not expose Community posting for a persisted group history row',
+    () {
+      final entry = TravelHistoryEntry.fromSupabase({
+        'id': 'group-history-id',
+        'source_type': 'group',
+        'title': 'Group city tour',
+        'destination': 'Kuala Lumpur',
+        'started_at': '2026-09-10T01:00:00Z',
+        'ended_at': '2026-09-10T02:15:00Z',
+        'itinerary': const [],
+      });
+
+      expect(entry.isPersisted, isTrue);
+      expect(entry.canShareToCommunity, isFalse);
+    },
+  );
 }

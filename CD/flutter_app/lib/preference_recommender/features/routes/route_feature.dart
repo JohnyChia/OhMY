@@ -13,7 +13,8 @@ import '../weather/weather_feature.dart';
 import 'navigation_sensor.dart';
 import 'native_navigation_map.dart';
 import '../../../user_management/services/traveler_profile_service.dart';
-import '../../../community_discovery/config/supabase_config.dart';
+import 'package:community_discovery/community_discovery.dart'
+    show SupabaseConfig;
 import '../../widgets/wau_loading_indicator.dart';
 import '../../../user_management/models/travel_history_entry.dart';
 import '../../../user_management/services/travel_history_service.dart';
