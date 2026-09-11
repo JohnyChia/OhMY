@@ -13,7 +13,8 @@ class TravelerProfile {
   final String? travelStyle;
   final String? budgetPreference;
 
-  bool get hasCompletedOnboarding => favoriteCategories.length >= 3;
+  bool get hasCompletedOnboarding =>
+      favoriteCategories.any((category) => category.trim().isNotEmpty);
 
   factory TravelerProfile.fromJson(Map<String, dynamic> json) {
     final categories = json['favorite_categories'];
