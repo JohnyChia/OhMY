@@ -40,7 +40,7 @@ class TravelHistoryService {
       // pass server-side ownership validation. Local demo IDs must never be
       // sent to the Community publishing API.
       final eligibleHistory = await _fetchEligibleCommunitySoloTrips();
-      return eligibleHistory.isEmpty ? _demoCompletedTrips() : eligibleHistory;
+      return eligibleHistory;
     } on PostgrestException catch (error) {
       if (_isMissingHistoryTable(error)) {
         return _fetchLegacyCompletedGroupTrips(user.id);
@@ -115,9 +115,9 @@ class TravelHistoryService {
           .where((row) => _belongsToUser(row, userId))
           .map(TravelHistoryEntry.fromLegacyGroup)
           .toList(growable: false);
-      return history.isEmpty ? _demoCompletedTrips() : history;
+      return history;
     } catch (_) {
-      return _demoCompletedTrips();
+      return const [];
     }
   }
 
@@ -154,89 +154,19 @@ class TravelHistoryService {
         row['location_name']?.toString().trim() ?? 'Unknown destination';
     final title = row['title']?.toString().trim() ?? 'Completed solo trip';
 
-    // Retain the richer display information from the existing TAR UMT sample
-    // when the secured RPC returns that same persisted journey. Only the real
-    // Supabase ID controls Community eligibility.
-    final demoSolo = _demoCompletedTrips()
-        .where((trip) => trip.type == TravelHistoryType.solo)
-        .first;
-    final isTarUmt = '${title.toLowerCase()} ${destination.toLowerCase()}'
-        .contains('tar umt');
-
     return TravelHistoryEntry(
       id: row['id'].toString(),
       type: TravelHistoryType.solo,
       title: title.isEmpty ? 'Completed solo trip' : title,
       destination: destination.isEmpty ? 'Unknown destination' : destination,
-      startedAt: isTarUmt
-          ? demoSolo.startedAt
-          : completedAt.subtract(const Duration(hours: 1)),
+      startedAt: completedAt.subtract(const Duration(hours: 1)),
       completedAt: completedAt,
-      stops: isTarUmt ? demoSolo.stops : const [],
-      distanceKm: isTarUmt ? demoSolo.distanceKm : 0,
-      durationMinutes: isTarUmt ? demoSolo.durationMinutes : 60,
-      tags: isTarUmt ? demoSolo.tags : const [],
-      travelMode: isTarUmt ? demoSolo.travelMode : 'Solo journey',
+      stops: const [],
+      distanceKm: 0,
+      durationMinutes: 60,
+      tags: const [],
+      travelMode: 'Not recorded',
       isPersisted: true,
     );
-  }
-
-  List<TravelHistoryEntry> _demoCompletedTrips() {
-    return [
-      TravelHistoryEntry(
-        id: 'demo-group-puchong',
-        type: TravelHistoryType.group,
-        title: 'Puchong Group Adventure',
-        destination: 'Puchong, Selangor',
-        startedAt: DateTime(2026, 9, 7, 9),
-        completedAt: DateTime(2026, 9, 7, 17, 15),
-        stops: [
-          TravelHistoryStop(
-            name: 'IOI Mall Puchong',
-            visitedAt: DateTime(2026, 9, 7, 9, 30),
-          ),
-          TravelHistoryStop(
-            name: 'SetiaWalk Puchong',
-            visitedAt: DateTime(2026, 9, 7, 11),
-          ),
-          TravelHistoryStop(
-            name: 'Foo Hing Dim Sum',
-            visitedAt: DateTime(2026, 9, 7, 13),
-          ),
-          TravelHistoryStop(
-            name: 'Wawasan Hill Trail',
-            visitedAt: DateTime(2026, 9, 7, 15, 15),
-          ),
-        ],
-        distanceKm: 24.6,
-        durationMinutes: 495,
-        tags: const ['Food', 'Nature'],
-        travelMode: 'Car + Walking',
-        isPersisted: false,
-      ),
-      TravelHistoryEntry(
-        id: 'demo-solo-tarumt',
-        type: TravelHistoryType.solo,
-        title: 'TAR UMT Campus Trip',
-        destination: 'TAR UMT, Kuala Lumpur',
-        startedAt: DateTime(2026, 9, 5, 8, 30),
-        completedAt: DateTime(2026, 9, 5, 10),
-        stops: [
-          TravelHistoryStop(
-            name: 'TAR UMT Main Entrance',
-            visitedAt: DateTime(2026, 9, 5, 9, 45),
-          ),
-          TravelHistoryStop(
-            name: 'TAR UMT Kuala Lumpur Main Campus',
-            visitedAt: DateTime(2026, 9, 5, 10),
-          ),
-        ],
-        distanceKm: 13.2,
-        durationMinutes: 90,
-        tags: const ['Education', 'Solo'],
-        travelMode: 'Driving',
-        isPersisted: false,
-      ),
-    ];
   }
 }

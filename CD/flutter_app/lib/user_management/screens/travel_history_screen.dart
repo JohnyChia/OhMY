@@ -181,6 +181,7 @@ class TravelHistoryDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isSolo = trip.type == TravelHistoryType.solo;
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: _appBar(context, 'Trip details'),
@@ -195,15 +196,17 @@ class TravelHistoryDetailsScreen extends StatelessWidget {
           const SizedBox(height: 10),
           _Metrics(
             values: [
-              ('${trip.stops.length}', 'Stops'),
+              if (!isSolo) ('${trip.stops.length}', 'Stops'),
               ('${_distance(trip.distanceKm)} km', 'Distance'),
               (_duration(trip.durationMinutes), 'Duration'),
             ],
           ),
-          const SizedBox(height: 18),
-          const Text('Journey itinerary', style: TextStyle(color: _ink)),
-          const SizedBox(height: 9),
-          _ItineraryPanel(trip: trip),
+          if (!isSolo) ...[
+            const SizedBox(height: 18),
+            const Text('Journey itinerary', style: TextStyle(color: _ink)),
+            const SizedBox(height: 9),
+            _ItineraryPanel(trip: trip),
+          ],
           const SizedBox(height: 12),
           const Text('Trip information', style: TextStyle(color: _ink)),
           const SizedBox(height: 9),
@@ -445,7 +448,8 @@ class _TripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isGroup = trip.type == TravelHistoryType.group;
     final details = [
-      '${trip.stops.length} ${trip.stops.length == 1 ? 'stop' : 'stops'}',
+      if (isGroup)
+        '${trip.stops.length} ${trip.stops.length == 1 ? 'stop' : 'stops'}',
       '${_distance(trip.distanceKm)} km',
       if (trip.tags.isNotEmpty) trip.tags.take(2).join(' + '),
     ].join('  •  ');
@@ -601,7 +605,8 @@ class _InformationPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Travel mode  •  ${trip.travelMode}'),
+            if (trip.type == TravelHistoryType.group)
+              Text('Travel mode  •  ${trip.travelMode}'),
             Text(
               'Started  •  ${_time(trip.startedAt.toLocal())}'
               '     Completed  •  ${_time(trip.completedAt.toLocal())}',
