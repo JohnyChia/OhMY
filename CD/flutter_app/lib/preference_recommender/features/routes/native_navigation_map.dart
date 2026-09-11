@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_navigation_flutter/google_navigation_flutter.dart'
     as navigation;
@@ -363,7 +364,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const CircularProgressIndicator(color: Color(0xff3266cc)),
+                const WauLoadingIndicator(size: 58),
                 const SizedBox(height: 16),
                 Text(
                   _startupMessage ?? 'Starting Google Navigation…',

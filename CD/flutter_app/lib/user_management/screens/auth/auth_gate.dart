@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/auth_service.dart';
@@ -86,7 +87,7 @@ class _AuthGateState extends State<AuthGate> {
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(child: WauLoadingIndicator(size: 58)),
           );
         }
         if (snapshot.hasError) {

@@ -1,42 +1,41 @@
-# Recommendation Card Design QA
+# Shared Navigation and Map UI Design QA
 
-- Source visual truth: user-attached Petaling Street recommendation-card screenshot (conversation attachment; no local source file exposed).
-- Implementation screenshot: `implementation-recommendation-final.png`.
-- Viewport: Android emulator, 1080 x 2400 physical pixels.
-- Source dimensions: approximately 500 x 252 pixels as supplied in chat.
-- Implementation dimensions: 1080 x 2400 pixels; Flutter logical viewport rendered at emulator density.
-- State: Solo Trip map, nearby recommendations loaded, first recommendation card visible.
+- Source visual truth: the three user-provided bottom-navigation references showing flat inactive items and an active icon that rises above the bar inside a coloured circle.
+- Test device: Android Pixel emulator at 1080 x 2400 physical pixels.
+- Implementation evidence:
+  - `flutter_app/docs/design-qa/ohmy_nav_preview.png`
+  - `flutter_app/docs/design-qa/ohmy_nav_ai_preview.png`
+  - `flutter_app/docs/design-qa/ohmy_trip_hub.png`
+  - `flutter_app/docs/design-qa/ohmy_wau_loading.png`
+  - `flutter_app/docs/design-qa/ohmy_marker_final.png`
+  - `flutter_app/docs/design-qa/ohmy_nav_spacing_final.png`
 
-## Full-view comparison evidence
+## Visual comparison
 
-The implementation preserves the reference composition: full-bleed location photography, dark-to-blue readability gradient, rounded card, high-contrast white hierarchy, and a clear primary action region. The application-specific rank, match score, ETA, distance, tags, Directions, and Bookmark information remain visible.
+The shared navigation matches the reference interaction model while retaining the existing ohMY blue theme. Inactive destinations use the supplied off-state artwork, grey labels, no outline, and no vertical emphasis. The active destination switches to its on-state artwork, rises 18 logical pixels, and gains a high-resolution blue circular border and shadow. Home, AI Chat, and Start Trip states were selected and inspected independently.
 
-## Focused-region evidence
+The navigation remains above the Android gesture area and does not cover module content. Five labels remain legible at the Pixel viewport, and the animated selected state does not clip at the top of the bar.
 
-The loaded first recommendation card was inspected in the emulator screenshot. Text remains readable over the image, the photograph remains visible on the right, and the controls fit without overflow. The Wau loading state was separately inspected in `implementation-recommendation.png` and renders sharply at an appropriate map-overlay size.
+The follow-up spacing capture confirms that the container divider no longer crosses behind the selected icon. Moving labels upward by 12 logical pixels produces a compact icon-to-label relationship without overlap.
 
-## Comparison history
+## Supporting states
 
-- Initial emulator capture: hibiscus recommendation markers were too large and visually crowded the map.
-- Fix: increased the bitmap image pixel ratio while retaining high-resolution source rendering, reducing logical marker size by one third.
-- Post-fix evidence: `implementation-recommendation-final.png` shows smaller markers and a clearer map while preserving the hibiscus outline.
+- The Wau artwork was captured during a live Nearby Matches request. It is centred, clearly visible against the map, appropriately sized, and accompanied by the existing loading label.
+- The final recommendation map capture shows the supplied pink `locationMark.png` flower with its matching pointed tail. The first pass was too large in dense results; the logical size was reduced while retaining the high-resolution bitmap, producing the final readable map state.
+- Application snackbars and the Solo Trip status banner now dismiss after no more than three seconds.
 
 ## Findings
 
-- P3: Dense central areas can still contain overlapping recommendation markers because many matched attractions share nearby coordinates. This is acceptable for the current phase; marker clustering can be added later.
-- No P0, P1, or P2 layout, typography, color, image-quality, copy, or interaction problems were observed in the rendered state.
-- QA evidence limitation: the chat attachment was visible for implementation guidance but was not exposed as a local file, so a normalized side-by-side comparison artifact could not be produced.
+- No P0, P1, or P2 layout, clipping, readability, state, or interaction issues remain in the tested states.
+- P3: Very dense city-centre recommendation results can still overlap. Marker clustering can be considered in a later mapping phase, but the reduced markers remain individually recognizable.
 
-## Implementation checklist
+## Verification
 
-- [x] Full-bleed place photo.
-- [x] Left-to-right blue readability gradient.
-- [x] Rank at top-left and match score at top-right.
-- [x] Place description, ETA, distance, tags, and buttons retained.
-- [x] Wau image used as the animated loading state.
-- [x] Nine-photo detail-page cap retained.
-- [x] Flutter analyzer passes.
+- Flutter/Dart analyzer: passed with no issues.
+- Full Flutter test suite: 29 tests passed.
+- Final focused app-shell and navigation tests: passed.
+- Android debug APK: built and installed successfully.
 
 ## Final result
 
-final result: blocked
+final result: passed

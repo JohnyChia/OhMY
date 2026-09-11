@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../models/community_comment.dart';
 import '../state/community_controller.dart';
@@ -45,9 +47,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       setState(() => _comments = widget.controller.getComments(widget.postId));
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Comment was not sent: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          OhMySnackBar(content: Text('Comment was not sent: $error')),
+        );
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
@@ -151,7 +153,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Padding(
                     padding: EdgeInsets.all(20),
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: WauLoadingIndicator(size: 48)),
                   );
                 }
                 if (snapshot.hasError) {
@@ -209,7 +211,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     icon: _submitting
                         ? const SizedBox.square(
                             dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: WauLoadingIndicator(size: 18),
                           )
                         : const Icon(Icons.send),
                   ),

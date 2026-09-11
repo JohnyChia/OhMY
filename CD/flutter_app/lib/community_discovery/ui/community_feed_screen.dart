@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../state/community_controller.dart';
 import '../theme/community_theme.dart';
@@ -114,7 +116,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                 if (state.isLoading)
                   const SliverFillRemaining(
                     hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: WauLoadingIndicator(size: 58)),
                   )
                 else if (state.error != null)
                   SliverFillRemaining(
@@ -172,7 +174,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                 onDestinationSelected: (index) {
                   if (index != 3) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
+                      const OhMySnackBar(
                         content: Text(
                           'This build contains Community Discovery only.',
                         ),

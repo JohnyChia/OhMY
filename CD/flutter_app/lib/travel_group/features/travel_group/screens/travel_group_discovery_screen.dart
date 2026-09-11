@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
@@ -91,7 +92,7 @@ class _TravelGroupDiscoveryScreenState
               if (controller.isLoading)
                 const Padding(
                   padding: EdgeInsets.all(40),
-                  child: Center(child: CircularProgressIndicator()),
+                  child: Center(child: WauLoadingIndicator(size: 58)),
                 )
               else if (controller.groups.isEmpty)
                 const _EmptyGroups()

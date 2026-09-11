@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../../services/auth_service.dart';
 import '../../utils/auth_validators.dart';
@@ -68,7 +70,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       await _authService.logout();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        const OhMySnackBar(
           content: Text('Account created. Please log in to continue.'),
         ),
       );
@@ -96,7 +98,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   void _showMessage(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      OhMySnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red.shade700 : null,
       ),
@@ -133,7 +135,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
             child: _isLoading
                 ? const SizedBox.square(
                     dimension: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: WauLoadingIndicator(size: 22),
                   )
                 : const Text('Verify code'),
           ),
