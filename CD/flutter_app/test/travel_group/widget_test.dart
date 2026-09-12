@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_app/travel_group/features/travel_group/controllers/travel_group_controller.dart';
 import 'package:flutter_app/travel_group/features/travel_group/models/travel_group_models.dart';
 import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
@@ -218,6 +219,72 @@ void main() {
     expect(find.text('Subang Jaya'), findsOneWidget);
   });
 
+  testWidgets('area search only requests general urban areas', (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('area_dropdown')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('area_search_field')), 'Shah');
+    await tester.pumpAndSettle();
+
+    expect(placeSearch.lastAreasOnly, isTrue);
+  });
+
+  testWidgets('submitting and selecting an area updates the discovery area', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('area_dropdown')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('area_search_field')),
+      'Shah Alam',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('area_result_0')));
+    await tester.pumpAndSettle();
+
+    expect(controller.selectedArea, 'Shah Alam');
+    expect(find.text('Choose your area'), findsNothing);
+  });
+
+  testWidgets('an empty area search shows a clear empty state', (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('area_dropdown')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('area_search_field')),
+      'zzzz nowhere',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No areas found'), findsOneWidget);
+  });
+
+  testWidgets('precise location resets browsing to the current general area', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    await controller.setArea('Subang Jaya', latitude: 3.04, longitude: 101.58);
+
+    await tester.tap(find.byKey(const Key('area_dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('use_precise_area_button')));
+    await tester.pumpAndSettle();
+
+    expect(controller.selectedArea, 'Setia Alam');
+    expect(controller.areaLatitude, 3.1579);
+    expect(controller.areaLongitude, 101.7123);
+    expect(find.text('Choose your area'), findsNothing);
+  });
+
   testWidgets('creation requires selecting a searched destination', (
     tester,
   ) async {
@@ -227,6 +294,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Meetup point'), findsNothing);
+    for (final tag in const [
+      'Cultural Experience',
+      'Cultural Festival',
+      'Cultural Learning',
+      'Heritage',
+      'Historical Landmark',
+      'Local Cuisine',
+      'Religious Heritage',
+      'Traditional Architecture',
+      'Traditional Craft',
+    ]) {
+      expect(find.text(tag), findsOneWidget);
+    }
+    expect(find.text('Food'), findsNothing);
     await tester.enterText(
       find.byKey(const Key('group_title')),
       'KL Sunset Walk',
@@ -240,7 +321,7 @@ void main() {
       find.byKey(const Key('group_description')),
       'A relaxed evening walk around the city centre.',
     );
-    await tester.tap(find.text('Food').last);
+    await tester.tap(find.text('Cultural Experience').last);
     await tester.scrollUntilVisible(
       find.text('Create group'),
       300,
@@ -274,6 +355,35 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Member suggestions'), findsOneWidget);
+    expect(find.text('Google Places'), findsNothing);
+    expect(find.textContaining('Unknown crowd'), findsNothing);
+    expect(find.textContaining('1 hr'), findsNothing);
+  });
+
+  testWidgets('workspace maps expose zoom controls and eager gestures', (
+    tester,
+  ) async {
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    GoogleMap currentMap() => tester.widget<GoogleMap>(find.byType(GoogleMap));
+    expect(currentMap().zoomControlsEnabled, isTrue);
+    expect(currentMap().zoomGesturesEnabled, isTrue);
+    expect(currentMap().scrollGesturesEnabled, isTrue);
+    expect(currentMap().gestureRecognizers, isNotEmpty);
+
+    await tester.tap(find.text('Suggestions').first);
+    await tester.pumpAndSettle();
+    expect(currentMap().zoomControlsEnabled, isTrue);
+    expect(currentMap().gestureRecognizers, isNotEmpty);
+
+    await tester.tap(find.text('Itinerary').first);
+    await tester.pumpAndSettle();
+    expect(currentMap().zoomControlsEnabled, isTrue);
+    expect(currentMap().gestureRecognizers, isNotEmpty);
   });
 
   testWidgets(
@@ -304,6 +414,106 @@ void main() {
       expect(find.text('Farah Imani'), findsOneWidget);
       expect(find.text('Travel preferences'), findsOneWidget);
       expect(find.text('Heritage'), findsOneWidget);
+      expect(find.text('Trips completed'), findsOneWidget);
+      expect(find.text('Community posts'), findsOneWidget);
+      expect(
+        find.byKey(const Key('remove_group_member_button')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('creator removes a traveller from their profile', (tester) async {
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('member_profile_USER_101')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    tester
+        .widget<InkWell>(find.byKey(const Key('member_profile_USER_101')))
+        .onTap!();
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('remove_group_member_button')),
+      200,
+      scrollable: find.byType(Scrollable).last,
+    );
+
+    await tester.tap(find.byKey(const Key('remove_group_member_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm_remove_group_member_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.activeGroup!.memberIds, isNot(contains('USER_101')));
+    expect(find.text('Farah Imani'), findsNothing);
+  });
+
+  testWidgets('choosing-next actions use concise navigation copy', (
+    tester,
+  ) async {
+    await controller.openGroup('GROUP_001');
+    await controller.confirmGroup();
+    await controller.confirmSuggestion(
+      controller.suggestions.firstWhere((item) => item.id == 'SUGGESTION_002'),
+    );
+    await controller.startItinerary();
+    await controller.completeStop(controller.itinerary.first);
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('start_next_lobby_leg')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.textContaining('Enjoy the current stop'), findsNothing);
+    expect(find.text('Start Navigation'), findsOneWidget);
+    expect(find.textContaining('Start next:'), findsNothing);
+
+    await tester.tap(find.text('Itinerary').first);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('start_next_itinerary_leg')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Start Navigation'), findsOneWidget);
+    expect(find.textContaining('Start navigation to'), findsNothing);
+  });
+
+  test(
+    'zeroed itinerary legs are calculated when the workspace loads',
+    () async {
+      await controller.openGroup('GROUP_001');
+      await controller.confirmSuggestion(
+        controller.suggestions.firstWhere(
+          (item) => item.id == 'SUGGESTION_002',
+        ),
+      );
+      final repositoryStops = await repository.getItinerary('GROUP_001');
+      repositoryStops[1]
+        ..travelTimeFromPreviousMinutes = 0
+        ..travelDistanceFromPreviousKm = 0;
+
+      await controller.refreshWorkspace();
+
+      expect(
+        controller.itinerary[1].travelTimeFromPreviousMinutes,
+        greaterThan(0),
+      );
+      expect(
+        controller.itinerary[1].travelDistanceFromPreviousKm,
+        greaterThan(0),
+      );
     },
   );
 
@@ -373,22 +583,46 @@ void main() {
 }
 
 class _FakePlaceSearchService extends TravelPlaceSearchService {
+  bool? lastAreasOnly;
+
   @override
   Future<List<TravelGroupPlace>> search(
     String query, {
     bool placesOnly = true,
-  }) async => const [
-    TravelGroupPlace(
-      id: 'places/klcc',
-      name: 'KLCC Park',
-      address: 'Kuala Lumpur City Centre, Kuala Lumpur',
-      latitude: 3.1532,
-      longitude: 101.7149,
-    ),
-  ];
+    bool areasOnly = false,
+  }) async {
+    lastAreasOnly = areasOnly;
+    if (query.toLowerCase().contains('zzzz')) return const [];
+    if (areasOnly && query.toLowerCase().contains('shah')) {
+      return const [
+        TravelGroupPlace(
+          id: 'areas/shah-alam',
+          name: 'Shah Alam',
+          address: 'Selangor, Malaysia',
+          latitude: 3.0738,
+          longitude: 101.5183,
+        ),
+      ];
+    }
+    return const [
+      TravelGroupPlace(
+        id: 'places/klcc',
+        name: 'KLCC Park',
+        address: 'Kuala Lumpur City Centre, Kuala Lumpur',
+        latitude: 3.1532,
+        longitude: 101.7149,
+      ),
+    ];
+  }
 
   @override
   Future<TravelGroupPlace> loadDetails(TravelGroupPlace place) async => place;
+
+  @override
+  Future<String> areaForCoordinates({
+    required double latitude,
+    required double longitude,
+  }) async => 'Setia Alam';
 
   @override
   void dispose() {}

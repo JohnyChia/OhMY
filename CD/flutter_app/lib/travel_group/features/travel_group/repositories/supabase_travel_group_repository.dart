@@ -152,10 +152,26 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
       final profilesByUser = {
         for (final row in profileRows) row['user_id'].toString(): row,
       };
+      var statsRows = <Map<String, dynamic>>[];
+      if (userIds.isNotEmpty) {
+        try {
+          statsRows = (await _client.rpc(
+            'travel_group_member_stats',
+            params: {'target_group_id': groupId},
+          ) as List<dynamic>).cast<Map<String, dynamic>>();
+        } catch (_) {
+          // Profile aggregates are supplementary. Keep the lobby usable while
+          // a newly deployed client is waiting for its database migration.
+        }
+      }
+      final statsByUser = {
+        for (final row in statsRows) row['user_id'].toString(): row,
+      };
       return memberRows
           .map((member) {
             final userId = member['user_id'].toString();
             final profile = profilesByUser[userId];
+            final stats = statsByUser[userId];
             return GroupMemberProfile(
               userId: userId,
               displayName:
@@ -172,9 +188,27 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
               preferredLanguage: profile?['preferred_language']?.toString(),
               travelStyle: profile?['travel_style']?.toString(),
               budgetPreference: profile?['budget_preference']?.toString(),
+              completedTrips: (stats?['completed_trips'] as num?)?.toInt() ?? 0,
+              communityPostCount:
+                  (stats?['community_post_count'] as num?)?.toInt() ?? 0,
             );
           })
           .toList(growable: false);
+    } catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
+  Future<void> removeMember({
+    required String groupId,
+    required String userId,
+  }) async {
+    try {
+      await _client.rpc(
+        'remove_travel_group_member',
+        params: {'target_group_id': groupId, 'target_user_id': userId},
+      );
     } catch (error) {
       throw _failure(error);
     }

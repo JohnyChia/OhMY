@@ -138,7 +138,7 @@ class _TravelPreferencesScreenState extends State<TravelPreferencesScreen> {
           SafeArea(
             child: ListView(
               primary: false,
-              physics: const NeverScrollableScrollPhysics(),
+              physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 24, 18, 30),
               children: [
                 Center(

@@ -37,6 +37,8 @@ class GroupMemberProfile {
     this.preferredLanguage,
     this.travelStyle,
     this.budgetPreference,
+    this.completedTrips = 0,
+    this.communityPostCount = 0,
   });
 
   final String userId;
@@ -47,6 +49,8 @@ class GroupMemberProfile {
   final String? preferredLanguage;
   final String? travelStyle;
   final String? budgetPreference;
+  final int completedTrips;
+  final int communityPostCount;
 
   bool get isCreator => role == 'creator';
 
@@ -261,6 +265,7 @@ class NearbyPlace {
     this.placeId,
     this.latitude,
     this.longitude,
+    this.photoName,
   });
 
   final String name;
@@ -273,6 +278,7 @@ class NearbyPlace {
   final String? placeId;
   final double? latitude;
   final double? longitude;
+  final String? photoName;
 }
 
 class TravelGroupException implements Exception {

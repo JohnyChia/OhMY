@@ -32,6 +32,46 @@ void main() {
     controller.dispose();
   });
 
+  test('creator can remove another traveller while recruiting', () async {
+    final repository = MockTravelGroupRepository.seeded();
+    final controller = TravelGroupController(repository: repository);
+    await controller.openGroup('GROUP_001');
+    final traveller = controller.members.firstWhere(
+      (member) => member.userId == 'USER_101',
+    );
+
+    await controller.removeMember(traveller);
+
+    expect(controller.activeGroup!.memberIds, isNot(contains('USER_101')));
+    expect(controller.activeGroup!.memberCount, 2);
+    expect(
+      controller.members.map((member) => member.userId),
+      isNot(contains('USER_101')),
+    );
+    controller.dispose();
+  });
+
+  test('creator cannot remove themself from member management', () async {
+    final controller = TravelGroupController(
+      repository: MockTravelGroupRepository.seeded(),
+    );
+    await controller.openGroup('GROUP_001');
+
+    await expectLater(
+      controller.removeMember(
+        controller.members.firstWhere((member) => member.isCreator),
+      ),
+      throwsA(
+        isA<TravelGroupException>().having(
+          (error) => error.code,
+          'code',
+          'cannot_remove_creator',
+        ),
+      ),
+    );
+    controller.dispose();
+  });
+
   test(
     'joined traveller is blocked from solo until group is finished',
     () async {

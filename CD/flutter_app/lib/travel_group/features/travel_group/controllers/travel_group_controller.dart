@@ -334,6 +334,7 @@ class TravelGroupController extends ChangeNotifier {
       if (initial(a) != initial(b)) return initial(a) ? -1 : 1;
       return a.position.compareTo(b.position);
     });
+    _fillMissingLegMetrics(newItinerary, refreshedGroup ?? group);
     members = newMembers;
     joinRequests = newRequests;
     suggestions = newSuggestions;
@@ -674,6 +675,34 @@ class TravelGroupController extends ChangeNotifier {
     await refreshWorkspace();
   }
 
+  bool canRemoveMember(GroupMemberProfile member) =>
+      isCreator &&
+      !member.isCreator &&
+      activeGroup?.tripPhase == GroupTripPhase.recruiting &&
+      activeGroup?.isConfirmed == false;
+
+  Future<void> removeMember(GroupMemberProfile member) async {
+    _requireCreator();
+    if (member.isCreator || member.userId == activeGroup!.creatorId) {
+      throw const TravelGroupException(
+        'The creator cannot be removed from their own group.',
+        'cannot_remove_creator',
+      );
+    }
+    if (!canRemoveMember(member)) {
+      throw const TravelGroupException(
+        'Travellers can only be removed while the group is recruiting.',
+        'member_removal_locked',
+      );
+    }
+    await repository.removeMember(
+      groupId: activeGroup!.id,
+      userId: member.userId,
+    );
+    await refreshWorkspace();
+    await loadGroups();
+  }
+
   Future<void> addSuggestion(NearbyPlace place) async {
     if (!isMember) {
       throw const TravelGroupException(
@@ -829,6 +858,41 @@ class TravelGroupController extends ChangeNotifier {
             1,
             (estimatedDrivingKm / 30 * 60).round(),
           );
+      }
+      previousLatitude = latitude;
+      previousLongitude = longitude;
+    }
+  }
+
+  void _fillMissingLegMetrics(List<ItineraryStop> stops, TravelGroup group) {
+    double? previousLatitude = group.meetupLatitude;
+    double? previousLongitude = group.meetupLongitude;
+    for (final stop in stops) {
+      final latitude = stop.latitude;
+      final longitude = stop.longitude;
+      if (previousLatitude != null &&
+          previousLongitude != null &&
+          latitude != null &&
+          longitude != null &&
+          (stop.travelTimeFromPreviousMinutes <= 0 ||
+              stop.travelDistanceFromPreviousKm <= 0)) {
+        final directKm =
+            _distanceBetween(
+              previousLatitude,
+              previousLongitude,
+              latitude,
+              longitude,
+            ) /
+            1000;
+        if (directKm > 0.01) {
+          final estimatedDrivingKm = directKm * 1.25;
+          stop
+            ..travelDistanceFromPreviousKm = estimatedDrivingKm
+            ..travelTimeFromPreviousMinutes = math.max(
+              1,
+              (estimatedDrivingKm / 30 * 60).round(),
+            );
+        }
       }
       previousLatitude = latitude;
       previousLongitude = longitude;

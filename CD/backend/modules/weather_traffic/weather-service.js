@@ -42,15 +42,13 @@ async function lookupArea(latitude, longitude) {
         for (const type of [
             "sublocality_level_1",
             "sublocality",
-            "neighborhood",
             "locality",
-            "administrative_area_level_2",
-            "administrative_area_level_1"
+            "administrative_area_level_2"
         ]) {
             const component = components.find((item) => item.types?.includes(type));
             if (component?.long_name) return component.long_name;
         }
-        return data.results?.[0]?.formatted_address || null;
+        return null;
     } catch {
         return null;
     }

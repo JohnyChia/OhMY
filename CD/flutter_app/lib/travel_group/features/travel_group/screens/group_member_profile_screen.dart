@@ -10,11 +10,13 @@ class GroupMemberProfileScreen extends StatelessWidget {
     required this.member,
     required this.groupName,
     required this.isCurrentUser,
+    this.onRemoveFromGroup,
   });
 
   final GroupMemberProfile member;
   final String groupName;
   final bool isCurrentUser;
+  final Future<void> Function()? onRemoveFromGroup;
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +55,26 @@ class GroupMemberProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Text(groupName, style: const TextStyle(fontSize: 15)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          AppPanel(
+            child: Row(
+              children: [
+                Expanded(
+                  child: _ProfileStat(
+                    value: member.completedTrips,
+                    label: 'Trips completed',
+                  ),
+                ),
+                Container(width: 1, height: 42, color: AppColors.border),
+                Expanded(
+                  child: _ProfileStat(
+                    value: member.communityPostCount,
+                    label: 'Community posts',
+                  ),
+                ),
               ],
             ),
           ),
@@ -104,6 +126,20 @@ class GroupMemberProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          if (onRemoveFromGroup != null) ...[
+            OutlinedButton.icon(
+              key: const Key('remove_group_member_button'),
+              onPressed: () => _confirmRemoval(context),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFB3261E),
+                side: const BorderSide(color: Color(0xFFB3261E)),
+                minimumSize: const Size.fromHeight(48),
+              ),
+              icon: const Icon(Icons.person_remove_outlined),
+              label: const Text('Remove from group'),
+            ),
+            const SizedBox(height: 12),
+          ],
           const Text(
             'Only travel information shared with this group is shown. Email and account details remain private.',
             textAlign: TextAlign.center,
@@ -111,6 +147,71 @@ class GroupMemberProfileScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _confirmRemoval(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Remove ${member.displayName}?'),
+        content: const Text(
+          'They will leave this lobby and can join again while the group is recruiting.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm_remove_group_member_button'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB3261E),
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await onRemoveFromGroup!();
+      if (!context.mounted) return;
+      Navigator.pop(context);
+    } on TravelGroupException catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
+}
+
+class _ProfileStat extends StatelessWidget {
+  const _ProfileStat({required this.value, required this.label});
+
+  final int value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(
+          '$value',
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: AppColors.primary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 10, color: AppColors.secondaryText),
+        ),
+      ],
     );
   }
 }

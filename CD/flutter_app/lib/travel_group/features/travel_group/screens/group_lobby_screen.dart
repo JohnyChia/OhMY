@@ -509,7 +509,12 @@ class _LobbyMapPreview extends StatelessWidget {
           ),
           markers: markers,
           mapToolbarEnabled: false,
-          zoomControlsEnabled: false,
+          zoomControlsEnabled: true,
+          zoomGesturesEnabled: true,
+          scrollGesturesEnabled: true,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: true,
+          gestureRecognizers: travelMapGestureRecognizers(),
           compassEnabled: false,
           myLocationButtonEnabled: false,
         ),
@@ -887,17 +892,21 @@ class _LobbyTab extends StatelessWidget {
           )
         else if (group.tripPhase == GroupTripPhase.choosingNext)
           Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Enjoy the current stop. The creator starts the next leg when everyone is ready.',
-              ),
               if (controller.isCreator && nextStop != null)
                 FilledButton.icon(
+                  key: const Key('start_next_lobby_leg'),
                   onPressed: () =>
                       _beginTrip(context, expectedStopId: nextStop.id),
                   icon: const Icon(Icons.navigation),
-                  label: Text('Start next: ${nextStop.placeName}'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  label: const Text('Start Navigation'),
                 ),
+              if (controller.isCreator && nextStop != null)
+                const SizedBox(height: 8),
               FilledButton.icon(
                 key: const Key('choose_next_stop_button'),
                 onPressed: onSuggest,
@@ -1085,6 +1094,9 @@ class _LobbyTab extends StatelessWidget {
           member: member,
           groupName: controller.activeGroup!.name,
           isCurrentUser: member.userId == controller.currentUser.id,
+          onRemoveFromGroup: controller.canRemoveMember(member)
+              ? () => controller.removeMember(member)
+              : null,
         ),
       ),
     );

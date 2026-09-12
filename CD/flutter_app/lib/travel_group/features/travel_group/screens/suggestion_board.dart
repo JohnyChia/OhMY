@@ -156,19 +156,18 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
       _error = null;
     });
     final group = _group;
-    final latitude = group.destinationLatitude;
-    final longitude = group.destinationLongitude;
+    final anchor = recommendationAnchorFor(group, widget.controller.itinerary);
     try {
-      if (latitude == null || longitude == null) {
+      if (anchor == null) {
         throw const TravelGroupException(
           'This group has no destination coordinates to search around.',
           'no_destination_coordinates',
         );
       }
       final places = await widget.placeSearch.nearbySuggestions(
-        latitude: latitude,
-        longitude: longitude,
-        destinationPlaceId: group.destinationPlaceId,
+        latitude: anchor.latitude,
+        longitude: anchor.longitude,
+        destinationPlaceId: anchor.id,
         preferences: group.tags,
       );
       if (!mounted) return;
@@ -209,7 +208,7 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Live Google Places recommendations near ${_group.destination}.',
+            'Recommended for this group near ${recommendationAnchorFor(_group, widget.controller.itinerary)?.name ?? _group.destination}.',
             style: const TextStyle(
               fontSize: 11,
               color: AppColors.secondaryText,
@@ -244,12 +243,9 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
                   for (final place in _places)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
-                        backgroundColor: AppColors.surfaceBlue,
-                        child: Icon(
-                          Icons.place_outlined,
-                          color: AppColors.primary,
-                        ),
+                      leading: _PlaceThumbnail(
+                        photoName: place.photoName,
+                        placeSearch: widget.placeSearch,
                       ),
                       title: Text(place.name),
                       subtitle: Text(
@@ -279,6 +275,37 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
     }
     if (!mounted) return;
     Navigator.pop(context);
+  }
+}
+
+class _PlaceThumbnail extends StatelessWidget {
+  const _PlaceThumbnail({required this.photoName, required this.placeSearch});
+
+  final String? photoName;
+  final TravelPlaceSearchService placeSearch;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = photoName;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox.square(
+        dimension: 54,
+        child: name == null || name.isEmpty
+            ? const ColoredBox(
+                color: AppColors.surfaceBlue,
+                child: Icon(Icons.place_outlined, color: AppColors.primary),
+              )
+            : Image.network(
+                placeSearch.photoUrl(name),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const ColoredBox(
+                  color: AppColors.surfaceBlue,
+                  child: Icon(Icons.place_outlined, color: AppColors.primary),
+                ),
+              ),
+      ),
+    );
   }
 }
 
@@ -325,21 +352,9 @@ class _SuggestionCard extends StatelessWidget {
               ),
               const SizedBox(width: 9),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      suggestion.placeName,
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                    Text(
-                      suggestion.source,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: AppColors.secondaryText,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  suggestion.placeName,
+                  style: const TextStyle(fontSize: 16),
                 ),
               ),
               if (controller.isCreator ||
@@ -354,7 +369,7 @@ class _SuggestionCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '${_duration(suggestion.durationMinutes)}  •  ${suggestion.distanceKm} km  •  ${suggestion.crowdLevel} crowd',
+            '${suggestion.distanceKm.toStringAsFixed(1)} km away',
             style: const TextStyle(fontSize: 11),
           ),
           const SizedBox(height: 7),
@@ -424,10 +439,6 @@ class _SuggestionCard extends StatelessWidget {
     );
   }
 
-  String _duration(int minutes) => minutes >= 60
-      ? '${minutes ~/ 60} hr${minutes % 60 == 0 ? '' : ' ${minutes % 60} min'}'
-      : '$minutes min';
-
   Future<void> _remove(BuildContext context) async {
     try {
       await controller.removeSuggestion(suggestion);
@@ -481,7 +492,12 @@ class _SuggestionMap extends StatelessWidget {
           ),
           markers: markers,
           mapToolbarEnabled: false,
-          zoomControlsEnabled: false,
+          zoomControlsEnabled: true,
+          zoomGesturesEnabled: true,
+          scrollGesturesEnabled: true,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: true,
+          gestureRecognizers: travelMapGestureRecognizers(),
           compassEnabled: false,
           myLocationButtonEnabled: false,
         ),

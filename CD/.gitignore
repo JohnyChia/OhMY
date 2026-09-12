@@ -35,3 +35,4 @@ flutter_app/.pub-cache/
 Thumbs.db
 *.log
 *.zip
+supabase/.temp/

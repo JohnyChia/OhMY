@@ -918,10 +918,7 @@ app.post(
                 "locality",
                 "sublocality",
                 "sublocality_level_1",
-                "administrative_area_level_1",
-                "administrative_area_level_2",
-                "neighborhood",
-                "postal_code"
+                "administrative_area_level_2"
             ]);
 
             let places =
@@ -940,6 +937,11 @@ app.post(
             if (req.body.placesOnly === true) {
                 places = places.filter(
                     place => !place.isArea
+                );
+            }
+            if (req.body.areasOnly === true) {
+                places = places.filter(
+                    place => place.isArea
                 );
             }
 
@@ -1458,6 +1460,10 @@ app.post(
                     ? "destination"
                     : "preferences";
 
+            const excludePlaceId = String(
+                req.body.excludePlaceId || ""
+            ).trim();
+
             let reference;
 
             if (mode === "destination") {
@@ -1637,6 +1643,7 @@ app.post(
                             && place.id
                                 !== reference.destination?.id
                             && validatePlaceCandidate(place).eligible
+                            && place.id !== excludePlaceId
                     )
                     .sort((a, b) => {
                         const preferenceCoverage = candidate =>

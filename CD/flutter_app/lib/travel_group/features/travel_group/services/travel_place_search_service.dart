@@ -1,8 +1,41 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:flutter_app/user_management/config/travel_preference_options.dart';
 
 import '../models/travel_group_models.dart';
+
+TravelGroupPlace? recommendationAnchorFor(
+  TravelGroup group,
+  List<ItineraryStop> itinerary,
+) {
+  final visited = itinerary
+      .where((stop) => stop.status != StopStatus.upcoming)
+      .toList(growable: false);
+  if (visited.isNotEmpty) {
+    final stop = visited.last;
+    if (stop.latitude != null && stop.longitude != null) {
+      return TravelGroupPlace(
+        id: stop.placeId ?? stop.id,
+        name: stop.placeName,
+        address: '',
+        latitude: stop.latitude!,
+        longitude: stop.longitude!,
+      );
+    }
+  }
+  final latitude = group.destinationLatitude;
+  final longitude = group.destinationLongitude;
+  if (latitude == null || longitude == null) return null;
+  return TravelGroupPlace(
+    id: group.destinationPlaceId ?? group.id,
+    name: group.destination,
+    address: group.destinationAddress,
+    latitude: latitude,
+    longitude: longitude,
+    photoName: group.destinationPhotoName,
+  );
+}
 
 class TravelPlaceSearchService {
   TravelPlaceSearchService({http.Client? client, String? backendUrl})
@@ -38,16 +71,23 @@ class TravelPlaceSearchService {
   Future<List<TravelGroupPlace>> search(
     String query, {
     bool placesOnly = true,
+    bool areasOnly = false,
   }) async {
+    final restrictToPlaces = placesOnly && !areasOnly;
     final normalized = query.trim();
     if (normalized.length < 2) return const [];
     final response = await _client.post(
       Uri.parse('$backendUrl/api/places/search'),
       headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({'query': normalized, 'placesOnly': placesOnly}),
+      body: jsonEncode({
+        'query': normalized,
+        'placesOnly': restrictToPlaces,
+        'areasOnly': areasOnly,
+      }),
     );
     final body = _decode(response);
     return List<Map<String, dynamic>>.from(body['places'] ?? const [])
+        .where((place) => !areasOnly || place['isArea'] == true)
         .map(_fromSearchResult)
         .whereType<TravelGroupPlace>()
         .toList(growable: false);
@@ -61,16 +101,21 @@ class TravelPlaceSearchService {
   }) async {
     final hasDestination =
         destinationPlaceId != null && destinationPlaceId.trim().isNotEmpty;
+    final supportedPreferences = preferences
+        .where(culturalTravelPreferenceOptions.contains)
+        .toList(growable: false);
+    final hasPreferences = supportedPreferences.isNotEmpty;
     final response = await _client.post(
       Uri.parse('$backendUrl/api/recommendations/nearby-tagged'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({
         'latitude': latitude,
         'longitude': longitude,
-        if (hasDestination) 'mode': 'destination',
-        if (hasDestination) 'destinationPlaceId': destinationPlaceId,
-        if (!hasDestination) 'mode': 'preferences',
-        if (!hasDestination) 'preferences': preferences,
+        'mode': hasPreferences ? 'preferences' : 'destination',
+        if (hasPreferences) 'preferences': supportedPreferences,
+        if (!hasPreferences && hasDestination)
+          'destinationPlaceId': destinationPlaceId,
+        if (hasDestination) 'excludePlaceId': destinationPlaceId,
       }),
     );
     final body = _decode(response);
@@ -86,10 +131,6 @@ class TravelPlaceSearchService {
     final name = place['displayName']?['text']?.toString();
     if (name == null || name.trim().isEmpty) return null;
     final distanceKm = (place['distanceKm'] as num?)?.toDouble();
-    final category =
-        place['primaryTypeDisplayName']?.toString() ??
-        place['primaryType']?.toString() ??
-        'Place';
     final tags = List<String>.from(
       (item['matchedPreferences'] as List? ?? const []).map(
         (tag) => tag.toString(),
@@ -98,6 +139,13 @@ class TravelPlaceSearchService {
     final location = Map<String, dynamic>.from(
       place['location'] as Map? ?? const {},
     );
+    final category = tags.isNotEmpty
+        ? tags.first
+        : _readablePlaceType(
+            place['primaryTypeDisplayName']?.toString() ??
+                place['primaryType']?.toString(),
+          );
+    final photo = Map<String, dynamic>.from(place['photo'] as Map? ?? const {});
     return NearbyPlace(
       name: name,
       source: 'Google Places',
@@ -109,7 +157,17 @@ class TravelPlaceSearchService {
       placeId: place['id']?.toString(),
       latitude: (location['latitude'] as num?)?.toDouble(),
       longitude: (location['longitude'] as num?)?.toDouble(),
+      photoName: photo['name']?.toString(),
     );
+  }
+
+  String _readablePlaceType(String? value) {
+    final words = (value ?? '')
+        .trim()
+        .replaceAll('_', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+    if (words.isEmpty) return 'Place';
+    return '${words[0].toUpperCase()}${words.substring(1).toLowerCase()}';
   }
 
   Future<TravelGroupPlace> loadDetails(TravelGroupPlace place) async {

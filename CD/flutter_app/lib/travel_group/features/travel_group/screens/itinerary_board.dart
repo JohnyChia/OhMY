@@ -172,9 +172,10 @@ class ItineraryBoard extends StatelessWidget {
                         FilledButton.icon(
                           key: const Key('start_next_itinerary_leg'),
                           icon: const Icon(Icons.navigation_rounded),
-                          label: Text(
-                            'Start navigation to ${nextStop.placeName}',
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
                           ),
+                          label: const Text('Start Navigation'),
                           onPressed: () async {
                             try {
                               await controller.startItinerary(
@@ -307,7 +308,12 @@ class _ItineraryMapPreview extends StatelessWidget {
                   ),
                 },
           mapToolbarEnabled: false,
-          zoomControlsEnabled: false,
+          zoomControlsEnabled: true,
+          zoomGesturesEnabled: true,
+          scrollGesturesEnabled: true,
+          rotateGesturesEnabled: true,
+          tiltGesturesEnabled: true,
+          gestureRecognizers: travelMapGestureRecognizers(),
           compassEnabled: false,
           myLocationButtonEnabled: false,
         ),

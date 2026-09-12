@@ -144,9 +144,36 @@ class MockTravelGroupRepository implements TravelGroupRepository {
             preferredLanguage: 'English',
             travelStyle: 'Explore together',
             budgetPreference: 'Moderate',
+            completedTrips: id == group.creatorId ? 8 : 4,
+            communityPostCount: id == group.creatorId ? 3 : 2,
           ),
         )
         .toList(growable: false);
+  }
+
+  @override
+  Future<void> removeMember({
+    required String groupId,
+    required String userId,
+  }) async {
+    final group = _requireGroup(groupId);
+    if (userId == group.creatorId) {
+      throw const TravelGroupException(
+        'The creator cannot be removed from their own group.',
+        'cannot_remove_creator',
+      );
+    }
+    if (group.isConfirmed || group.tripPhase != GroupTripPhase.recruiting) {
+      throw const TravelGroupException(
+        'Travellers can only be removed while the group is recruiting.',
+        'member_removal_locked',
+      );
+    }
+    group.memberIds.remove(userId);
+    group.memberCount = group.memberIds.length;
+    _requests.removeWhere(
+      (request) => request.groupId == groupId && request.travellerId == userId,
+    );
   }
 
   @override

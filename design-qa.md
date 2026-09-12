@@ -56,7 +56,7 @@ Fixes applied:
 ## Automated and device checks
 
 - Dart analyzer: no issues in `lib/travel_group` and `test/travel_group`.
-- Travel Group tests: 50 passed.
+- Travel Group tests: 64 passed.
 - Android debug APK: built successfully.
 - Pixel 9 map log after fix: no `PlatformException` or lite-mode errors.
 - Supabase validation: solo-confirm guard installed; discovery result excludes meetup fields; anonymous execution of the discovery RPC is denied.

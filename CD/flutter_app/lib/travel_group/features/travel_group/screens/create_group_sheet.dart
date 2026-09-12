@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/live_trip_location_service.dart';
 import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:flutter_app/user_management/config/travel_preference_options.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
@@ -43,15 +44,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
   bool _searching = false;
   bool _saving = false;
 
-  static const tagOptions = [
-    'Food',
-    'Cultural',
-    'Budget',
-    'Nature',
-    'Casual',
-    'Heritage',
-    'Photography',
-  ];
+  static const tagOptions = culturalTravelPreferenceOptions;
 
   @override
   void initState() {
@@ -365,6 +358,14 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_tags.isEmpty) {
+      showTravelGroupMessage(
+        context,
+        'Select at least one activity preference for group recommendations.',
+        error: true,
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {

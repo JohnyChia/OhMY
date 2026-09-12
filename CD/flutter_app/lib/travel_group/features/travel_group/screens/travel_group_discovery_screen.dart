@@ -519,6 +519,8 @@ class _AreaPickerSheet extends StatefulWidget {
 class _AreaPickerSheetState extends State<_AreaPickerSheet> {
   static const quickAreas = [
     'Bukit Bintang, Kuala Lumpur',
+    'Shah Alam',
+    'Setia Alam',
     'Kuala Lumpur City Centre',
     'Subang Jaya',
     'Setapak, Kuala Lumpur',
@@ -528,6 +530,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
   List<TravelGroupPlace> _results = const [];
   bool _searching = false;
   bool _resolving = false;
+  bool _hasSearched = false;
   String? _error;
 
   @override
@@ -539,17 +542,25 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
   Future<void> _search(String value) async {
     final query = value.trim();
     if (query.length < 2) {
-      setState(() => _results = const []);
+      setState(() {
+        _results = const [];
+        _hasSearched = false;
+        _error = null;
+      });
       return;
     }
     setState(() {
       _searching = true;
+      _hasSearched = false;
       _error = null;
     });
     try {
-      final results = await widget.placeSearch.search(query, placesOnly: false);
+      final results = await widget.placeSearch.search(query, areasOnly: true);
       if (!mounted || _query.text.trim() != query) return;
-      setState(() => _results = results);
+      setState(() {
+        _results = results;
+        _hasSearched = true;
+      });
     } catch (_) {
       if (mounted) {
         setState(
@@ -558,6 +569,62 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
       }
     } finally {
       if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  Future<void> _usePreciseLocation() async {
+    setState(() {
+      _resolving = true;
+      _error = null;
+    });
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw const TravelGroupException(
+          'Turn on Location Services to use your current area.',
+          'location_disabled',
+        );
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw const TravelGroupException(
+          'Allow precise location access to find your current area.',
+          'location_permission_required',
+        );
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      final area = await widget.placeSearch.areaForCoordinates(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      await widget.controller.setArea(
+        area,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      if (mounted) Navigator.pop(context);
+    } on TravelGroupException catch (error) {
+      if (mounted) {
+        setState(() {
+          _resolving = false;
+          _error = error.message;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _resolving = false;
+          _error = 'Could not determine your current area. Try again.';
+        });
+      }
     }
   }
 
@@ -583,12 +650,12 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
   Future<void> _selectQuickArea(String name) async {
     setState(() => _resolving = true);
     try {
-      final matches = await widget.placeSearch.search(name, placesOnly: false);
+      final matches = await widget.placeSearch.search(name, areasOnly: true);
       if (!mounted) return;
       if (matches.isEmpty) {
         setState(() {
           _resolving = false;
-          _error = 'Could not resolve this area. Try searching instead.';
+          _error = 'No areas found for $name.';
         });
         return;
       }
@@ -597,7 +664,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
       if (mounted) {
         setState(() {
           _resolving = false;
-          _error = 'Could not resolve this area. Try searching instead.';
+          _error = 'Could not load $name. Check the backend service.';
         });
       }
     }
@@ -612,104 +679,159 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
         18,
         24 + MediaQuery.viewInsetsOf(context).bottom,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Choose your area',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Browse another area. Joining still uses your precise current location and requires you to be within 10 km of the destination.',
-            style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('area_search_field'),
-            controller: _query,
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              labelText: 'Search area',
-              hintText: 'e.g. Bangsar, Petaling Jaya',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _searching
-                  ? const Padding(
-                      padding: EdgeInsets.all(14),
-                      child: SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : null,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Choose your area',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            onChanged: _search,
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                _error!,
-                style: const TextStyle(fontSize: 11, color: Colors.red),
+            const SizedBox(height: 4),
+            const Text(
+              'Browse another area. Joining still uses your precise current location and requires you to be within 10 km of the destination.',
+              style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: const Key('use_precise_area_button'),
+                onPressed: _resolving ? null : _usePreciseLocation,
+                icon: const Icon(Icons.my_location_rounded),
+                label: const Text('Use my precise location'),
               ),
             ),
-          const SizedBox(height: 14),
-          const Text(
-            'Popular areas',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: quickAreas
-                .map(
-                  (area) => ActionChip(
-                    label: Text(area),
-                    onPressed: _resolving ? null : () => _selectQuickArea(area),
-                  ),
-                )
-                .toList(),
-          ),
-          if (_results.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (var index = 0; index < _results.length; index++) ...[
-                    ListTile(
-                      key: Key('area_result_$index'),
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.location_on_outlined,
-                        color: AppColors.primary,
+            const SizedBox(height: 10),
+            TextField(
+              key: const Key('area_search_field'),
+              controller: _query,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                labelText: 'Search area',
+                hintText: 'e.g. Bangsar, Petaling Jaya',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
+              ),
+              onChanged: _search,
+              onSubmitted: _search,
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(fontSize: 11, color: Colors.red),
+                ),
+              ),
+            if (_hasSearched &&
+                !_searching &&
+                _results.isEmpty &&
+                _error == null)
+              Container(
+                key: const Key('area_empty_state'),
+                width: double.infinity,
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceBlue,
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(Icons.location_off_outlined, color: AppColors.primary),
+                    SizedBox(height: 5),
+                    Text('No areas found'),
+                    Text(
+                      'Try a city or suburb, such as Shah Alam or Setapak.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.secondaryText,
                       ),
-                      title: Text(_results[index].name),
-                      subtitle: Text(
-                        _results[index].address,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: _resolving
-                          ? null
-                          : () => _selectArea(_results[index]),
                     ),
-                    if (index < _results.length - 1)
-                      const Divider(height: 1, indent: 40),
                   ],
-                ],
+                ),
               ),
+            if (_results.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                'Search results',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+              Material(
+                color: Colors.white,
+                shape: RoundedRectangleBorder(
+                  side: const BorderSide(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var index = 0; index < _results.length; index++) ...[
+                      ListTile(
+                        key: Key('area_result_$index'),
+                        dense: true,
+                        leading: const Icon(
+                          Icons.location_on_outlined,
+                          color: AppColors.primary,
+                        ),
+                        title: Text(_results[index].name),
+                        subtitle: Text(
+                          _results[index].address,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: _resolving
+                            ? null
+                            : () => _selectArea(_results[index]),
+                      ),
+                      if (index < _results.length - 1)
+                        const Divider(height: 1, indent: 52),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            const Text(
+              'Popular areas',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
             ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: quickAreas
+                  .map(
+                    (area) => ActionChip(
+                      label: Text(area),
+                      onPressed: _resolving
+                          ? null
+                          : () => _selectQuickArea(area),
+                    ),
+                  )
+                  .toList(),
+            ),
+            if (_resolving)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Center(child: CircularProgressIndicator()),
+              ),
           ],
-          if (_resolving)
-            const Padding(
-              padding: EdgeInsets.only(top: 12),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-        ],
+        ),
       ),
     );
   }

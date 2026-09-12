@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
 
 import '../../../core/theme/app_theme.dart';
+
+Set<Factory<OneSequenceGestureRecognizer>> travelMapGestureRecognizers() => {
+  Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
+};
 
 class AppPill extends StatelessWidget {
   const AppPill(
