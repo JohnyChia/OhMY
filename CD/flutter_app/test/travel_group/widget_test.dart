@@ -4,6 +4,7 @@ import 'package:flutter_app/travel_group/features/travel_group/controllers/trave
 import 'package:flutter_app/travel_group/features/travel_group/models/travel_group_models.dart';
 import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/group_lobby_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/live_trip_location_service.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/travel_place_search_service.dart';
 
@@ -34,7 +35,8 @@ void main() {
     expect(find.text('Travel Groups'), findsOneWidget);
     expect(find.text('Petaling Street'), findsOneWidget);
     expect(find.text('Petaling Street Food Hunt'), findsOneWidget);
-    expect(find.textContaining('km'), findsNothing);
+    expect(find.textContaining('km away'), findsNothing);
+    expect(find.textContaining('within 10 km'), findsOneWidget);
     expect(find.textContaining('Verified'), findsNothing);
     expect(find.byKey(const Key('create_group_fab')), findsOneWidget);
   });
@@ -84,7 +86,58 @@ void main() {
     expect(controller.activeGroup?.destination, 'KLCC Park');
     expect(controller.activeGroup?.meetupPoint, isEmpty);
     expect(find.text('KL Sunset Walk'), findsWidgets);
+    expect(find.text('1 of 4 members'), findsOneWidget);
+    expect(find.text('Create Travel Group'), findsNothing);
+    expect(find.text('Group successfully created'), findsOneWidget);
   });
+
+  testWidgets('suggestion cards fit a phone viewport without overflow', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Suggestions').first);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Member suggestions'), findsOneWidget);
+  });
+
+  testWidgets(
+    'lobby lists members, opens profiles, and has no progress panel',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(375, 812));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await controller.openGroup('GROUP_001');
+      await tester.pumpWidget(
+        MaterialApp(home: GroupLobbyScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Planning Progress'), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('member_profile_USER_101')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('member_profile_USER_101')), findsOneWidget);
+
+      tester
+          .widget<InkWell>(find.byKey(const Key('member_profile_USER_101')))
+          .onTap!();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Traveller profile'), findsOneWidget);
+      expect(find.text('Farah Imani'), findsOneWidget);
+      expect(find.text('Travel preferences'), findsOneWidget);
+      expect(find.text('Heritage'), findsOneWidget);
+    },
+  );
 
   test('creator meetup must be within 5 km of every live member', () async {
     await controller.openGroup('GROUP_001');
@@ -133,7 +186,10 @@ void main() {
 
 class _FakePlaceSearchService extends TravelPlaceSearchService {
   @override
-  Future<List<TravelGroupPlace>> search(String query) async => const [
+  Future<List<TravelGroupPlace>> search(
+    String query, {
+    bool placesOnly = true,
+  }) async => const [
     TravelGroupPlace(
       id: 'places/klcc',
       name: 'KLCC Park',

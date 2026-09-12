@@ -14,10 +14,14 @@ void main() {
       await repository.joinOpenGroup(
         groupId: 'GROUP_002',
         travellerId: 'USER_TEST',
+        latitude: 3.1580,
+        longitude: 101.7120,
       );
       await repository.joinOpenGroup(
         groupId: 'GROUP_002',
         travellerId: 'USER_TEST',
+        latitude: 3.1580,
+        longitude: 101.7120,
       );
       final group = await repository.getGroup('GROUP_002');
       expect(group!.memberIds.where((id) => id == 'USER_TEST').length, 1);
@@ -33,10 +37,14 @@ void main() {
       final first = await repository.requestToJoin(
         groupId: 'GROUP_003',
         traveller: user,
+        latitude: 3.2379,
+        longitude: 101.6806,
       );
       final second = await repository.requestToJoin(
         groupId: 'GROUP_003',
         traveller: user,
+        latitude: 3.2379,
+        longitude: 101.6806,
       );
       expect(second.id, first.id);
     });
@@ -60,26 +68,45 @@ void main() {
       expect(suggestion.downvoterIds.contains('USER_100'), isTrue);
     });
 
-    test('completing a stop advances the next stop', () async {
+    test('returns group-safe member profiles for every member', () async {
       final repository = MockTravelGroupRepository.seeded();
-      await repository.confirmSuggestion('SUGGESTION_002');
-      await repository.startItinerary('GROUP_001');
-      var itinerary = await repository.getItinerary('GROUP_001');
-      expect(itinerary.map((stop) => stop.status), [
-        StopStatus.current,
-        StopStatus.upcoming,
-      ]);
+      final group = (await repository.getGroup('GROUP_001'))!;
+      final members = await repository.getMembers(group.id);
 
-      await repository.markStopCompleted(
-        groupId: 'GROUP_001',
-        stopId: itinerary.first.id,
+      expect(members.length, group.memberIds.length);
+      expect(members.first.displayName, group.creatorName);
+      expect(members.first.isCreator, isTrue);
+      expect(
+        members.firstWhere((member) => member.userId == 'USER_101').interests,
+        contains('Heritage'),
       );
-      itinerary = await repository.getItinerary('GROUP_001');
-      expect(itinerary.map((stop) => stop.status), [
-        StopStatus.completed,
-        StopStatus.current,
-      ]);
     });
+
+    test(
+      'completing a stop pauses the journey for the next decision',
+      () async {
+        final repository = MockTravelGroupRepository.seeded();
+        await repository.confirmSuggestion('SUGGESTION_002');
+        await repository.startItinerary('GROUP_001');
+        var itinerary = await repository.getItinerary('GROUP_001');
+        expect(itinerary.map((stop) => stop.status), [
+          StopStatus.current,
+          StopStatus.upcoming,
+        ]);
+
+        await repository.markStopCompleted(
+          groupId: 'GROUP_001',
+          stopId: itinerary.first.id,
+        );
+        itinerary = await repository.getItinerary('GROUP_001');
+        expect(itinerary.map((stop) => stop.status), [
+          StopStatus.completed,
+          StopStatus.upcoming,
+        ]);
+        final group = await repository.getGroup('GROUP_001');
+        expect(group!.tripPhase, GroupTripPhase.choosingNext);
+      },
+    );
   });
 
   test('mock map advances position while ETA decreases', () {
@@ -109,7 +136,7 @@ void main() {
 
     final updatedFuture = service.watchLocations().skip(1).first;
     await Future<void>.delayed(Duration.zero);
-    service.publishOwnLocation(
+    await service.publishOwnLocation(
       latitude: 3.139,
       longitude: 101.6869,
       accuracyMeters: 5,

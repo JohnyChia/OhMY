@@ -68,14 +68,25 @@ class VerificationRequiredScreen extends StatelessWidget {
                     width: double.infinity,
                     child: FilledButton(
                       onPressed: () {
-                        controller.completeDemoVerification();
-                        showTravelGroupMessage(
-                          context,
-                          'Demo verification completed.',
-                        );
+                        if (controller.allowDemoVerification) {
+                          controller.completeDemoVerification();
+                          showTravelGroupMessage(
+                            context,
+                            'Demo verification completed.',
+                          );
+                        } else {
+                          showTravelGroupMessage(
+                            context,
+                            'Open Profile and complete identity verification.',
+                          );
+                        }
                         Navigator.pop(context);
                       },
-                      child: const Text('Complete demo verification'),
+                      child: Text(
+                        controller.allowDemoVerification
+                            ? 'Complete demo verification'
+                            : 'Return and open Profile',
+                      ),
                     ),
                   ),
                 ],

@@ -1,10 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
+import '../../../../preference_recommender/features/routes/navigation_sensor.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
+import '../services/live_trip_location_service.dart';
 import '../widgets/travel_group_scaffold.dart';
 import '../widgets/travel_group_widgets.dart';
+import 'edit_group_sheet.dart';
 import 'group_lobby_screen.dart';
 import 'verification_required_screen.dart';
 
@@ -32,9 +37,39 @@ class GroupDetailsScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 9),
-              Text(
-                group.name,
-                style: Theme.of(context).textTheme.headlineMedium,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      group.name,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ),
+                  if (controller.isCreator &&
+                      group.status == GroupStatus.waiting) ...[
+                    const SizedBox(width: 8),
+                    IconButton(
+                      key: const Key('edit_group_button'),
+                      tooltip: 'Edit group',
+                      onPressed: () => _openEditSheet(context),
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
+                  if (controller.isCreator)
+                    IconButton(
+                      key: const Key('delete_group_button'),
+                      tooltip: 'Delete group',
+                      onPressed: () => _deleteGroup(context),
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Color(0xFFB3261E),
+                      ),
+                    ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
@@ -81,12 +116,33 @@ class GroupDetailsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '${group.memberIds.length} of ${group.maxMembers} travellers  •  Hosted by ${group.creatorName}',
+                      '${group.memberCount} of ${group.maxMembers} travellers  •  Hosted by ${group.creatorName}',
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 18),
+              if (kDebugMode && controller.isUsingSimulatedLocation) ...[
+                AppPanel(
+                  color: const Color(0xFFFFF6E8),
+                  borderColor: const Color(0xFFF2CB8D),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Test location: at this destination',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: controller.useActualLocation,
+                        child: const Text('Use GPS'),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               SizedBox(
                 width: double.infinity,
                 child: _actionButton(context, group),
@@ -108,6 +164,14 @@ class GroupDetailsScreen extends StatelessWidget {
     if (group.isFull) {
       return const FilledButton(onPressed: null, child: Text('Group full'));
     }
+    if (group.status != GroupStatus.waiting ||
+        (group.tripPhase != GroupTripPhase.recruiting &&
+            group.tripPhase != GroupTripPhase.gathering)) {
+      return const FilledButton(
+        onPressed: null,
+        child: Text('Trip already started'),
+      );
+    }
     if (controller.hasPendingRequestForCurrentUser()) {
       return const FilledButton(
         onPressed: null,
@@ -122,9 +186,21 @@ class GroupDetailsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _openEditSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      builder: (_) => EditGroupSheet(controller: controller),
+    );
+  }
+
   Future<void> _join(BuildContext context) async {
     try {
-      await controller.joinActiveGroup();
+      final location = await _joinLocation();
+      await controller.joinActiveGroup(location: location);
       if (!context.mounted) return;
       if (controller.activeGroup!.joinMode == JoinMode.open) {
         await _openLobby(context);
@@ -140,18 +216,117 @@ class GroupDetailsScreen extends StatelessWidget {
             builder: (_) => VerificationRequiredScreen(controller: controller),
           ),
         );
+      } else if (error.code == 'outside_destination_radius' && kDebugMode) {
+        final simulate = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Outside the 10 km join area'),
+            content: Text(
+              '${error.message}\n\nFor testing on distant devices, you can temporarily publish this device at ${controller.activeGroup!.destination}.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                key: const Key('simulate_near_destination_button'),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Simulate near destination'),
+              ),
+            ],
+          ),
+        );
+        if (simulate == true && context.mounted) {
+          controller.simulateLocationNearDestination();
+          await _join(context);
+        }
       } else {
         showTravelGroupMessage(context, error.message, error: true);
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(
+          context,
+          kDebugMode
+              ? 'Could not read the current location: $error'
+              : 'Could not read your precise location. Check location settings and try again.',
+          error: true,
+        );
       }
     }
   }
 
+  Future<GeoCoordinate> _joinLocation() async {
+    final simulated = controller.simulatedLocationOverride;
+    if (simulated != null) return simulated;
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw const TravelGroupException(
+        'Turn on precise location before joining a travel group.',
+        'location_disabled',
+      );
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw const TravelGroupException(
+        'Precise location permission is required to join nearby groups.',
+        'location_permission_required',
+      );
+    }
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: navigationLocationSettings,
+    );
+    return GeoCoordinate(position.latitude, position.longitude);
+  }
+
   Future<void> _openLobby(BuildContext context) async {
-    await Navigator.push<void>(
+    final deleted = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => GroupLobbyScreen(controller: controller),
       ),
     );
+    if (deleted == true && context.mounted) {
+      Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> _deleteGroup(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete this group?'),
+        content: const Text(
+          'This permanently removes the lobby, members, suggestions, and itinerary.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm_delete_group_button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB3261E),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete group'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await controller.deleteActiveGroup();
+      if (context.mounted) Navigator.pop(context, true);
+    } on TravelGroupException catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
   }
 }

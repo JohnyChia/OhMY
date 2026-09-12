@@ -36,10 +36,16 @@ class SupabaseCommunityRepository implements CommunityRepository {
     return (rows as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map((row) {
-          final imagePath = row['image_path'] as String?;
-          final imageUrl = imagePath == null
-              ? null
-              : _client.storage.from('community-posts').getPublicUrl(imagePath);
+          final imagePath = row['image_path']?.toString().trim();
+          final storedImageUrl = row['image_url']?.toString().trim();
+          String? imageUrl;
+          if (storedImageUrl != null && storedImageUrl.isNotEmpty) {
+            imageUrl = storedImageUrl;
+          } else if (imagePath != null && imagePath.isNotEmpty) {
+            imageUrl = _client.storage
+                .from('community-posts')
+                .getPublicUrl(imagePath);
+          }
           return CommunityPost.fromFeedMap(
             row,
             isLiked: row['is_liked'] as bool? ?? false,

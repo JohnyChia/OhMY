@@ -15,6 +15,7 @@ import '../features/weather/weather_feature.dart';
 import '../widgets/wau_loading_indicator.dart';
 import '../../user_management/services/traveler_profile_service.dart';
 import '../../community_discovery/config/supabase_config.dart';
+import '../../shared/services/recommendation_sound.dart';
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -22,7 +23,13 @@ const blue = Color(0xff3266cc),
     soft = Color(0xffedf4ff);
 
 class PlaceMapPage extends StatefulWidget {
-  const PlaceMapPage({super.key});
+  const PlaceMapPage({
+    super.key,
+    this.autofocusSearch = false,
+    this.initialRecommendation,
+  });
+  final bool autofocusSearch;
+  final Map<String, dynamic>? initialRecommendation;
   @override
   State<PlaceMapPage> createState() => _PlaceMapPageState();
 }
@@ -55,12 +62,31 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   String recommendationTitle = 'Based on your preferences';
   String? highlightedRecommendationId;
   final Set<String> bookmarkedRecommendations = {};
+  bool initialRecommendationApplied = false;
 
   @override
   void initState() {
     super.initState();
     completedJourneyLocation.addListener(_resumeAtCompletedJourneyLocation);
+    currentTravelerPreferences.addListener(_onPreferencesChanged);
     unawaited(initializeCurrentLocation());
+    if (widget.autofocusSearch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) searchFocus.requestFocus();
+      });
+    }
+  }
+
+  void _onPreferencesChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (recommendationTitle == 'Based on your preferences') {
+        recommendations = [];
+        markers = {};
+        showCarousel = false;
+        highlightedRecommendationId = null;
+      }
+    });
   }
 
   void _resumeAtCompletedJourneyLocation() {
@@ -88,6 +114,15 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     if (!mounted || value == null) return;
     setState(() => currentPosition = value);
     await moveMapTo(value, zoom: 16);
+  }
+
+  Future<void> _applyInitialRecommendation() async {
+    final item = widget.initialRecommendation;
+    if (initialRecommendationApplied || item == null || controller == null) {
+      return;
+    }
+    initialRecommendationApplied = true;
+    await choose(Map<String, dynamic>.from(item), true);
   }
 
   String name(Map p) =>
@@ -306,10 +341,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       final item = all[0] as Map<String, dynamic>, pos = all[1] as Position?;
       final p = item['place'] as Map<String, dynamic>;
       if (pos != null && p['location'] != null) {
-        final d = km(pos, p['location']);
-        p['distanceKm'] = d;
-        p['etaMinutes'] = math.max(2, (d * 2).ceil());
-        p['etaEstimated'] = true;
+        await _applyDrivingMetrics(p, pos);
       }
       await choose(item, true);
     } catch (e) {
@@ -320,22 +352,59 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   }
 
   Future<List<String>> _travelerPreferences() async {
-    var values = currentTravelerPreferences.value;
-    if (values.isEmpty) {
-      if (!SupabaseConfig.isConfigured) {
-        throw Exception(
-          'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
-        );
-      }
-      final profile = await TravelerProfileService().fetchCurrentProfile();
-      values = profile?.favoriteCategories ?? const [];
+    if (!SupabaseConfig.isConfigured) {
+      throw Exception(
+        'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
+      );
     }
+    final profile = await TravelerProfileService().fetchCurrentProfile();
+    final values = profile?.favoriteCategories ?? const [];
     if (values.isEmpty) {
       throw Exception(
         'Your travel preferences are unavailable. Complete your profile first.',
       );
     }
     return values;
+  }
+
+  Future<void> _applyDrivingMetrics(
+    Map<String, dynamic> place,
+    Position origin,
+  ) async {
+    final location = place['location'];
+    if (location is! Map ||
+        location['latitude'] is! num ||
+        location['longitude'] is! num) {
+      return;
+    }
+    final uri = Uri.parse('$backend/api/routes').replace(
+      queryParameters: {
+        'startLat': '${origin.latitude}',
+        'startLon': '${origin.longitude}',
+        'endLat': '${location['latitude']}',
+        'endLon': '${location['longitude']}',
+      },
+    );
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 25));
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final routes = List<Map<String, dynamic>>.from(data['routes'] ?? []);
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          routes.isNotEmpty) {
+        final route = routes.first;
+        place['routeDistanceKm'] = route['distanceKm'];
+        place['etaMinutes'] = route['durationMinutes'];
+        place['etaEstimated'] = false;
+        return;
+      }
+    } catch (_) {
+      // Retain an explicitly marked estimate if live routing is unavailable.
+    }
+    final directDistance = km(origin, location);
+    place['distanceKm'] = directDistance;
+    place['etaMinutes'] = math.max(2, (directDistance * 2).ceil());
+    place['etaEstimated'] = true;
   }
 
   Future<void> choose(Map<String, dynamic> item, bool create) async {
@@ -412,6 +481,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         });
         _scheduleMessageDismissal();
       }
+      if (matched.isNotEmpty) unawaited(RecommendationSound.play());
       await Future<void>.delayed(const Duration(milliseconds: 180));
       await _showNearbyArea(visiblePoints);
     } catch (e) {
@@ -490,6 +560,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
             : null;
       });
       _scheduleMessageDismissal();
+      if (matched.isNotEmpty) unawaited(RecommendationSound.play());
       await Future<void>.delayed(const Duration(milliseconds: 180));
       await _showNearbyArea(visiblePoints);
     } catch (error) {
@@ -659,6 +730,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                 await selectPlace(placeId);
               }
             });
+            unawaited(_applyInitialRecommendation());
           },
           onTap: (_) => dismissSearchResults(),
           markers: markers,
@@ -867,89 +939,114 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
 
   Widget selectionPanel() {
     final item = selected!, p = item['place'] as Map<String, dynamic>;
+    final img = photo(p);
     return Positioned(
       left: 12,
       right: 12,
       bottom: 12,
       child: Material(
         elevation: 12,
-        color: Colors.white,
+        color: blue,
         borderRadius: BorderRadius.circular(22),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => details(item),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          child: SizedBox(
+            height: 232,
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
+                if (img != null)
+                  Image.network(
+                    img,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, error, stack) =>
+                        const ColoredBox(color: blue),
+                  ),
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        Color(0xf014213d),
+                        Color(0xa33266cc),
+                        Color(0x300b1730),
+                      ],
+                      stops: [0, .6, 1],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          _overlayPill('Selected place'),
+                          const Spacer(),
+                          IconButton.filledTonal(
+                            onPressed: () => setState(() => selected = null),
+                            icon: const Icon(Icons.close),
+                            color: Colors.white,
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black38,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
                         name(p),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 20,
+                          color: Colors.white,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      Text(
+                        description(p),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        '${eta(p)}  ·  ${distance(p)}',
+                        style: const TextStyle(
+                          color: Colors.white,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ),
-                    IconButton(
-                      onPressed: () => setState(() => selected = null),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-                Text(
-                  description(p),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${eta(p)}  ·  ${distance(p)}',
-                  style: const TextStyle(
-                    color: blue,
-                    fontWeight: FontWeight.w700,
+                      const SizedBox(height: 6),
+                      _overlayTags(tags(item)),
+                      const Spacer(),
+                      Row(
+                        children: [
+                          _overlayAction(
+                            Icons.directions,
+                            'Directions',
+                            () => directions(p),
+                          ),
+                          _overlayAction(
+                            bookmarked ? Icons.bookmark : Icons.bookmark_border,
+                            'Bookmark',
+                            () => setState(() => bookmarked = !bookmarked),
+                          ),
+                          _overlayAction(
+                            Icons.lightbulb_outline_rounded,
+                            'Similar',
+                            recommendFromSelectedPlace,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 7),
-                tagRow(tags(item)),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton.icon(
-                        onPressed: () => directions(p),
-                        icon: const Icon(Icons.directions),
-                        label: const Text('Directions'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () =>
-                            setState(() => bookmarked = !bookmarked),
-                        icon: Icon(
-                          bookmarked ? Icons.bookmark : Icons.bookmark_border,
-                        ),
-                        label: const Text('Bookmark'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Tooltip(
-                      message: 'Recommend similar places',
-                      child: IconButton.outlined(
-                        onPressed: recommendFromSelectedPlace,
-                        icon: const Icon(Icons.lightbulb_outline_rounded),
-                        color: blue,
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -1233,6 +1330,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   @override
   void dispose() {
     completedJourneyLocation.removeListener(_resumeAtCompletedJourneyLocation);
+    currentTravelerPreferences.removeListener(_onPreferencesChanged);
     searchDebounce?.cancel();
     messageTimer?.cancel();
     search.dispose();
@@ -1384,8 +1482,8 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
               Expanded(
                 child: metric(
                   'Distance',
-                  p['distanceKm'] is num
-                      ? '${(p['distanceKm'] as num).toStringAsFixed(1)} km'
+                  (p['routeDistanceKm'] ?? p['distanceKm']) is num
+                      ? '${((p['routeDistanceKm'] ?? p['distanceKm']) as num).toStringAsFixed(1)} km'
                       : 'Unavailable',
                 ),
               ),

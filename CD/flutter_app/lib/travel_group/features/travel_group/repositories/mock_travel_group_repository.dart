@@ -42,6 +42,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   final List<JoinRequest> _requests;
   final List<GroupSuggestion> _suggestions;
   final List<ItineraryStop> _itinerary;
+  final Map<String, TravelGroupTripSession> _sessions = {};
   int _sequence = 1000;
 
   String _nextId(String prefix) => '${prefix}_${++_sequence}';
@@ -88,9 +89,103 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<List<GroupMemberProfile>> getMembers(String groupId) async {
+    final group = _requireGroup(groupId);
+    const names = {
+      'USER_100': 'Aina Sofea',
+      'USER_101': 'Farah Imani',
+      'USER_102': 'Jason Lee',
+      'USER_200': 'Hakim Zain',
+      'USER_201': 'Siti Nur',
+      'USER_300': 'Priya Kumar',
+      'USER_301': 'Arun Raj',
+      'USER_400': 'Daniel Lim',
+      'USER_401': 'Mei Ling',
+      'USER_402': 'Nadia Amir',
+    };
+    return group.memberIds
+        .map(
+          (id) => GroupMemberProfile(
+            userId: id,
+            displayName: id == group.creatorId
+                ? group.creatorName
+                : names[id] ?? 'Traveller',
+            role: id == group.creatorId ? 'creator' : 'member',
+            interests: id == group.creatorId
+                ? group.tags
+                : const ['Culture', 'Food', 'Heritage'],
+            preferredLanguage: 'English',
+            travelStyle: 'Explore together',
+            budgetPreference: 'Moderate',
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
   Future<TravelGroup> createGroup(TravelGroup group) async {
     _groups.add(group);
+    _itinerary.add(
+      ItineraryStop(
+        id: _nextId('STOP'),
+        groupId: group.id,
+        suggestionId: '',
+        placeName: group.destination,
+        placeId: group.destinationPlaceId,
+        latitude: group.destinationLatitude,
+        longitude: group.destinationLongitude,
+        position: 0,
+        estimatedDurationMinutes: 60,
+        travelTimeFromPreviousMinutes: 0,
+      ),
+    );
     return group;
+  }
+
+  @override
+  Future<void> deleteGroup(String groupId) async {
+    _requireGroup(groupId);
+    _groups.removeWhere((group) => group.id == groupId);
+    _requests.removeWhere((request) => request.groupId == groupId);
+    _suggestions.removeWhere((suggestion) => suggestion.groupId == groupId);
+    _itinerary.removeWhere((stop) => stop.groupId == groupId);
+    _sessions.remove(groupId);
+  }
+
+  @override
+  Future<void> updateGroup(TravelGroup updated) async {
+    final group = _requireGroup(updated.id);
+    if (group.status != GroupStatus.waiting) {
+      throw const TravelGroupException(
+        'Group details can only be edited before the trip starts.',
+        'edit_locked',
+      );
+    }
+    if (updated.maxMembers < 2 || updated.maxMembers > 4) {
+      throw const TravelGroupException(
+        'A travel group allows 2 to 4 travellers.',
+        'invalid_capacity',
+      );
+    }
+    if (updated.maxMembers < group.memberIds.length) {
+      throw const TravelGroupException(
+        'The group already has more travellers than the new maximum.',
+        'capacity_below_members',
+      );
+    }
+    group
+      ..name = updated.name
+      ..destination = updated.destination
+      ..description = updated.description
+      ..tags = updated.tags
+      ..maxMembers = updated.maxMembers
+      ..joinMode = updated.joinMode
+      ..destinationPlaceId = updated.destinationPlaceId
+      ..destinationAddress = updated.destinationAddress
+      ..destinationLatitude = updated.destinationLatitude
+      ..destinationLongitude = updated.destinationLongitude
+      ..destinationPhotoName = updated.destinationPhotoName
+      ..distanceKm = updated.distanceKm;
   }
 
   @override
@@ -107,9 +202,29 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<int> simulateDemoMembersTowardMeetup({
+    required String sessionId,
+    required double latitude,
+    required double longitude,
+    bool resetPositions = false,
+  }) async {
+    final session = _sessions.values.firstWhere(
+      (item) => item.id == sessionId,
+      orElse: () => throw const TravelGroupException(
+        'Confirm the group before simulating meetup locations.',
+        'group_not_confirmed',
+      ),
+    );
+    final group = _requireGroup(session.groupId);
+    return (group.memberCount - 1).clamp(0, group.maxMembers);
+  }
+
+  @override
   Future<void> joinOpenGroup({
     required String groupId,
     required String travellerId,
+    required double latitude,
+    required double longitude,
   }) async {
     final group = _requireGroup(groupId);
     if (group.joinMode != JoinMode.open) {
@@ -126,12 +241,15 @@ class MockTravelGroupRepository implements TravelGroupRepository {
       );
     }
     group.memberIds.add(travellerId);
+    group.memberCount = group.memberIds.length;
   }
 
   @override
   Future<JoinRequest> requestToJoin({
     required String groupId,
     required PrototypeUser traveller,
+    required double latitude,
+    required double longitude,
   }) async {
     final group = _requireGroup(groupId);
     if (group.memberIds.contains(traveller.id)) {
@@ -190,6 +308,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     }
     if (!group.memberIds.contains(request.travellerId)) {
       group.memberIds.add(request.travellerId);
+      group.memberCount = group.memberIds.length;
     }
     request.status = JoinRequestStatus.accepted;
   }
@@ -204,19 +323,39 @@ class MockTravelGroupRepository implements TravelGroupRepository {
 
   @override
   Future<GroupSuggestion> addSuggestion(GroupSuggestion suggestion) async {
+    final group = _requireGroup(suggestion.groupId);
     final duplicate = _suggestions.any(
       (item) =>
           item.groupId == suggestion.groupId &&
           item.placeName.toLowerCase() == suggestion.placeName.toLowerCase(),
     );
-    if (duplicate) {
+    final duplicatesDestination =
+        (suggestion.placeId != null &&
+            suggestion.placeId == group.destinationPlaceId) ||
+        suggestion.placeName.toLowerCase() == group.destination.toLowerCase();
+    if (duplicate || duplicatesDestination) {
       throw const TravelGroupException(
-        'This place is already suggested.',
-        'duplicate',
+        'This place is already part of the group plan.',
+        'duplicate_place',
       );
     }
     _suggestions.add(suggestion);
     return suggestion;
+  }
+
+  @override
+  Future<void> removeSuggestion(String suggestionId) async {
+    final index = _suggestions.indexWhere((item) => item.id == suggestionId);
+    if (index < 0) return;
+    final suggestion = _suggestions[index];
+    _itinerary.removeWhere(
+      (stop) =>
+          stop.groupId == suggestion.groupId &&
+          stop.suggestionId == suggestionId &&
+          stop.status != StopStatus.current,
+    );
+    _suggestions.removeAt(index);
+    _resequence(suggestion.groupId);
   }
 
   @override
@@ -256,9 +395,49 @@ class MockTravelGroupRepository implements TravelGroupRepository {
       travelTimeFromPreviousMinutes: groupStops.isEmpty
           ? 0
           : 10 + groupStops.length * 2,
+      travelDistanceFromPreviousKm: groupStops.isEmpty
+          ? 0
+          : suggestion.distanceKm,
+      placeId: suggestion.placeId,
+      latitude: suggestion.latitude,
+      longitude: suggestion.longitude,
     );
     _itinerary.add(stop);
+    final group = _requireGroup(suggestion.groupId);
+    if (group.tripPhase == GroupTripPhase.choosingNext) {
+      stop.status = StopStatus.current;
+      group.tripPhase = GroupTripPhase.navigating;
+      final session = _sessions[group.id];
+      if (session != null) {
+        _sessions[group.id] = TravelGroupTripSession(
+          id: session.id,
+          groupId: group.id,
+          phase: GroupTripPhase.navigating,
+          currentStopId: stop.id,
+          currentStopIndex: stop.position,
+        );
+      }
+    }
     return stop;
+  }
+
+  @override
+  Future<void> removeItineraryStop({
+    required String groupId,
+    required String stopId,
+  }) async {
+    final stop = _itinerary.firstWhere((item) => item.id == stopId);
+    if (stop.status == StopStatus.current) {
+      throw const TravelGroupException(
+        'The active destination cannot be removed.',
+        'active_stop',
+      );
+    }
+    _itinerary.remove(stop);
+    for (final suggestion in _suggestions) {
+      if (suggestion.id == stop.suggestionId) suggestion.isConfirmed = false;
+    }
+    _resequence(groupId);
   }
 
   @override
@@ -271,7 +450,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   @override
   Future<void> reorderItinerary(
     String groupId,
-    List<String> orderedStopIds,
+    List<ItineraryStop> stops,
   ) async {
     final group = _requireGroup(groupId);
     if (group.status != GroupStatus.waiting) {
@@ -280,12 +459,22 @@ class MockTravelGroupRepository implements TravelGroupRepository {
         'itinerary_active',
       );
     }
-    for (var index = 0; index < orderedStopIds.length; index++) {
-      final stop = _itinerary.firstWhere(
-        (item) => item.id == orderedStopIds[index],
-      );
-      stop.position = index;
-      stop.travelTimeFromPreviousMinutes = index == 0 ? 0 : 8 + index * 2;
+    for (var index = 0; index < stops.length; index++) {
+      final stop = _itinerary.firstWhere((item) => item.id == stops[index].id);
+      stop
+        ..position = index
+        ..travelTimeFromPreviousMinutes =
+            stops[index].travelTimeFromPreviousMinutes
+        ..travelDistanceFromPreviousKm =
+            stops[index].travelDistanceFromPreviousKm;
+    }
+  }
+
+  void _resequence(String groupId) {
+    final stops = _itinerary.where((stop) => stop.groupId == groupId).toList()
+      ..sort((a, b) => a.position.compareTo(b.position));
+    for (var index = 0; index < stops.length; index++) {
+      stops[index].position = index;
     }
   }
 
@@ -300,6 +489,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
       );
     }
     group.status = GroupStatus.active;
+    group.tripPhase = GroupTripPhase.navigating;
     for (final stop in stops) {
       if (stop.status != StopStatus.completed) {
         stop.status = StopStatus.upcoming;
@@ -307,6 +497,19 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     }
     stops.firstWhere((stop) => stop.status != StopStatus.completed).status =
         StopStatus.current;
+    final current = stops.firstWhere(
+      (stop) => stop.status == StopStatus.current,
+    );
+    final session = _sessions[groupId];
+    if (session != null) {
+      _sessions[groupId] = TravelGroupTripSession(
+        id: session.id,
+        groupId: groupId,
+        phase: GroupTripPhase.navigating,
+        currentStopId: current.id,
+        currentStopIndex: current.position,
+      );
+    }
   }
 
   @override
@@ -324,13 +527,51 @@ class MockTravelGroupRepository implements TravelGroupRepository {
       );
     }
     stop.status = StopStatus.completed;
-    final remaining = stops
-        .where((item) => item.status == StopStatus.upcoming)
-        .toList();
-    if (remaining.isEmpty) {
-      group.status = GroupStatus.completed;
-    } else {
-      remaining.first.status = StopStatus.current;
+    group.tripPhase = GroupTripPhase.choosingNext;
+    final session = _sessions[groupId];
+    if (session != null) {
+      _sessions[groupId] = TravelGroupTripSession(
+        id: session.id,
+        groupId: groupId,
+        phase: GroupTripPhase.choosingNext,
+        currentStopIndex: session.currentStopIndex,
+      );
+    }
+  }
+
+  @override
+  Future<TravelGroupTripSession> confirmGroup(String groupId) async {
+    final group = _requireGroup(groupId);
+    group.confirmedAt ??= DateTime.now().toUtc();
+    group.tripPhase = GroupTripPhase.gathering;
+    return _sessions.putIfAbsent(
+      groupId,
+      () => TravelGroupTripSession(
+        id: _nextId('SESSION'),
+        groupId: groupId,
+        phase: GroupTripPhase.gathering,
+      ),
+    );
+  }
+
+  @override
+  Future<TravelGroupTripSession?> getActiveTripSession(String groupId) async =>
+      _sessions[groupId];
+
+  @override
+  Future<void> endTrip(String groupId) async {
+    final group = _requireGroup(groupId);
+    group
+      ..status = GroupStatus.completed
+      ..tripPhase = GroupTripPhase.completed;
+    final session = _sessions[groupId];
+    if (session != null) {
+      _sessions[groupId] = TravelGroupTripSession(
+        id: session.id,
+        groupId: groupId,
+        phase: GroupTripPhase.completed,
+        currentStopIndex: session.currentStopIndex,
+      );
     }
   }
 }
@@ -347,11 +588,14 @@ List<TravelGroup> _seedGroups() => [
     meetupPoint: 'Pasar Seni MRT · Entrance A',
     meetupNote: 'Meet before 10:30 AM at the station entrance.',
     tags: ['Food', 'Cultural', 'Budget'],
-    maxMembers: 8,
+    maxMembers: 4,
     distanceKm: 0.8,
     joinMode: JoinMode.open,
     status: GroupStatus.waiting,
-    memberIds: ['USER_100', 'USER_101', 'USER_102', 'USER_103', 'USER_104'],
+    memberIds: ['USER_100', 'USER_101', 'USER_102'],
+    destinationAddress: 'Jalan Petaling, City Centre, 50000 Kuala Lumpur',
+    destinationLatitude: 3.1440,
+    destinationLongitude: 101.6968,
   ),
   TravelGroup(
     id: 'GROUP_002',
@@ -362,11 +606,14 @@ List<TravelGroup> _seedGroups() => [
     description: 'A relaxed evening loop through the park and city lights.',
     meetupPoint: 'KLCC LRT concourse',
     tags: ['Nature', 'Casual'],
-    maxMembers: 6,
+    maxMembers: 4,
     distanceKm: 1.4,
     joinMode: JoinMode.open,
     status: GroupStatus.waiting,
-    memberIds: ['USER_200', 'USER_201', 'USER_202', 'USER_203'],
+    memberIds: ['USER_200', 'USER_201'],
+    destinationAddress: 'Kuala Lumpur City Centre, 50088 Kuala Lumpur',
+    destinationLatitude: 3.1577,
+    destinationLongitude: 101.7119,
   ),
   TravelGroup(
     id: 'GROUP_003',
@@ -382,6 +629,9 @@ List<TravelGroup> _seedGroups() => [
     joinMode: JoinMode.request,
     status: GroupStatus.waiting,
     memberIds: ['USER_300', 'USER_301'],
+    destinationAddress: 'Batu Caves, 68100 Batu Caves, Selangor',
+    destinationLatitude: 3.2379,
+    destinationLongitude: 101.6806,
   ),
   TravelGroup(
     id: 'GROUP_004',
@@ -397,6 +647,9 @@ List<TravelGroup> _seedGroups() => [
     joinMode: JoinMode.open,
     status: GroupStatus.waiting,
     memberIds: ['USER_400', 'USER_401', 'USER_402'],
+    destinationAddress: 'Chow Kit, 50300 Kuala Lumpur',
+    destinationLatitude: 3.1687,
+    destinationLongitude: 101.6981,
   ),
 ];
 

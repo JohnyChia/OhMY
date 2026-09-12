@@ -3,45 +3,43 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
+import '../services/travel_place_search_service.dart';
 import '../widgets/travel_group_widgets.dart';
 
-class SuggestionBoard extends StatelessWidget {
-  const SuggestionBoard({super.key, required this.controller});
+class SuggestionBoard extends StatefulWidget {
+  const SuggestionBoard({
+    super.key,
+    required this.controller,
+    this.placeSearchService,
+  });
 
   final TravelGroupController controller;
+  final TravelPlaceSearchService? placeSearchService;
 
-  static const nearbyPlaces = [
-    NearbyPlace(
-      name: 'Central Market',
-      source: 'Attraction Directory',
-      category: 'Cultural',
-      distanceKm: 1.2,
-      crowdLevel: 'Moderate',
-      durationMinutes: 60,
-      tags: ['Cultural', 'Heritage'],
-    ),
-    NearbyPlace(
-      name: 'Kwai Chai Hong',
-      source: 'Attraction Directory',
-      category: 'Cultural',
-      distanceKm: 1.3,
-      crowdLevel: 'Moderate',
-      durationMinutes: 45,
-      tags: ['Cultural', 'Heritage'],
-    ),
-    NearbyPlace(
-      name: 'River of Life',
-      source: 'Community Discovery',
-      category: 'Nature',
-      distanceKm: .9,
-      crowdLevel: 'Low',
-      durationMinutes: 45,
-      tags: ['Nature', 'Casual'],
-    ),
-  ];
+  @override
+  State<SuggestionBoard> createState() => _SuggestionBoardState();
+}
+
+class _SuggestionBoardState extends State<SuggestionBoard> {
+  late final TravelPlaceSearchService _placeSearch;
+  late final bool _ownsPlaceSearch;
+
+  @override
+  void initState() {
+    super.initState();
+    _ownsPlaceSearch = widget.placeSearchService == null;
+    _placeSearch = widget.placeSearchService ?? TravelPlaceSearchService();
+  }
+
+  @override
+  void dispose() {
+    if (_ownsPlaceSearch) _placeSearch.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
@@ -88,56 +86,177 @@ class SuggestionBoard extends StatelessWidget {
   }
 
   Future<void> _showPlaces(BuildContext context) async {
+    final group = widget.controller.activeGroup;
+    if (group == null) return;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) => Padding(
-        padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Suggest a nearby place',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 4),
-            const Text('Mock results from the future Places integration.'),
-            const SizedBox(height: 12),
-            for (final place in nearbyPlaces)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const CircleAvatar(
-                  backgroundColor: AppColors.surfaceBlue,
-                  child: Icon(Icons.place_outlined, color: AppColors.primary),
-                ),
-                title: Text(place.name),
-                subtitle: Text(
-                  '${place.distanceKm} km · ${place.category} · ${place.crowdLevel} crowd',
-                ),
-                trailing: const Icon(
-                  Icons.add_circle,
-                  color: AppColors.primary,
-                ),
-                onTap: () async {
-                  try {
-                    await controller.addSuggestion(place);
-                    if (sheetContext.mounted) Navigator.pop(sheetContext);
-                  } on TravelGroupException catch (error) {
-                    if (sheetContext.mounted) {
-                      showTravelGroupMessage(
-                        sheetContext,
-                        error.message,
-                        error: true,
-                      );
-                    }
-                  }
-                },
-              ),
-          ],
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) => _NearbySuggestionsSheet(
+        placeSearch: _placeSearch,
+        controller: widget.controller,
       ),
     );
+  }
+}
+
+class _NearbySuggestionsSheet extends StatefulWidget {
+  const _NearbySuggestionsSheet({
+    required this.placeSearch,
+    required this.controller,
+  });
+
+  final TravelPlaceSearchService placeSearch;
+  final TravelGroupController controller;
+
+  @override
+  State<_NearbySuggestionsSheet> createState() =>
+      _NearbySuggestionsSheetState();
+}
+
+class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
+  List<NearbyPlace> _places = const [];
+  String? _error;
+  bool _loading = true;
+
+  TravelGroup get _group => widget.controller.activeGroup!;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final group = _group;
+    final latitude = group.destinationLatitude;
+    final longitude = group.destinationLongitude;
+    try {
+      if (latitude == null || longitude == null) {
+        throw const TravelGroupException(
+          'This group has no destination coordinates to search around.',
+          'no_destination_coordinates',
+        );
+      }
+      final places = await widget.placeSearch.nearbySuggestions(
+        latitude: latitude,
+        longitude: longitude,
+        destinationPlaceId: group.destinationPlaceId,
+        preferences: group.tags,
+      );
+      if (!mounted) return;
+      setState(() {
+        _places = places;
+        _loading = false;
+        if (places.isEmpty) {
+          _error = 'No Google Places suggestions matched this destination yet.';
+        }
+      });
+    } on TravelGroupException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error =
+            'Could not reach the recommendation service. Is the backend running?';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Suggest a nearby place',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Live Google Places recommendations near ${_group.destination}.',
+            style: const TextStyle(
+              fontSize: 11,
+              color: AppColors.secondaryText,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(28),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_error != null)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(onPressed: _load, child: const Text('Retry')),
+                ],
+              ),
+            )
+          else
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final place in _places)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const CircleAvatar(
+                        backgroundColor: AppColors.surfaceBlue,
+                        child: Icon(
+                          Icons.place_outlined,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      title: Text(place.name),
+                      subtitle: Text(
+                        '${place.distanceKm.toStringAsFixed(1)} km · ${place.category}',
+                      ),
+                      trailing: const Icon(
+                        Icons.add_circle,
+                        color: AppColors.primary,
+                      ),
+                      onTap: () => _addPlace(place),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addPlace(NearbyPlace place) async {
+    try {
+      await widget.controller.addSuggestion(place);
+    } on TravelGroupException catch (error) {
+      if (!mounted) return;
+      showTravelGroupMessage(context, error.message, error: true);
+      return;
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
   }
 }
 
@@ -201,6 +320,14 @@ class _SuggestionCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (controller.isCreator ||
+                  suggestion.suggestedByUserId == controller.currentUser.id)
+                IconButton(
+                  tooltip: 'Remove suggestion',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _remove(context),
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                ),
             ],
           ),
           const SizedBox(height: 8),
@@ -209,30 +336,25 @@ class _SuggestionCard extends StatelessWidget {
             style: const TextStyle(fontSize: 11),
           ),
           const SizedBox(height: 7),
-          Row(
-            children: [
-              AppPill(
-                suggestion.tags.join('  •  '),
-                backgroundColor: Colors.white,
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: AppColors.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              suggestion.tags.join('  •  '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.secondaryText,
               ),
-              const Spacer(),
-              if (suggestion.isConfirmed)
-                const Text(
-                  '✓ CONFIRMED',
-                  style: TextStyle(fontSize: 10, color: AppColors.success),
-                )
-              else if (controller.isCreator)
-                FilledButton(
-                  onPressed: () => controller.confirmSuggestion(suggestion),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(112, 30),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                  ),
-                  child: const Text('Confirm stop'),
-                ),
-            ],
+            ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 7),
           Row(
             children: [
               _VoteButton(
@@ -256,6 +378,25 @@ class _SuggestionCard extends StatelessWidget {
               ),
             ],
           ),
+          if (suggestion.isConfirmed || controller.isCreator) ...[
+            const SizedBox(height: 7),
+            Align(
+              alignment: Alignment.centerRight,
+              child: suggestion.isConfirmed
+                  ? const Text(
+                      '✓ CONFIRMED',
+                      style: TextStyle(fontSize: 10, color: AppColors.success),
+                    )
+                  : FilledButton(
+                      onPressed: () => controller.confirmSuggestion(suggestion),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(96, 30),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      child: const Text('Confirm'),
+                    ),
+            ),
+          ],
         ],
       ),
     );
@@ -264,6 +405,16 @@ class _SuggestionCard extends StatelessWidget {
   String _duration(int minutes) => minutes >= 60
       ? '${minutes ~/ 60} hr${minutes % 60 == 0 ? '' : ' ${minutes % 60} min'}'
       : '$minutes min';
+
+  Future<void> _remove(BuildContext context) async {
+    try {
+      await controller.removeSuggestion(suggestion);
+    } on TravelGroupException catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
 }
 
 class _VoteButton extends StatelessWidget {

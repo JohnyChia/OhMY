@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_app/app_shell/ohmy_app.dart';
 import 'package:flutter_app/app_shell/ohmy_bottom_navigation_bar.dart';
+import 'package:flutter_app/preference_recommender/features/routes/native_navigation_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -24,7 +25,7 @@ void main() {
     await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
     await tester.pump();
 
-    expect(find.text('Where would you like to go?'), findsOneWidget);
+    expect(find.text('Search Attractions ...'), findsOneWidget);
 
     await _openTab(tester, 'AI Chat');
     expect(find.text('Where to next?'), findsOneWidget);
@@ -41,6 +42,42 @@ void main() {
 
     await _openTab(tester, 'Profile');
     expect(find.text('Profile setup required'), findsWidgets);
+  });
+
+  testWidgets('active native navigation hides and restores the app shell bar', (
+    tester,
+  ) async {
+    addTearDown(() => navigationExperienceActive.value = false);
+    await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
+    await tester.pump();
+
+    navigationExperienceActive.value = true;
+    await tester.pump();
+    expect(find.byType(OhMyBottomNavigationBar), findsNothing);
+
+    navigationExperienceActive.value = false;
+    await tester.pump();
+    expect(find.byType(OhMyBottomNavigationBar), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+  });
+
+  testWidgets('system back returns a top-level tab to Home first', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
+    await tester.pump();
+    await _openTab(tester, 'Profile');
+    expect(find.text('Profile setup required'), findsWidgets);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.text('Search Attractions ...'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.text('Press back again to exit'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
   });
 }
 

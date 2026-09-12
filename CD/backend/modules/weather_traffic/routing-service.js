@@ -87,6 +87,8 @@ async function computeDrivingRoutes(input) {
             routeIndex: index,
             routeToken: route.routeToken || "",
             durationMinutes: Math.max(1, Math.round(durationSeconds / 60)),
+            staticDurationMinutes: Math.max(1, Math.round(staticSeconds / 60)),
+            trafficDelayMinutes: Math.max(0, Math.round((durationSeconds - staticSeconds) / 60)),
             distanceKm: Number((distanceMeters / 1000).toFixed(2)),
             traffic,
             routeLabels: route.routeLabels || [],

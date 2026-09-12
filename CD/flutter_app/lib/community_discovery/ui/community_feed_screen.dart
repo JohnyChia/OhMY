@@ -29,7 +29,11 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(widget.controller.loadPosts());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !widget.controller.isLoading) {
+        unawaited(widget.controller.loadPosts());
+      }
+    });
   }
 
   @override

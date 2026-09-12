@@ -39,3 +39,35 @@ The follow-up spacing capture confirms that the container divider no longer cros
 ## Final result
 
 final result: passed
+
+---
+
+# Homepage and Active Navigation Refinement QA
+
+- Source visual truth: user-provided UNIQLO mobile homepage reference and written ohMY requirements.
+- Implementation screenshot path: `flutter_app/docs/design-qa/ohmy_home_refined.png`.
+- Intended viewport/state: Android phone, authenticated homepage with location and recommendation data; active Navigation SDK journey.
+- Source dimensions: 423 x 843 pixels for the supplied mock. Implementation dimensions: 1080 x 2340 physical pixels on the connected Android phone; density was reviewed proportionally because the source mock was not supplied at the same device density.
+
+## Evidence and findings
+
+- Automated code validation covers widget compilation, navigation-shell behavior, and existing module flows.
+- The installed on-device loading state now follows the supplied composition: icon/search header, warm featured-place region, “Places You May Like” horizontal cards, traveller-post section, and persistent bottom navigation.
+- Typography, blue/cream tokens, spacing rhythm, rounded cards, and copy hierarchy were checked in the full-phone capture. No overflow is visible on the homepage.
+- The interaction implementation keeps the bottom bar visible during navigation, uses traffic-coloured ETA, uses image-backed POI cards, and sources route metrics through the Directions service.
+- Live place-photo content and the revised selected-POI card could not be captured because this QA APK was launched without the runtime backend/Supabase defines used by `run-ohmy.ps1`.
+
+## Comparison history
+
+- First capture exposed a large blank loading region. The loading/empty state was rebuilt with the same featured-region and horizontal-card structure as the mock; the post-fix on-device capture confirms the corrected hierarchy and no homepage overflow.
+
+## Implementation checklist
+
+- Capture the homepage after live nearby recommendations load through `run-ohmy.ps1`.
+- Capture an individual POI card over the map.
+- Capture active navigation in light, medium, and heavy traffic states.
+- Confirm the selected-POI card has no overflow with live tags and all three buttons.
+
+## Final result
+
+final result: blocked
