@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -7,7 +8,6 @@ import '../models/discovery_tag.dart';
 import '../state/community_controller.dart';
 import '../integration/community_integration_callbacks.dart';
 import 'bookmarked_posts_screen.dart';
-import 'widgets/post_engagement.dart';
 import 'widgets/post_card.dart';
 
 enum _PostSort { latest, mostLiked }
@@ -19,15 +19,11 @@ class CommunityFeedScreen extends StatefulWidget {
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
     this.showBottomNavigation = true,
     this.preferredTagNames,
-    this.includeDemoLikes = false,
-    this.searchLeading,
   });
 
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
   final List<String>? preferredTagNames;
-  final bool includeDemoLikes;
-  final Widget? searchLeading;
 
   /// Keep this enabled only when Community Discovery runs as a standalone app.
   /// The host OhMY shell owns the real navigation after integration.
@@ -86,13 +82,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         break;
       case _PostSort.mostLiked:
         sorted.sort((a, b) {
-          final likes =
-              displayedLikeCount(
-                b,
-                includeDemo: widget.includeDemoLikes,
-              ).compareTo(
-                displayedLikeCount(a, includeDemo: widget.includeDemoLikes),
-              );
+          final likes = b.likeCount.compareTo(a.likeCount);
           return likes != 0 ? likes : b.createdAt.compareTo(a.createdAt);
         });
         break;
@@ -108,143 +98,156 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       final visibleTags = _visibleTags(state.tags);
       final visiblePosts = _sortedPosts(state.posts);
       return Scaffold(
-        body: SafeArea(
-          child: RefreshIndicator(
-            onRefresh: () async {
-              await Future.wait([
-                state.loadTags(force: true),
-                state.loadPosts(),
-              ]);
-            },
-            child: CustomScrollView(
-              controller: _scrollController,
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: _Header(
-                    controller: _searchController,
-                    onSearch: _search,
-                    onFilter: _showFilters,
-                    activeFilterCount: state.selectedTagIds.length,
-                    leading: widget.searchLeading,
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Community finds',
-                                style: Theme.of(context).textTheme.titleLarge
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                              ),
-                              if (state.selectedTagIds.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  '${state.selectedTagIds.length} discovery filter(s) selected',
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: visibleTags.isEmpty
-                      ? const Padding(
-                          padding: EdgeInsets.fromLTRB(18, 0, 18, 10),
-                          child: Text(
-                            'No saved preference tags are available.',
-                          ),
-                        )
-                      : SizedBox(
-                          height: 46,
-                          child: ListView(
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            scrollDirection: Axis.horizontal,
-                            children: visibleTags.map((tag) {
-                              final selected = state.selectedTagIds.contains(
-                                tag.id,
-                              );
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                child: FilterChip(
-                                  label: Text(tag.name),
-                                  selected: selected,
-                                  onSelected: (_) => state.toggleTag(tag.id),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                ),
-                if (state.isLoading)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (state.error != null)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _MessageState(
-                      icon: Icons.cloud_off_outlined,
-                      title: 'Community posts could not be loaded',
-                      message: state.error!,
-                      actionLabel: 'Try again',
-                      onAction: state.loadPosts,
-                    ),
-                  )
-                else if (state.posts.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: _MessageState(
-                      icon: Icons.travel_explore,
-                      title: state.query.isEmpty && state.selectedTagIds.isEmpty
-                          ? 'No community posts yet'
-                          : 'No posts found',
-                      message:
-                          state.query.isEmpty && state.selectedTagIds.isEmpty
-                          ? 'Completed-trip stories will appear here.'
-                          : 'Try a different destination, attraction, description, or tag.',
-                      actionLabel:
-                          state.query.isEmpty && state.selectedTagIds.isEmpty
-                          ? null
-                          : 'Clear filters',
-                      onAction:
-                          state.query.isEmpty && state.selectedTagIds.isEmpty
-                          ? null
-                          : () {
-                              _searchController.clear();
-                              state.loadPosts(query: '', tagIds: {});
-                            },
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
-                    sliver: SliverList.separated(
-                      itemCount: visiblePosts.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 14),
-                      itemBuilder: (context, index) => PostCard(
-                        post: visiblePosts[index],
-                        controller: state,
-                        integrationCallbacks: widget.integrationCallbacks,
-                        includeDemoLikes: widget.includeDemoLikes,
+        body: Stack(
+          children: [
+            const Positioned.fill(child: _CommunityBackground()),
+            SafeArea(
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  await Future.wait([
+                    state.loadTags(force: true),
+                    state.loadPosts(),
+                  ]);
+                },
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: _Header(
+                        controller: _searchController,
+                        onSearch: _search,
+                        onFilter: _showFilters,
+                        activeFilterCount: state.selectedTagIds.length,
                       ),
                     ),
-                  ),
-              ],
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Community finds',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(fontWeight: FontWeight.w800),
+                                  ),
+                                  if (state.selectedTagIds.isNotEmpty) ...[
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${state.selectedTagIds.length} discovery filter(s) selected',
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: visibleTags.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.fromLTRB(18, 0, 18, 10),
+                              child: Text(
+                                'No saved preference tags are available.',
+                              ),
+                            )
+                          : SizedBox(
+                              height: 46,
+                              child: ListView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                ),
+                                scrollDirection: Axis.horizontal,
+                                children: visibleTags.map((tag) {
+                                  final selected = state.selectedTagIds
+                                      .contains(tag.id);
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                    child: FilterChip(
+                                      label: Text(tag.name),
+                                      selected: selected,
+                                      onSelected: (_) =>
+                                          state.toggleTag(tag.id),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                    ),
+                    if (state.isLoading)
+                      const SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (state.error != null)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _MessageState(
+                          icon: Icons.cloud_off_outlined,
+                          title: 'Community posts could not be loaded',
+                          message: state.error!,
+                          actionLabel: 'Try again',
+                          onAction: state.loadPosts,
+                        ),
+                      )
+                    else if (state.posts.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _MessageState(
+                          icon: Icons.travel_explore,
+                          title:
+                              state.query.isEmpty &&
+                                  state.selectedTagIds.isEmpty
+                              ? 'No community posts yet'
+                              : 'No posts found',
+                          message:
+                              state.query.isEmpty &&
+                                  state.selectedTagIds.isEmpty
+                              ? 'Completed-trip stories will appear here.'
+                              : 'Try a different destination, attraction, description, or tag.',
+                          actionLabel:
+                              state.query.isEmpty &&
+                                  state.selectedTagIds.isEmpty
+                              ? null
+                              : 'Clear filters',
+                          onAction:
+                              state.query.isEmpty &&
+                                  state.selectedTagIds.isEmpty
+                              ? null
+                              : () {
+                                  _searchController.clear();
+                                  state.loadPosts(query: '', tagIds: {});
+                                },
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
+                        sliver: SliverList.separated(
+                          itemCount: visiblePosts.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 14),
+                          itemBuilder: (context, index) => PostCard(
+                            post: visiblePosts[index],
+                            controller: state,
+                            integrationCallbacks: widget.integrationCallbacks,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
-          ),
+          ],
         ),
         bottomNavigationBar: widget.showBottomNavigation
             ? NavigationBar(
@@ -326,6 +329,52 @@ class _DiscoveryOptions {
 
   final _PostSort sort;
   final Set<int> tagIds;
+}
+
+class _CommunityBackground extends StatelessWidget {
+  const _CommunityBackground();
+
+  @override
+  Widget build(BuildContext context) => ClipRect(
+    child: ImageFiltered(
+      imageFilter: ui.ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+      child: Transform.scale(
+        scale: 1.08,
+        child: Opacity(
+          opacity: 0.20,
+          child: ColorFiltered(
+            colorFilter: const ColorFilter.matrix([
+              0.80315,
+              0.17880,
+              0.01805,
+              0,
+              0,
+              0.05315,
+              0.92880,
+              0.01805,
+              0,
+              0,
+              0.05315,
+              0.17880,
+              0.76805,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+            ]),
+            child: Image.asset(
+              'assets/images/community_bg.png',
+              package: 'community_discovery',
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _TagFilterSheet extends StatefulWidget {
@@ -513,41 +562,19 @@ class _Header extends StatelessWidget {
     required this.onSearch,
     required this.onFilter,
     required this.activeFilterCount,
-    this.leading,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onSearch;
   final VoidCallback onFilter;
   final int activeFilterCount;
-  final Widget? leading;
 
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-    color: const Color(0xFFE8F0FF),
+    color: Colors.transparent,
     child: Row(
       children: [
-        if (leading != null) ...[
-          Container(
-            width: 54,
-            height: 54,
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x20000000),
-                  blurRadius: 10,
-                  offset: Offset(0, 3),
-                ),
-              ],
-            ),
-            child: leading,
-          ),
-          const SizedBox(width: 10),
-        ],
         Expanded(
           child: Material(
             color: const Color(0xFFF9F7FC),
@@ -562,18 +589,24 @@ class _Header extends StatelessWidget {
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(
                   hintText: 'Search posts, places or tags...',
-                  prefixIcon: const Icon(Icons.search, size: 23),
-                  suffixIconConstraints: const BoxConstraints(minWidth: 48),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 92),
                   suffixIcon: Padding(
                     padding: const EdgeInsets.only(right: 4),
-                    child: Badge(
-                      isLabelVisible: activeFilterCount > 0,
-                      label: Text('$activeFilterCount'),
-                      child: IconButton(
-                        tooltip: 'Sort and filter',
-                        onPressed: onFilter,
-                        icon: const Icon(Icons.tune, size: 22),
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.search, size: 23),
+                        const SizedBox(width: 4),
+                        Badge(
+                          isLabelVisible: activeFilterCount > 0,
+                          label: Text('$activeFilterCount'),
+                          child: IconButton(
+                            tooltip: 'Sort and filter',
+                            onPressed: onFilter,
+                            icon: const Icon(Icons.tune, size: 22),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   filled: true,

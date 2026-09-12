@@ -4,7 +4,6 @@ import '../integration/community_integration_callbacks.dart';
 import '../models/community_comment.dart';
 import '../state/community_controller.dart';
 import 'create_post_screen.dart';
-import 'widgets/post_engagement.dart';
 import 'widgets/post_image.dart';
 
 class PostDetailScreen extends StatefulWidget {
@@ -13,13 +12,11 @@ class PostDetailScreen extends StatefulWidget {
     required this.postId,
     required this.controller,
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
-    this.includeDemoLikes = false,
   });
 
   final String postId;
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
-  final bool includeDemoLikes;
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -418,17 +415,15 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
               child: Row(
                 children: [
-                  TextButton.icon(
+                  IconButton(
+                    tooltip: post.isLiked ? 'Unlike' : 'Like',
                     onPressed: () => widget.controller.toggleLike(post.id),
                     icon: Icon(
                       post.isLiked ? Icons.favorite : Icons.favorite_border,
                       color: post.isLiked ? Colors.pink : null,
                     ),
-                    label: Text(post.isLiked ? 'Liked' : 'Like'),
                   ),
-                  Text(
-                    '${displayedLikeCount(post, includeDemo: widget.includeDemoLikes)}',
-                  ),
+                  Text('${post.likeCount}'),
                   const SizedBox(width: 14),
                   const Icon(Icons.chat_bubble_outline, size: 20),
                   const SizedBox(width: 6),

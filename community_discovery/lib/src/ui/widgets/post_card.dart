@@ -4,7 +4,6 @@ import '../../integration/community_integration_callbacks.dart';
 import '../../models/community_post.dart';
 import '../../state/community_controller.dart';
 import '../post_detail_screen.dart';
-import 'post_engagement.dart';
 import 'post_image.dart';
 
 class PostCard extends StatelessWidget {
@@ -13,13 +12,11 @@ class PostCard extends StatelessWidget {
     required this.post,
     required this.controller,
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
-    this.includeDemoLikes = false,
   });
 
   final CommunityPost post;
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
-  final bool includeDemoLikes;
 
   void _openPost(BuildContext context) => Navigator.of(context).push(
     MaterialPageRoute<void>(
@@ -27,7 +24,6 @@ class PostCard extends StatelessWidget {
         postId: post.id,
         controller: controller,
         integrationCallbacks: integrationCallbacks,
-        includeDemoLikes: includeDemoLikes,
       ),
     ),
   );
@@ -144,9 +140,7 @@ class PostCard extends StatelessWidget {
                     size: 22,
                   ),
                 ),
-                Text(
-                  '${displayedLikeCount(post, includeDemo: includeDemoLikes)}',
-                ),
+                Text('${post.likeCount}'),
                 IconButton(
                   tooltip: 'Comments',
                   onPressed: () => _openPost(context),

@@ -84,6 +84,7 @@ flutter:
     - assets/images/preference_recommender/
     - assets/images/branding/
     - assets/images/navigation/
+    - assets/images/user_management/
 
 flutter_launcher_icons:
   android: true

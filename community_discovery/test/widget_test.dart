@@ -2,7 +2,6 @@ import 'package:community_discovery/src/community_app.dart';
 import 'package:community_discovery/src/integration/community_integration_callbacks.dart';
 import 'package:community_discovery/src/state/community_controller.dart';
 import 'package:community_discovery/src/ui/community_feed_screen.dart';
-import 'package:community_discovery/src/ui/widgets/post_engagement.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -94,11 +93,6 @@ void main() {
       find.text('No saved preference tags are available.'),
       findsOneWidget,
     );
-  });
-
-  test('demo likes add a stable visible count', () async {
-    final post = (await FakeCommunityRepository().getPosts()).single;
-    expect(displayedLikeCount(post, includeDemo: true), greaterThan(0));
   });
 
   testWidgets('an author sees delete controls but cannot bookmark own post', (

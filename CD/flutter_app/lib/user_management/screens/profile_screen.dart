@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:community_discovery/community_discovery.dart';
 import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
@@ -125,8 +127,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(child: _buildBody()),
+      backgroundColor: const Color(0xFFFFFBF5),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          ClipRect(
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 3.5, sigmaY: 3.5),
+              child: Transform.scale(
+                scale: 1.02,
+                child: Image.asset(
+                  'assets/images/user_management/profile_bg.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+          ),
+          const ColoredBox(color: Color(0x18FFFDF8)),
+          SafeArea(child: _buildBody()),
+        ],
+      ),
       bottomNavigationBar: widget.showBottomNavigation
           ? const _ProfileNavigationBar()
           : null,
@@ -156,16 +176,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final profile = _profile!;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 34, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 24),
       children: [
         Center(child: _ProfileAvatar(profile: profile)),
-        const SizedBox(height: 14),
+        const SizedBox(height: 18),
         const Text(
-          'My profile',
+          'My Profile',
           style: TextStyle(
-            color: Color(0xFF1A2438),
-            fontSize: 28,
-            fontWeight: FontWeight.w500,
+            color: Color(0xFF17345F),
+            fontSize: 30,
+            fontWeight: FontWeight.w800,
+            fontFamily: 'serif',
           ),
         ),
         const SizedBox(height: 6),
@@ -173,30 +194,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
           profile.fullName.isEmpty
               ? 'Manage your identity and travel activity'
               : '${profile.fullName} • ${profile.email}',
-          style: const TextStyle(color: Color(0xFF596680), fontSize: 13),
+          style: const TextStyle(
+            color: Color(0xFF536A8E),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
         _VerificationCard(profile: profile, onTap: _openVerification),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         _MenuCard(
-          title: 'Edit profile  ›',
+          icon: Icons.person_outline,
+          title: 'Edit profile',
           subtitle: 'Update your personal details and travel preferences',
           onTap: _openEditProfile,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         _MenuCard(
-          title: 'History  ›',
+          icon: Icons.calendar_month_outlined,
+          title: 'History',
           subtitle: 'View past completed trips and visited destinations',
           onTap: _openTravelHistory,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
         _MenuCard(
-          title: 'Bookmarks  ›',
+          icon: Icons.bookmark_border_rounded,
+          title: 'Bookmarks',
           subtitle: 'View your saved places and attractions',
           onTap: _openBookmarks,
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 18),
         OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF28599F),
+            backgroundColor: const Color(0xEFFFFFFF),
+            side: const BorderSide(color: Color(0xFF7EA4D9)),
+            minimumSize: const Size.fromHeight(50),
+            shape: const StadiumBorder(),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          ),
           onPressed: _isLoggingOut ? null : _logout,
           icon: _isLoggingOut
               ? const SizedBox.square(
@@ -242,9 +278,23 @@ class _ProfileAvatar extends StatelessWidget {
       ),
     );
     final url = profile.avatarUrl;
-    return ClipOval(
-      child: SizedBox.square(
-        dimension: 92,
+    return Container(
+      width: 98,
+      height: 98,
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xEFFFFFFF),
+        border: Border.all(color: const Color(0xFFFFE2D5), width: 2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipOval(
         child: url == null || url.isEmpty
             ? fallback
             : Image.network(
@@ -267,7 +317,7 @@ class _VerificationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final verified = profile.isVerified;
     return Material(
-      color: verified ? const Color(0xFFE5F2FF) : const Color(0xFFFFF6E5),
+      color: verified ? const Color(0xEEF1F7FF) : const Color(0xF9FFF7E9),
       shape: RoundedRectangleBorder(
         side: BorderSide(
           color: verified ? const Color(0xFFC7D6F2) : const Color(0xFFF3C56A),
@@ -278,29 +328,57 @@ class _VerificationCard extends StatelessWidget {
         onTap: verified ? null : onTap,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          child: Row(
             children: [
-              Text(
-                verified ? '✓  Verified Traveller' : 'Verify now  ›',
-                style: TextStyle(
-                  color: verified
-                      ? const Color(0xFF1F4D9E)
-                      : const Color(0xFFB54708),
-                  fontSize: 16,
-                ),
+              Icon(
+                verified ? Icons.verified_user_outlined : Icons.shield_outlined,
+                color: verified
+                    ? const Color(0xFF28599F)
+                    : const Color(0xFFC95B1E),
+                size: 27,
               ),
-              const SizedBox(height: 6),
-              Text(
-                verified
-                    ? 'Identity and selfie approved • Linked to this account only'
-                    : 'Verify to unlock Travel Groups. One identity can be linked to one account only.',
-                style: TextStyle(
-                  color: verified
-                      ? const Color(0xFF1A2438)
-                      : const Color(0xFF6A4B13),
-                  fontSize: 12,
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          verified ? 'Verified Traveller' : 'Verify now',
+                          style: TextStyle(
+                            color: verified
+                                ? const Color(0xFF1F4D9E)
+                                : const Color(0xFFB54708),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (!verified) ...[
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: Color(0xFFB54708),
+                            size: 18,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      verified
+                          ? 'Identity and selfie approved • Linked to this account only'
+                          : 'Verify to unlock Travel Groups. One identity can be linked to one account only.',
+                      style: TextStyle(
+                        color: verified
+                            ? const Color(0xFF536A8E)
+                            : const Color(0xFF76582C),
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -313,11 +391,13 @@ class _VerificationCard extends StatelessWidget {
 
 class _MenuCard extends StatelessWidget {
   const _MenuCard({
+    required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
   });
 
+  final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
@@ -325,27 +405,53 @@ class _MenuCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
+      color: const Color(0xEFFFFFFF),
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Color(0xFFC7D6F2)),
+        side: const BorderSide(color: Color(0xFFBFD3F2)),
         borderRadius: BorderRadius.circular(16),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
             children: [
-              Text(
-                title,
-                style: const TextStyle(color: Color(0xFF1A2438), fontSize: 15),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                style: const TextStyle(color: Color(0xFF616B80), fontSize: 12),
+              Icon(icon, color: const Color(0xFF28599F), size: 27),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: Color(0xFF17345F),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        const Icon(
+                          Icons.chevron_right,
+                          color: Color(0xFF17345F),
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF60708C),
+                        fontSize: 11,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
