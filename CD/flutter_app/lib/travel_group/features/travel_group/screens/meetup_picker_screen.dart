@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
@@ -29,16 +28,12 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
   late final LiveTripLocationService _locationService;
   StreamSubscription<List<LiveMemberLocation>>? _memberSubscription;
   StreamSubscription<Position>? _positionSubscription;
-  Timer? _demoMemberTimer;
   List<LiveMemberLocation> _members = const [];
   LatLng? _candidate;
   GoogleMapController? _mapController;
   MethodChannel? _poiChannel;
   bool _saving = false;
   bool _hasFocusedLiveLocations = false;
-  bool _simulatingDemoMembers = false;
-  bool _simulationCallInFlight = false;
-  Position? _lastPosition;
   String? _locationError;
 
   TravelGroup get group => widget.controller.activeGroup!;
@@ -60,9 +55,6 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
           _members = members;
           _candidate ??= _centroid(members);
         });
-        if (_simulatingDemoMembers && _everyoneAtMeetup()) {
-          _stopDemoMemberSimulation(arrived: true);
-        }
         if (!_hasFocusedLiveLocations && members.isNotEmpty) {
           _hasFocusedLiveLocations = true;
           unawaited(_focusLiveLocations());
@@ -100,7 +92,6 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
   }
 
   Future<void> _publishPosition(Position position) async {
-    _lastPosition = position;
     final coordinate = widget.controller.effectiveLocation(
       position.latitude,
       position.longitude,
@@ -109,9 +100,7 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
       await _locationService.publishOwnLocation(
         latitude: coordinate.latitude,
         longitude: coordinate.longitude,
-        accuracyMeters: widget.controller.isUsingSimulatedLocation
-            ? 5
-            : position.accuracy,
+        accuracyMeters: position.accuracy,
       );
       if (mounted && _locationError != null) {
         setState(() => _locationError = null);
@@ -128,7 +117,6 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
     _label.dispose();
     _memberSubscription?.cancel();
     _positionSubscription?.cancel();
-    _demoMemberTimer?.cancel();
     unawaited(_locationService.dispose());
     super.dispose();
   }
@@ -230,54 +218,6 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
                       ),
                     ),
                   ],
-                  if (kDebugMode) ...[
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 2,
-                      children: [
-                        TextButton.icon(
-                          key: const Key('meetup_test_location_button'),
-                          onPressed: _toggleTestLocation,
-                          icon: const Icon(Icons.science_outlined, size: 17),
-                          label: Text(
-                            widget.controller.isUsingSimulatedLocation
-                                ? 'Use actual GPS'
-                                : 'Test at destination',
-                          ),
-                        ),
-                        if (widget.controller.isCreator)
-                          TextButton.icon(
-                            key: const Key('simulate_demo_members_button'),
-                            onPressed: candidate == null
-                                ? null
-                                : _toggleDemoMemberSimulation,
-                            icon: Icon(
-                              _simulatingDemoMembers
-                                  ? Icons.stop_circle_outlined
-                                  : Icons.directions_walk_rounded,
-                              size: 17,
-                            ),
-                            label: Text(
-                              _simulatingDemoMembers
-                                  ? 'Stop demo travellers'
-                                  : 'Simulate travellers',
-                            ),
-                          ),
-                      ],
-                    ),
-                    if (_simulatingDemoMembers)
-                      const Padding(
-                        padding: EdgeInsets.only(left: 12, bottom: 3),
-                        child: Text(
-                          'Each demo traveller moves closer every 2 seconds.',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.secondaryText,
-                          ),
-                        ),
-                      ),
-                  ],
                   const SizedBox(height: 4),
                   Text(
                     !hasEnoughMembers
@@ -337,9 +277,7 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: inRange && !_saving && !_simulatingDemoMembers
-                          ? _save
-                          : null,
+                      onPressed: inRange && !_saving ? _save : null,
                       child: Text(_saving ? 'Saving...' : 'Save meetup point'),
                     ),
                   ),
@@ -350,105 +288,6 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
         ],
       ),
     );
-  }
-
-  void _toggleTestLocation() {
-    if (widget.controller.isUsingSimulatedLocation) {
-      widget.controller.useActualLocation();
-    } else {
-      widget.controller.simulateLocationNearDestination();
-    }
-    final position = _lastPosition;
-    if (position != null) unawaited(_publishPosition(position));
-    setState(() {});
-  }
-
-  Future<void> _toggleDemoMemberSimulation() async {
-    if (_simulatingDemoMembers) {
-      _stopDemoMemberSimulation();
-      return;
-    }
-    final candidate = _candidate;
-    if (candidate == null) return;
-    setState(() {
-      _simulatingDemoMembers = true;
-      _locationError = null;
-    });
-
-    // Put the creator at the proposed point as part of this explicit test mode.
-    widget.controller.simulateLocationAt(
-      candidate.latitude,
-      candidate.longitude,
-    );
-    try {
-      await _locationService.publishOwnLocation(
-        latitude: candidate.latitude,
-        longitude: candidate.longitude,
-        accuracyMeters: 5,
-      );
-      final count = await _runDemoMemberTick(resetPositions: true);
-      if (!mounted || !_simulatingDemoMembers) return;
-      if (count == 0) {
-        setState(() {
-          _locationError = 'No travellers labelled (Demo) are in this group.';
-        });
-        _stopDemoMemberSimulation();
-        return;
-      }
-      _demoMemberTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-        unawaited(_runDemoMemberTick());
-      });
-    } catch (error) {
-      if (mounted) setState(() => _locationError = error.toString());
-      _stopDemoMemberSimulation();
-    }
-  }
-
-  Future<int> _runDemoMemberTick({bool resetPositions = false}) async {
-    final candidate = _candidate;
-    if (candidate == null || _simulationCallInFlight) return 0;
-    _simulationCallInFlight = true;
-    try {
-      return await widget.controller.simulateDemoMembersTowardMeetup(
-        latitude: candidate.latitude,
-        longitude: candidate.longitude,
-        resetPositions: resetPositions,
-      );
-    } catch (error) {
-      if (mounted) setState(() => _locationError = error.toString());
-      _stopDemoMemberSimulation();
-      return 0;
-    } finally {
-      _simulationCallInFlight = false;
-    }
-  }
-
-  bool _everyoneAtMeetup() {
-    final candidate = _candidate;
-    if (candidate == null || _members.length < group.memberCount) return false;
-    return _members.every(
-      (member) =>
-          Geolocator.distanceBetween(
-            candidate.latitude,
-            candidate.longitude,
-            member.coordinate.latitude,
-            member.coordinate.longitude,
-          ) <=
-          150,
-    );
-  }
-
-  void _stopDemoMemberSimulation({bool arrived = false}) {
-    _demoMemberTimer?.cancel();
-    _demoMemberTimer = null;
-    if (!mounted) return;
-    setState(() => _simulatingDemoMembers = false);
-    if (arrived) {
-      showTravelGroupMessage(
-        context,
-        'All demo travellers have reached the meetup point.',
-      );
-    }
   }
 
   double _markerHue(LiveMemberLocation member, int index) {

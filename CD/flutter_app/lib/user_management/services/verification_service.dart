@@ -59,13 +59,7 @@ class VerificationService {
           .send(request)
           .timeout(const Duration(seconds: 90));
       final response = await http.Response.fromStream(streamed);
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (response.statusCode >= 500) {
-        throw const VerificationFailure(
-          'The verification service is unavailable. Check that the laptop backend is running.',
-        );
-      }
-      return VerificationResult.fromJson(body);
+      return parseResponse(response);
     } on VerificationFailure {
       rethrow;
     } on SocketException {
@@ -81,6 +75,42 @@ class VerificationService {
         'The verification service returned an invalid response.',
       );
     }
+  }
+
+  static VerificationResult parseResponse(http.Response response) {
+    Map<String, dynamic>? body;
+    if (response.body.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) {
+          body = decoded;
+        }
+      } on FormatException {
+        // Status handling below provides the useful message for non-JSON errors.
+      }
+    }
+
+    if (response.statusCode >= 400) {
+      final apiMessage = body?['message'] ?? body?['detail'];
+      if (apiMessage is String && apiMessage.trim().isNotEmpty) {
+        throw VerificationFailure(apiMessage.trim());
+      }
+      if (response.statusCode >= 500) {
+        throw const VerificationFailure(
+          'The verification service is unavailable. Check that the laptop backend is running.',
+        );
+      }
+      throw const VerificationFailure(
+        'Verification could not be completed. Please check the photos and try again.',
+      );
+    }
+
+    if (body == null) {
+      throw const VerificationFailure(
+        'The verification service returned an invalid response.',
+      );
+    }
+    return VerificationResult.fromJson(body);
   }
 
   Future<void> refreshVerifiedSession() async {

@@ -84,6 +84,24 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<TravelGroup?> getOngoingGroupCreatedByCurrentUser() async {
+    try {
+      final row = await _client
+          .from('travel_groups')
+          .select()
+          .eq('creator_id', _user.id)
+          .inFilter('status', const ['waiting', 'active'])
+          .order('status')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      return row == null ? null : _groupFromRow(row);
+    } catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
   Future<List<GroupMemberProfile>> getMembers(String groupId) async {
     try {
       final memberRows = await _client
@@ -213,29 +231,6 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
             'meetup_longitude': longitude,
           })
           .eq('id', groupId);
-    } catch (error) {
-      throw _failure(error);
-    }
-  }
-
-  @override
-  Future<int> simulateDemoMembersTowardMeetup({
-    required String sessionId,
-    required double latitude,
-    required double longitude,
-    bool resetPositions = false,
-  }) async {
-    try {
-      final result = await _client.rpc(
-        'simulate_travel_group_members_toward_meetup',
-        params: {
-          'target_session_id': sessionId,
-          'target_latitude': latitude,
-          'target_longitude': longitude,
-          'reset_positions': resetPositions,
-        },
-      );
-      return (result as num?)?.toInt() ?? 0;
     } catch (error) {
       throw _failure(error);
     }
@@ -703,6 +698,17 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   TravelGroupException _failure(Object error) {
     if (error is TravelGroupException) return error;
     if (error is PostgrestException) {
+      if (error.code == '23505' &&
+          (error.message.contains('one_ongoing_travel_group_per_creator') ||
+              (error.details?.toString().contains(
+                    'one_ongoing_travel_group_per_creator',
+                  ) ??
+                  false))) {
+        return const TravelGroupException(
+          'End your current Travel Group before creating another one.',
+          'ongoing_group_exists',
+        );
+      }
       return TravelGroupException(
         error.message,
         error.code ?? 'supabase_error',

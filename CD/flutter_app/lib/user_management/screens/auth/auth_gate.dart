@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/traveler_profile_service.dart';
+import '../../models/traveler_profile.dart';
 import '../profile_screen.dart';
 import '../travel_preferences_screen.dart';
 import 'login_screen.dart';
@@ -65,7 +66,13 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<bool> _hasCompletedOnboarding() async {
     final profile = await _travelerProfileService.fetchCurrentProfile();
-    return profile?.hasCompletedOnboarding ?? false;
+    final resolvedProfile =
+        profile ??
+        TravelerProfile(
+          userId: _session?.user.id ?? '',
+          favoriteCategories: const [],
+        );
+    return !resolvedProfile.requiresFirstTimeOnboarding;
   }
 
   void _onOnboardingSaved(List<String> _) {

@@ -6,6 +6,41 @@ const {
     calculateRecommendationScore,
     rankTaggedPlaces
 } = require("../ranking-service");
+const {
+    splitSupportedPreferences
+} = require("../preference-reference");
+
+const generalTags = ["Museum", "Nature"];
+const culturalTags = [
+    "Cultural Experience",
+    "Cultural Festival",
+    "Cultural Learning",
+    "Heritage",
+    "Historical Landmark",
+    "Local Cuisine",
+    "Religious Heritage",
+    "Traditional Architecture",
+    "Traditional Craft"
+];
+
+assert.equal(
+    splitSupportedPreferences(undefined, generalTags, culturalTags),
+    null,
+    "Preference recommendations must not silently use test defaults."
+);
+
+assert.deepEqual(
+    splitSupportedPreferences(
+        ["Heritage", "Cultural Festival", "Heritage"],
+        generalTags,
+        culturalTags
+    ),
+    {
+        generalTags: [],
+        culturalTags: ["Heritage", "Cultural Festival"]
+    },
+    "The exact saved preferences should become the ranking reference."
+);
 
 const preferencePlan = buildNearbySearchPlan({
     generalTags: ["Museum"],

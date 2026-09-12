@@ -1,11 +1,12 @@
 import hashlib
 import hmac
+import logging
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Form, Header, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import Client, create_client
 
@@ -16,6 +17,9 @@ from .vision import (
     decode_image,
     inspect_document,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -182,13 +186,16 @@ async def verify(
         }
     except CheckFailure as error:
         prefix = f"{user_id}/{verification_id}"
-        _store_failed_photos(
-            admin,
-            prefix,
-            front_bytes,
-            back_bytes,
-            selfie_bytes,
-        )
+        try:
+            _store_failed_photos(
+                admin,
+                prefix,
+                front_bytes,
+                back_bytes,
+                selfie_bytes,
+            )
+        except Exception:
+            logger.exception("Could not retain failed verification photos")
         admin.table("identity_verifications").update(
             {
                 "status": "failed",
@@ -204,6 +211,26 @@ async def verify(
             "code": error.code,
             "retryable": error.retryable,
         }
+    except Exception as error:
+        logger.exception("Unexpected verification failure for user %s", user_id)
+        try:
+            admin.table("identity_verifications").update(
+                {
+                    "status": "failed",
+                    "failure_code": "service_error",
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("id", verification_id).execute()
+        except Exception:
+            logger.exception("Could not mark verification %s as failed", verification_id)
+
+        detail = "The verification service failed while processing the photos."
+        if "Tesseract" in str(error):
+            detail = (
+                "Tesseract OCR is not installed or configured on the laptop. "
+                "Install it and restart run-ohmy.ps1."
+            )
+        raise HTTPException(status_code=503, detail=detail) from error
 
 
 def _store_failed_photos(

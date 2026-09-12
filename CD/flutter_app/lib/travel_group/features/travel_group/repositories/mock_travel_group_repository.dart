@@ -89,6 +89,18 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<TravelGroup?> getOngoingGroupCreatedByCurrentUser() async {
+    for (final group in _groups) {
+      if (group.creatorId == 'USER_100' &&
+          group.status != GroupStatus.completed &&
+          group.status != GroupStatus.cancelled) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  @override
   Future<List<GroupMemberProfile>> getMembers(String groupId) async {
     final group = _requireGroup(groupId);
     const names = {
@@ -199,24 +211,6 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     group.meetupPoint = meetupPoint;
     group.meetupLatitude = latitude;
     group.meetupLongitude = longitude;
-  }
-
-  @override
-  Future<int> simulateDemoMembersTowardMeetup({
-    required String sessionId,
-    required double latitude,
-    required double longitude,
-    bool resetPositions = false,
-  }) async {
-    final session = _sessions.values.firstWhere(
-      (item) => item.id == sessionId,
-      orElse: () => throw const TravelGroupException(
-        'Confirm the group before simulating meetup locations.',
-        'group_not_confirmed',
-      ),
-    );
-    final group = _requireGroup(session.groupId);
-    return (group.memberCount - 1).clamp(0, group.maxMembers);
   }
 
   @override

@@ -73,7 +73,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Use 8–16 letters and numbers. The new password must include both and cannot match the old password, even with different letter casing.',
+                'Use 8-20 letters and numbers, including uppercase, lowercase, and a number. It cannot match the old password, even with different letter casing.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF62708A), fontSize: 12),
               ),

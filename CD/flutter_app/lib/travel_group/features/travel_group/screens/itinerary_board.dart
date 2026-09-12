@@ -150,8 +150,12 @@ class ItineraryBoard extends StatelessWidget {
 
   Future<void> _openMap(BuildContext context) async {
     await Navigator.of(context, rootNavigator: true).push<void>(
-      MaterialPageRoute(
-        builder: (_) => ActiveItineraryMapScreen(controller: controller),
+      PageRouteBuilder<void>(
+        settings: const RouteSettings(name: '/travel-group/active-navigation'),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (_, _, _) =>
+            ActiveItineraryMapScreen(controller: controller),
       ),
     );
     await controller.refreshWorkspace();

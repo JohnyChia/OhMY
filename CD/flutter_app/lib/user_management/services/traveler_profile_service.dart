@@ -44,12 +44,29 @@ class TravelerProfileService {
           .maybeSingle();
 
       final profile = data == null ? null : TravelerProfile.fromJson(data);
-      currentTravelerPreferences.value =
-          List<String>.unmodifiable(profile?.favoriteCategories ?? const []);
+      currentTravelerPreferences.value = List<String>.unmodifiable(
+        profile?.favoriteCategories ?? const [],
+      );
       return profile;
     } catch (error) {
       throw _friendlyFailure(error);
     }
+  }
+
+  Future<List<String>> requireCurrentPreferences() async {
+    final profile = await fetchCurrentProfile();
+    final preferences = profile?.favoriteCategories
+            .map((category) => category.trim())
+            .where((category) => category.isNotEmpty)
+            .toSet()
+            .toList(growable: false) ??
+        const <String>[];
+    if (preferences.length < 3) {
+      throw const TravelerProfileFailure(
+        'Your travel preferences are unavailable. Complete your profile first.',
+      );
+    }
+    return preferences;
   }
 
   Future<TravelerProfile> saveFavoriteCategories(
@@ -78,8 +95,12 @@ class TravelerProfileService {
           .single();
 
       final profile = TravelerProfile.fromJson(data);
-      currentTravelerPreferences.value =
-          List<String>.unmodifiable(profile.favoriteCategories);
+      await _client.auth.updateUser(
+        UserAttributes(data: {'needs_preferences_onboarding': false}),
+      );
+      currentTravelerPreferences.value = List<String>.unmodifiable(
+        profile.favoriteCategories,
+      );
       return profile;
     } catch (error) {
       throw _friendlyFailure(error);

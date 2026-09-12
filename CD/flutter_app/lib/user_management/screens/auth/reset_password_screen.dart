@@ -63,7 +63,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     return AuthPageLayout(
       title: 'Create new password',
       subtitle:
-          'Use 8–16 letters and numbers. Your new password cannot be the same as your previous password.',
+          'Use 8-20 letters and numbers, including uppercase, lowercase, and a number. Your new password cannot be the same as your previous password.',
       glowAsset: 'assets/images/auth/register_glow.svg',
       topSpacing: 170,
       formSpacing: 46,

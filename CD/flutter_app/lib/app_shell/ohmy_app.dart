@@ -15,6 +15,7 @@ import '../travel_group/features/travel_group/controllers/travel_group_controlle
 import '../travel_group/features/travel_group/models/travel_group_models.dart';
 import '../travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
 import '../travel_group/features/travel_group/repositories/supabase_travel_group_repository.dart';
+import '../travel_group/features/travel_group/screens/group_lobby_screen.dart';
 import '../travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
 import '../travel_group/features/travel_group/services/live_trip_location_service.dart';
 import '../travel_group/features/travel_group/services/supabase_live_trip_location_service.dart';
@@ -25,13 +26,6 @@ import '../shared/widgets/wau_loading_indicator.dart';
 import '../shared/widgets/ohmy_snack_bar.dart';
 import 'ohmy_bottom_navigation_bar.dart';
 import 'personalized_home_page.dart';
-
-// Temporary development switch. Pass
-// --dart-define=BYPASS_TRAVEL_GROUP_VERIFICATION=false to restore the gate.
-const _bypassTravelGroupVerification = bool.fromEnvironment(
-  'BYPASS_TRAVEL_GROUP_VERIFICATION',
-  defaultValue: true,
-);
 
 class OhMyApp extends StatelessWidget {
   const OhMyApp({super.key, required this.supabaseEnabled});
@@ -88,12 +82,14 @@ class _OhMyShellState extends State<OhMyShell> {
           ? SupabaseTravelGroupRepository(Supabase.instance.client)
           : MockTravelGroupRepository.seeded(),
       currentUser: travelUser,
-      allowDemoVerification:
-          !widget.supabaseEnabled || _bypassTravelGroupVerification,
+      allowDemoVerification: !widget.supabaseEnabled,
       liveTripLocationServiceFactory: widget.supabaseEnabled
           ? createSupabaseLiveTripLocationService
           : createMockLiveTripLocationService,
     )..addListener(_onTravelGroupChanged);
+    if (widget.supabaseEnabled) {
+      unawaited(_travelGroupController.restoreOngoingCreatedGroup());
+    }
     if (widget.supabaseEnabled) {
       _authSubscription = Supabase.instance.client.auth.onAuthStateChange
           .listen((authState) {
@@ -172,7 +168,7 @@ class _OhMyShellState extends State<OhMyShell> {
           settings: RouteSettings(name: '/community/post/${post.id}'),
           builder: (_) => PostDetailScreen(
             postId: post.id,
-            controller: _communityController,
+            controller: _communityController!,
           ),
         ),
       );
@@ -200,13 +196,15 @@ class _OhMyShellState extends State<OhMyShell> {
                   user.email ??
                   'Traveller')
               .toString(),
-      isVerified:
-          _bypassTravelGroupVerification || appMetadata['is_verified'] == true,
+      isVerified: appMetadata['is_verified'] == true,
     );
   }
 
   void _onTravelGroupChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _returnToGroup() {
@@ -271,7 +269,11 @@ class _OhMyShellState extends State<OhMyShell> {
             ),
             if (_selectedIndex != 2 &&
                 _travelGroupController.activeGroup != null &&
-                _travelGroupController.isMember)
+                _travelGroupController.isMember &&
+                _travelGroupController.activeGroup!.status !=
+                    GroupStatus.completed &&
+                _travelGroupController.activeGroup!.status !=
+                    GroupStatus.cancelled)
               Positioned(
                 right: 14,
                 bottom: 12,
@@ -1137,12 +1139,7 @@ class StartTripHubPage extends StatelessWidget {
             title: 'Solo trip',
             subtitle:
                 'Search places, receive recommendations, check weather and traffic, then build your route.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                settings: const RouteSettings(name: '/start-trip/solo-map'),
-                builder: (_) => const PlaceMapPage(),
-              ),
-            ),
+            onTap: () => _openSoloTrip(context),
           ),
           const SizedBox(height: 14),
           _TripModeCard(
@@ -1157,6 +1154,49 @@ class StartTripHubPage extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openSoloTrip(BuildContext context) async {
+    final ownedGroup = controller.ownedOngoingGroup;
+    if (ownedGroup != null) {
+      final openGroup = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Travel Group already active'),
+          content: Text(
+            'You created ${ownedGroup.name}. End that Travel Group before starting a solo trip.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Not now'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.groups_rounded),
+              label: const Text('Open Travel Group'),
+            ),
+          ],
+        ),
+      );
+      if (openGroup == true && context.mounted) {
+        await controller.openGroup(ownedGroup.id);
+        if (!context.mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => GroupLobbyScreen(controller: controller),
+          ),
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/start-trip/solo-map'),
+        builder: (_) => const PlaceMapPage(),
       ),
     );
   }

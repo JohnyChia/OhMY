@@ -33,6 +33,7 @@ class TravelGroupController extends ChangeNotifier {
   late PrototypeUser currentUser;
   List<TravelGroup> groups = [];
   TravelGroup? activeGroup;
+  TravelGroup? ownedOngoingGroup;
   List<GroupMemberProfile> members = [];
   List<JoinRequest> joinRequests = [];
   List<GroupSuggestion> suggestions = [];
@@ -40,39 +41,19 @@ class TravelGroupController extends ChangeNotifier {
   TravelGroupTripSession? activeSession;
   DateTime? activeTripStartedAt;
   double radiusKm = 10;
-  String selectedArea = 'Bukit Bintang, Kuala Lumpur';
+  String selectedArea = 'Finding your current area...';
   double? areaLatitude;
   double? areaLongitude;
   String keyword = '';
   bool openOnly = false;
   bool isLoading = false;
   int _localIdSequence = 0;
-  GeoCoordinate? simulatedLocationOverride;
 
   bool get isCreator => activeGroup?.creatorId == currentUser.id;
   bool get isMember => activeGroup?.memberIds.contains(currentUser.id) ?? false;
-  bool get isUsingSimulatedLocation => simulatedLocationOverride != null;
-
+  bool get hasOngoingCreatedGroup => ownedOngoingGroup != null;
   GeoCoordinate effectiveLocation(double latitude, double longitude) =>
-      simulatedLocationOverride ?? GeoCoordinate(latitude, longitude);
-
-  void simulateLocationNearDestination() {
-    final group = activeGroup;
-    final latitude = group?.destinationLatitude;
-    final longitude = group?.destinationLongitude;
-    if (latitude == null || longitude == null) return;
-    simulateLocationAt(latitude, longitude);
-  }
-
-  void simulateLocationAt(double latitude, double longitude) {
-    simulatedLocationOverride = GeoCoordinate(latitude, longitude);
-    notifyListeners();
-  }
-
-  void useActualLocation() {
-    simulatedLocationOverride = null;
-    notifyListeners();
-  }
+      GeoCoordinate(latitude, longitude);
 
   LiveTripLocationService createLiveTripLocationService() {
     final group = activeGroup;
@@ -136,6 +117,16 @@ class TravelGroupController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> restoreOngoingCreatedGroup() async {
+    final owned = await repository.getOngoingGroupCreatedByCurrentUser();
+    ownedOngoingGroup = owned;
+    if (owned != null) {
+      await openGroup(owned.id);
+    } else {
+      notifyListeners();
+    }
+  }
+
   Future<void> setSearch(String value) async {
     keyword = value;
     await loadGroups();
@@ -167,7 +158,6 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   Future<void> openGroup(String groupId) async {
-    if (activeGroup?.id != groupId) simulatedLocationOverride = null;
     activeGroup = await repository.getGroup(groupId);
     if (activeGroup == null) {
       throw const TravelGroupException('Travel group not found.', 'not_found');
@@ -248,6 +238,12 @@ class TravelGroupController extends ChangeNotifier {
     required JoinMode joinMode,
   }) async {
     _requireVerified();
+    if (ownedOngoingGroup != null) {
+      throw const TravelGroupException(
+        'End your current Travel Group before creating another one.',
+        'ongoing_group_exists',
+      );
+    }
     _validateGroupText(name: name, description: description);
     _validateCapacity(maxMembers);
     if (destination.name.trim().isEmpty) {
@@ -294,6 +290,7 @@ class TravelGroupController extends ChangeNotifier {
       destinationPhotoName: destination.photoName,
     );
     final created = await repository.createGroup(group);
+    ownedOngoingGroup = created;
     await loadGroups();
     await openGroup(created.id);
     return activeGroup ?? created;
@@ -310,6 +307,11 @@ class TravelGroupController extends ChangeNotifier {
     suggestions = [];
     itinerary = [];
     activeSession = null;
+    if (ownedOngoingGroup?.id == groupId) {
+      ownedOngoingGroup = await repository
+          .getOngoingGroupCreatedByCurrentUser();
+    }
+    notifyListeners();
   }
 
   Future<void> editGroup({
@@ -392,27 +394,6 @@ class TravelGroupController extends ChangeNotifier {
     if (isCreator) await _persistRecalculatedItinerary();
   }
 
-  Future<int> simulateDemoMembersTowardMeetup({
-    required double latitude,
-    required double longitude,
-    bool resetPositions = false,
-  }) async {
-    _requireCreator();
-    final session = activeSession;
-    if (session == null || session.phase != GroupTripPhase.gathering) {
-      throw const TravelGroupException(
-        'Confirm the group before simulating meetup locations.',
-        'group_not_confirmed',
-      );
-    }
-    return repository.simulateDemoMembersTowardMeetup(
-      sessionId: session.id,
-      latitude: latitude,
-      longitude: longitude,
-      resetPositions: resetPositions,
-    );
-  }
-
   static double _distanceBetween(
     double startLatitude,
     double startLongitude,
@@ -437,6 +418,13 @@ class TravelGroupController extends ChangeNotifier {
   Future<void> joinActiveGroup({required GeoCoordinate location}) async {
     _requireVerified();
     final group = activeGroup!;
+    final ownedGroup = ownedOngoingGroup;
+    if (ownedGroup != null && ownedGroup.id != group.id) {
+      throw TravelGroupException(
+        'End ${ownedGroup.name} before joining another travel group.',
+        'creator_already_in_group',
+      );
+    }
     final destinationLatitude = group.destinationLatitude;
     final destinationLongitude = group.destinationLongitude;
     if (destinationLatitude == null || destinationLongitude == null) {
@@ -445,7 +433,7 @@ class TravelGroupController extends ChangeNotifier {
         'destination_location_missing',
       );
     }
-    final effective = simulatedLocationOverride ?? location;
+    final effective = location;
     final distanceKm =
         _distanceBetween(
           effective.latitude,
@@ -678,8 +666,14 @@ class TravelGroupController extends ChangeNotifier {
 
   Future<void> endTrip() async {
     _requireCreator();
-    await repository.endTrip(activeGroup!.id);
+    final groupId = activeGroup!.id;
+    await repository.endTrip(groupId);
     await refreshWorkspace();
+    if (ownedOngoingGroup?.id == groupId) {
+      ownedOngoingGroup = await repository
+          .getOngoingGroupCreatedByCurrentUser();
+    }
+    notifyListeners();
   }
 
   String _localId(String prefix) =>

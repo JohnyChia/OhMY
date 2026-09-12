@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../preference_recommender/features/routes/native_navigation_map.dart';
-import '../../../../user_management/models/travel_history_entry.dart';
-import '../../../../user_management/services/travel_history_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
@@ -22,7 +20,6 @@ class ActiveItineraryMapScreen extends StatefulWidget {
 }
 
 class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
-  final TravelHistoryService _travelHistoryService = TravelHistoryService();
   late final LiveTripLocationService _locationService;
   StreamSubscription<List<LiveMemberLocation>>? _memberSubscription;
   List<LiveMemberLocation> _members = const [];
@@ -30,6 +27,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   double? _remainingTimeSeconds;
   String? _statusMessage;
   bool _completing = false;
+  bool _mountNavigationMap = false;
 
   ItineraryStop? get _currentStop {
     for (final stop in widget.controller.itinerary) {
@@ -50,6 +48,12 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
         if (mounted) setState(() => _statusMessage = error.toString());
       },
     );
+    // Android platform views can retain the small bounds used by a route's
+    // entrance transition on some Samsung devices. Mount the Navigation SDK
+    // view only after this full-screen route has completed its first layout.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _mountNavigationMap = true);
+    });
   }
 
   @override
@@ -64,7 +68,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     final stop = _currentStop;
     if (stop == null || stop.latitude == null || stop.longitude == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Group journey')),
+        appBar: AppBar(title: const Text('Travel Group')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -90,21 +94,14 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
       );
     }
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        showTravelGroupMessage(
-          context,
-          'Use Group lobby or End journey to leave navigation.',
-        );
-      },
-      child: Scaffold(
-        resizeToAvoidBottomInset: false,
-        body: Stack(
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      body: SizedBox.expand(
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Positioned.fill(
-              child: SafeArea(
+            if (_mountNavigationMap)
+              SafeArea(
                 bottom: false,
                 child: NativeNavigationMap(
                   destinationName: stop.placeName,
@@ -145,42 +142,46 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                     if (mounted) setState(() => _statusMessage = message);
                   },
                 ),
+              )
+            else
+              const ColoredBox(
+                color: Color(0xffeef3fb),
+                child: Center(child: CircularProgressIndicator()),
               ),
-            ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: AppColors.primary,
-                        elevation: 5,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.groups_rounded),
-                      label: const Text('Group lobby'),
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 150,
+              left: 12,
+              right: 12,
+              child: Row(
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: AppColors.primary,
+                      elevation: 5,
                     ),
-                    const Spacer(),
-                    ActionChip(
-                      avatar: const Icon(Icons.location_on_rounded, size: 18),
-                      label: Text('${_members.length} live'),
-                      onPressed: _showMembers,
-                    ),
-                  ],
-                ),
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.groups_rounded),
+                    label: const Text('Group lobby'),
+                  ),
+                  const Spacer(),
+                  ActionChip(
+                    avatar: const Icon(Icons.location_on_rounded, size: 18),
+                    label: Text('${_members.length} live'),
+                    onPressed: _showMembers,
+                  ),
+                ],
               ),
             ),
             if (navigationSimulationEnabled)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 66,
+                top: MediaQuery.paddingOf(context).top + 214,
                 left: 16,
                 child: const Chip(label: Text('TEST SIMULATION · 5x')),
               ),
             if (_statusMessage != null)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 112,
+                top: MediaQuery.paddingOf(context).top + 264,
                 left: 24,
                 right: 24,
                 child: Material(
@@ -197,17 +198,30 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                 ),
               ),
             Positioned(
-              left: 12,
-              right: 12,
-              bottom: MediaQuery.paddingOf(context).bottom + 12,
-              child: _JourneyCard(
-                stop: stop,
-                distanceText: _formatDistance(_remainingDistanceMeters),
-                timeText: _formatTime(_remainingTimeSeconds),
-                completing: _completing,
-                isCreator: widget.controller.isCreator,
-                onArrived: _completeStop,
-                onEnd: _confirmEndTrip,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Material(
+                elevation: 14,
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+                    child: _JourneyCard(
+                      stop: stop,
+                      distanceText: _formatDistance(_remainingDistanceMeters),
+                      timeText: _formatTime(_remainingTimeSeconds),
+                      completing: _completing,
+                      isCreator: widget.controller.isCreator,
+                      onArrived: _completeStop,
+                      onEnd: _confirmEndTrip,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -252,9 +266,9 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     final shouldEnd = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('End the group journey?'),
+        title: const Text('End this Travel Group?'),
         content: const Text(
-          'This closes the live trip for everyone. This cannot be resumed.',
+          'This ends the trip for everyone and saves it to each traveller\'s history. It cannot be resumed.',
         ),
         actions: [
           TextButton(
@@ -263,70 +277,20 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('End journey'),
+            child: const Text('End Travel Group'),
           ),
         ],
       ),
     );
     if (shouldEnd != true || !mounted) return;
     try {
-      final group = widget.controller.activeGroup!;
-      final completedAt = DateTime.now();
       await widget.controller.endTrip();
-      await _recordCompletedTrip(group, completedAt);
       if (mounted) {
-        showTravelGroupMessage(context, 'Group journey saved to your history.');
-        Navigator.pop(context);
+        showTravelGroupMessage(context, 'Travel Group saved to your history.');
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } on TravelGroupException catch (error) {
       if (mounted) showTravelGroupMessage(context, error.message, error: true);
-    }
-  }
-
-  Future<void> _recordCompletedTrip(
-    TravelGroup group,
-    DateTime completedAt,
-  ) async {
-    final estimatedMinutes = widget.controller.itinerary.fold<int>(
-      0,
-      (total, item) =>
-          total +
-          item.estimatedDurationMinutes +
-          item.travelTimeFromPreviousMinutes,
-    );
-    final startedAt =
-        widget.controller.activeTripStartedAt ??
-        completedAt.subtract(Duration(minutes: estimatedMinutes));
-    var elapsedMinutes = 0;
-    final recordedStops = widget.controller.itinerary
-        .map((item) {
-          elapsedMinutes += item.travelTimeFromPreviousMinutes;
-          final visitedAt = startedAt.add(Duration(minutes: elapsedMinutes));
-          elapsedMinutes += item.estimatedDurationMinutes;
-          return TravelHistoryStop(name: item.placeName, visitedAt: visitedAt);
-        })
-        .toList(growable: false);
-    try {
-      await _travelHistoryService.recordCompletedTrip(
-        CompletedTravelDraft(
-          type: TravelHistoryType.group,
-          sourceReference:
-              'group-${group.id}-${startedAt.microsecondsSinceEpoch}',
-          title: group.name,
-          destination: group.destination,
-          startedAt: startedAt,
-          completedAt: completedAt,
-          stops: recordedStops,
-          distanceKm: group.distanceKm,
-          durationMinutes: completedAt.difference(startedAt).inMinutes,
-          tags: group.tags,
-          travelMode: 'Group journey',
-        ),
-      );
-    } on TravelHistoryFailure catch (error) {
-      if (mounted) {
-        showTravelGroupMessage(context, error.message, error: true);
-      }
     }
   }
 
@@ -392,56 +356,61 @@ class _JourneyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 8,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'NAVIGATING TOGETHER',
+          style: TextStyle(
+            color: AppColors.primary,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: .7,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          stop.placeName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Row(
           children: [
-            const Text(
-              'NAVIGATING TOGETHER',
-              style: TextStyle(
-                color: AppColors.primary,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: .7,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              stop.placeName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  timeText,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const Text('  ·  '),
-                Text(distanceText),
-                const Spacer(),
-                if (isCreator)
-                  TextButton(onPressed: onEnd, child: const Text('End trip')),
-              ],
-            ),
-            if (isCreator)
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: completing ? null : onArrived,
-                  icon: const Icon(Icons.flag_rounded),
-                  label: Text(completing ? 'Updating...' : 'We\'ve arrived'),
-                ),
-              ),
+            Text(timeText, style: const TextStyle(fontWeight: FontWeight.w700)),
+            const Text('  ·  '),
+            Text(distanceText),
+            const Spacer(),
           ],
         ),
-      ),
+        if (isCreator)
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: completing ? null : onArrived,
+              icon: const Icon(Icons.flag_rounded),
+              label: Text(completing ? 'Updating...' : 'We\'ve arrived'),
+            ),
+          ),
+        if (isCreator) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: const Key('end_travel_group_button'),
+              onPressed: completing ? null : onEnd,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFFB3261E),
+                side: const BorderSide(color: Color(0xFFB3261E)),
+              ),
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('End Travel Group'),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

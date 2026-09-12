@@ -1335,13 +1335,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
             'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
           );
         }
-        preferences =
-            (await TravelerProfileService().fetchCurrentProfile())
-                ?.favoriteCategories ??
-            const [];
-        if (preferences.isEmpty) {
-          throw Exception('Your travel preferences are unavailable.');
-        }
+        preferences = await TravelerProfileService()
+            .requireCurrentPreferences();
       }
       final body = <String, dynamic>{
         'latitude': current.latitude,

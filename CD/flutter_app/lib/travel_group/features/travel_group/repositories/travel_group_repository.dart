@@ -9,6 +9,7 @@ abstract interface class TravelGroupRepository {
   });
 
   Future<TravelGroup?> getGroup(String groupId);
+  Future<TravelGroup?> getOngoingGroupCreatedByCurrentUser();
   Future<List<GroupMemberProfile>> getMembers(String groupId);
   Future<TravelGroup> createGroup(TravelGroup group);
   Future<void> deleteGroup(String groupId);
@@ -18,12 +19,6 @@ abstract interface class TravelGroupRepository {
     required String meetupPoint,
     required double latitude,
     required double longitude,
-  });
-  Future<int> simulateDemoMembersTowardMeetup({
-    required String sessionId,
-    required double latitude,
-    required double longitude,
-    bool resetPositions = false,
   });
   Future<void> joinOpenGroup({
     required String groupId,

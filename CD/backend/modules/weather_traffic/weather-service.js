@@ -39,7 +39,14 @@ async function lookupArea(latitude, longitude) {
         const data = await response.json();
         if (!response.ok || data.status !== "OK") return null;
         const components = data.results?.[0]?.address_components || [];
-        for (const type of ["locality", "administrative_area_level_2", "administrative_area_level_1"]) {
+        for (const type of [
+            "sublocality_level_1",
+            "sublocality",
+            "neighborhood",
+            "locality",
+            "administrative_area_level_2",
+            "administrative_area_level_1"
+        ]) {
             const component = components.find((item) => item.types?.includes(type));
             if (component?.long_name) return component.long_name;
         }
@@ -112,4 +119,4 @@ async function getWeatherOverview(latitudeValue, longitudeValue) {
     return value;
 }
 
-module.exports = { getWeatherOverview };
+module.exports = { getWeatherOverview, lookupArea };

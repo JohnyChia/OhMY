@@ -358,14 +358,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         'Sign-in services are not configured. Start the app with run-ohmy.ps1.',
       );
     }
-    final profile = await TravelerProfileService().fetchCurrentProfile();
-    final values = profile?.favoriteCategories ?? const [];
-    if (values.isEmpty) {
-      throw Exception(
-        'Your travel preferences are unavailable. Complete your profile first.',
-      );
-    }
-    return values;
+    return TravelerProfileService().requireCurrentPreferences();
   }
 
   Future<void> _applyDrivingMetrics(

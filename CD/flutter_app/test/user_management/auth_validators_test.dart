@@ -36,8 +36,9 @@ void main() {
   });
 
   group('AuthValidators.password', () {
-    test('accepts 8 to 16 alphanumeric characters', () {
+    test('accepts 8 to 20 alphanumeric characters', () {
       expect(AuthValidators.password('Travel123'), isNull);
+      expect(AuthValidators.password('LongTravelPassword1'), isNull);
     });
 
     test('rejects short and non-alphanumeric passwords', () {
@@ -45,10 +46,12 @@ void main() {
       expect(AuthValidators.password('Travel@123'), isNotNull);
     });
 
-    test('requires at least one letter and one number', () {
+    test('requires uppercase, lowercase, and a number', () {
       expect(AuthValidators.password('abcdefgh'), isNotNull);
       expect(AuthValidators.password('12345678'), isNotNull);
-      expect(AuthValidators.password('abcd1234'), isNull);
+      expect(AuthValidators.password('abcd1234'), isNotNull);
+      expect(AuthValidators.password('ABCD1234'), isNotNull);
+      expect(AuthValidators.password('Abcd1234'), isNull);
     });
 
     test('rejects the old password regardless of letter case', () {

@@ -60,6 +60,7 @@ class AuthService {
           // Keep the legacy key temporarily because existing teammate screens
           // may still read it as the public display name.
           'full_name': username.trim(),
+          'needs_preferences_onboarding': true,
         },
       );
 

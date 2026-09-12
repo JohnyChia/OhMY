@@ -28,6 +28,8 @@ Uses a USB-debuggable Android phone and configures adb reverse forwarding.
 param(
     [string]$Device = 'emulator-5554',
     [string]$Emulator = 'Pixel_9_API_34',
+    [double]$EmulatorLatitude = 3.1094685,
+    [double]$EmulatorLongitude = 101.4602178,
     [switch]$ColdBoot,
     [switch]$InstallDependencies,
     [switch]$SkipVerification
@@ -44,11 +46,16 @@ $communityRoot = Join-Path (Split-Path -Parent $projectRoot) `
 $backendEnvFile = Join-Path $backendRoot '.env'
 $chatbotEnvFile = Join-Path $chatbotRoot '.env'
 $verifiedEnvFile = Join-Path $verifiedRoot '.env'
+$verificationSecretFile = Join-Path $verifiedRoot '.document-hmac-secret'
 $androidLocalProperties = Join-Path $flutterApp 'android\local.properties'
 $androidSdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 $adbExe = Join-Path $androidSdk 'platform-tools\adb.exe'
 $emulatorExe = Join-Path $androidSdk 'emulator\emulator.exe'
 $script:startedProcesses = @()
+
+if ($SkipVerification) {
+    Write-Warning '-SkipVerification is deprecated and ignored; traveller verification is enforced.'
+}
 
 function Resolve-CommandPath([string]$Name) {
     $command = Get-Command $Name -ErrorAction SilentlyContinue
@@ -221,7 +228,19 @@ function Stop-StartedServices {
     }
 }
 
+$launcherLockPath = Join-Path (Split-Path -Parent $projectRoot) '.run-ohmy.lock'
+$launcherLockStream = $null
 try {
+try {
+    $launcherLockStream = [IO.File]::Open(
+        $launcherLockPath,
+        [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None
+    )
+} catch [IO.IOException] {
+    throw 'Another OhMY launcher is already running. Stop it with q before launching a second device.'
+}
 if (-not (Test-Path -LiteralPath $adbExe)) {
     throw "adb was not found at $adbExe. Install Android SDK Platform-Tools."
 }
@@ -325,6 +344,13 @@ if (-not (Wait-AndroidBoot $Device)) {
     throw "$Device did not become ready within 180 seconds."
 }
 Write-Host "[ok]   $Device is ready" -ForegroundColor Green
+if ($isEmulator) {
+    & $adbExe -s $Device emu geo fix $EmulatorLongitude $EmulatorLatitude | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not set the emulator test location."
+    }
+    Write-Host '[ok]   Emulator GPS set to Setia Alam' -ForegroundColor Green
+}
 
 Start-BackgroundService `
     'Recommendation and Maps backend' 3000 $nodeExe @('server.js') `
@@ -368,14 +394,8 @@ Start-BackgroundService `
     $communityRoot $communityEnvironment
 
 $verificationStarted = $false
-if (-not $SkipVerification) {
+if ($true) {
     $venvPython = Join-Path $verifiedRoot '.venv\Scripts\python.exe'
-    if ($InstallDependencies -and -not (Test-Path -LiteralPath $verifiedEnvFile)) {
-        Copy-Item (Join-Path $verifiedRoot '.env.example') $verifiedEnvFile
-        Write-Host `
-            '[setup] Created Verified Traveller .env; add its secrets to enable the service.' `
-            -ForegroundColor Yellow
-    }
     if ($InstallDependencies -and -not (Test-Path -LiteralPath $venvPython)) {
         Write-Host '[setup] Creating Verified Traveller Python environment' `
             -ForegroundColor Cyan
@@ -385,16 +405,52 @@ if (-not $SkipVerification) {
         & $venvPython (Join-Path $verifiedRoot 'setup_models.py')
     }
 
-    if ((Test-Path -LiteralPath $venvPython) -and
-        (Test-Path -LiteralPath $verifiedEnvFile)) {
+    if (Test-Path -LiteralPath $venvPython) {
+        if (-not (Test-Path -LiteralPath $verificationSecretFile)) {
+            $secretBytes = New-Object byte[] 48
+            $randomNumberGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+            $randomNumberGenerator.GetBytes($secretBytes)
+            $randomNumberGenerator.Dispose()
+            [IO.File]::WriteAllText(
+                $verificationSecretFile,
+                [Convert]::ToBase64String($secretBytes)
+            )
+        }
+        $verificationEnvironment = @{
+            'SUPABASE_URL' = $backendEnvironment['SUPABASE_URL']
+            'SUPABASE_ANON_KEY' = $backendEnvironment['SUPABASE_ANON_KEY']
+            'SUPABASE_SERVICE_ROLE_KEY' = $backendEnvironment['SUPABASE_SERVICE_ROLE_KEY']
+            'DOCUMENT_HMAC_SECRET' = (Get-Content $verificationSecretFile -Raw).Trim()
+        }
+        $verificationSettings = Read-EnvFile $verifiedEnvFile
+        $tesseractCommand = $verificationSettings['TESSERACT_CMD']
+        if (-not $tesseractCommand) {
+            $installedTesseract = Get-Command 'tesseract' -ErrorAction SilentlyContinue
+            if ($installedTesseract) {
+                $tesseractCommand = $installedTesseract.Source
+            } elseif (Test-Path -LiteralPath 'C:\Program Files\Tesseract-OCR\tesseract.exe') {
+                $tesseractCommand = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            } else {
+                $workspaceRoot = Split-Path -Parent $projectRoot
+                $localTesseract = Join-Path $workspaceRoot '.local-tools\Tesseract-OCR\tesseract.exe'
+                if (Test-Path -LiteralPath $localTesseract) {
+                    $tesseractCommand = $localTesseract
+                }
+            }
+        }
+        if ($tesseractCommand -and (Test-Path -LiteralPath $tesseractCommand)) {
+            $verificationEnvironment['TESSERACT_CMD'] = $tesseractCommand
+        } else {
+            Write-Warning 'Tesseract OCR is missing. Identity verification cannot process documents.'
+        }
         Start-BackgroundService `
             'Verified Traveller backend' 8000 $venvPython `
             @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
-            $verifiedRoot
+            $verifiedRoot $verificationEnvironment
         $verificationStarted = $true
     } else {
         Write-Host `
-            '[skip] Verified Traveller is not configured. Use -InstallDependencies after creating its .env.' `
+            '[skip] Verified Traveller is not installed. Run again with -InstallDependencies.' `
             -ForegroundColor DarkYellow
     }
 }
@@ -443,5 +499,8 @@ try {
     [Environment]::SetEnvironmentVariable('MAPS_API_KEY', $previousMapsApiKey)
 }
 } finally {
+    if ($null -ne $launcherLockStream) {
+        $launcherLockStream.Dispose()
+    }
     Stop-StartedServices
 }

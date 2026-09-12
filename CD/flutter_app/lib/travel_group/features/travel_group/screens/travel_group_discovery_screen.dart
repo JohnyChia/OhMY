@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
@@ -45,19 +46,33 @@ class _TravelGroupDiscoveryScreenState
 
   Future<void> _resolveDefaultArea() async {
     try {
-      final matches = await _placeSearch.search(
-        controller.selectedArea,
-        placesOnly: false,
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
       );
-      if (!mounted || matches.isEmpty) return;
-      final area = matches.first;
+      final area = await _placeSearch.areaForCoordinates(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      if (!mounted) return;
       await controller.setArea(
-        area.name,
-        latitude: area.latitude,
-        longitude: area.longitude,
+        area,
+        latitude: position.latitude,
+        longitude: position.longitude,
       );
     } catch (_) {
-      // Groups keep their repository distances until an area resolves.
+      // Groups keep their repository distances if location is unavailable.
     }
   }
 
@@ -96,7 +111,7 @@ class _TravelGroupDiscoveryScreenState
               ),
               const SizedBox(height: 3),
               const Text(
-                'Groups with destinations within 10 km of your selected area.',
+                'Nearby groups use your current location. Other areas are view-only unless you are within 10 km.',
                 style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
               ),
               const SizedBox(height: 14),
@@ -167,7 +182,7 @@ class _TravelGroupDiscoveryScreenState
               ),
             ),
             const Text(
-              'Change',
+              'Browse',
               style: TextStyle(fontSize: 11, color: AppColors.primary),
             ),
             const SizedBox(width: 3),
@@ -195,6 +210,22 @@ class _TravelGroupDiscoveryScreenState
   }
 
   Future<void> _openCreateGroup() async {
+    final ownedGroup = controller.ownedOngoingGroup;
+    if (ownedGroup != null) {
+      await controller.openGroup(ownedGroup.id);
+      if (!mounted) return;
+      showTravelGroupMessage(
+        context,
+        'You can create another group after ending ${ownedGroup.name}.',
+      );
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GroupLobbyScreen(controller: controller),
+        ),
+      );
+      return;
+    }
     if (!controller.currentUser.isVerified) {
       await Navigator.push<void>(
         context,
@@ -591,7 +622,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Group distances are measured from the centre of this area.',
+            'Browse another area. Joining still uses your precise current location and requires you to be within 10 km of the destination.',
             style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
           ),
           const SizedBox(height: 12),

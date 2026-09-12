@@ -50,7 +50,7 @@ class TravelHistoryEntry {
   /// False only for local fallback cards that do not exist in Supabase.
   final bool isPersisted;
 
-  bool get canShareToCommunity => isPersisted && type == TravelHistoryType.solo;
+  bool get canShareToCommunity => isPersisted;
 
   factory TravelHistoryEntry.fromSupabase(Map<String, dynamic> row) {
     if (row['source_type'] == null && row['travel_groups'] is Map) {
@@ -98,7 +98,7 @@ class TravelHistoryEntry {
     return TravelHistoryEntry(
       id: row['id'].toString(),
       type: TravelHistoryType.group,
-      title: groupData['name']?.toString() ?? 'Completed group trip',
+      title: groupData['name']?.toString() ?? 'Travel Group',
       destination:
           groupData['destination']?.toString() ?? 'Unknown destination',
       startedAt: startedAt,
@@ -111,7 +111,7 @@ class TravelHistoryEntry {
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const [],
-      travelMode: 'Group journey',
+      travelMode: 'Travel Group',
       isPersisted: false,
     );
   }

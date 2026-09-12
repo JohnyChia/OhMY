@@ -24,11 +24,15 @@ const {
     rankTaggedPlaces
 } = require("./modules/preference_recommender/ranking-service");
 const {
+    splitSupportedPreferences
+} = require("./modules/preference_recommender/preference-reference");
+const {
     getCachedTaggedPlaces,
     storeTaggedPlace
 } = require("./modules/preference_recommender/place-cache-service");
 const {
-    getWeatherOverview
+    getWeatherOverview,
+    lookupArea
 } = require("./modules/weather_traffic/weather-service");
 const {
     computeDrivingRoutes
@@ -50,6 +54,22 @@ app.get("/api/weather/overview", async (req, res) => {
             error: clientError ? error.message : "Failed to retrieve weather information.",
             details: error.message
         });
+    }
+});
+
+app.get("/api/location/area", async (req, res) => {
+    try {
+        const latitude = Number(req.query.lat);
+        const longitude = Number(req.query.lon);
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+            !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+            return res.status(400).json({ error: "Invalid coordinates." });
+        }
+        const area = await lookupArea(latitude, longitude);
+        res.json({ success: true, area: area || "Current area" });
+    } catch (error) {
+        console.error("Reverse geocoding error:", error.message);
+        res.status(502).json({ error: "Failed to identify the current area." });
     }
 });
 
@@ -1300,14 +1320,6 @@ app.get(
 // NEARBY TAGGING TEST (NO RANKING / NO DATABASE WRITES)
 // ============================================================
 
-const FIXED_TEST_PREFERENCES = [
-    "Museum",
-    "Heritage",
-    "Cultural Learning",
-    "Nature",
-    "Religious Heritage"
-];
-
 const NEARBY_RADIUS_METRES = 10_000;
 const NEARBY_CANDIDATE_LIMIT = 30;
 const DETAILS_CONCURRENCY = 4;
@@ -1355,28 +1367,6 @@ function matchesPreference(
     return (candidateTypes || []).some(
         type => requiredTypes.has(type)
     );
-}
-
-
-function splitReferenceTags(tagNames) {
-    const uniqueNames = [
-        ...new Set(
-            (tagNames || [])
-                .map(tag => String(tag).trim())
-                .filter(Boolean)
-        )
-    ];
-
-    return {
-        generalTags:
-            uniqueNames.filter(
-                tag => GENERAL_TAGS.includes(tag)
-            ),
-        culturalTags:
-            uniqueNames.filter(
-                tag => CULTURAL_TAGS.includes(tag)
-            )
-    };
 }
 
 
@@ -1528,16 +1518,19 @@ app.post(
                         destinationAnalysis.culturalTags
                 };
             } else {
-                const requestedPreferences =
-                    Array.isArray(req.body.preferences)
-                        && req.body.preferences.length > 0
-                        ? req.body.preferences
-                        : FIXED_TEST_PREFERENCES;
-
                 const splitPreferences =
-                    splitReferenceTags(
-                        requestedPreferences
+                    splitSupportedPreferences(
+                        req.body.preferences,
+                        GENERAL_TAGS,
+                        CULTURAL_TAGS
                     );
+
+                if (!splitPreferences) {
+                    return res.status(400).json({
+                        error:
+                            "Saved traveler preferences are required for preference recommendations."
+                    });
+                }
 
                 reference = {
                     source: "preferences",

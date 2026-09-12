@@ -18,6 +18,23 @@ class TravelPlaceSearchService {
   final String backendUrl;
   final Map<String, Future<String?>> _photoCache = {};
 
+  Future<String> areaForCoordinates({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final uri = Uri.parse('$backendUrl/api/location/area').replace(
+      queryParameters: {
+        'lat': latitude.toString(),
+        'lon': longitude.toString(),
+      },
+    );
+    final response = await _client.get(uri);
+    final body = _decode(response);
+    return body['area']?.toString().trim().isNotEmpty == true
+        ? body['area'].toString()
+        : 'Current area';
+  }
+
   Future<List<TravelGroupPlace>> search(
     String query, {
     bool placesOnly = true,

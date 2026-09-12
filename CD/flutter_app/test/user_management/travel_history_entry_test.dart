@@ -45,21 +45,18 @@ void main() {
     expect(entry.canShareToCommunity, isTrue);
   });
 
-  test(
-    'does not expose Community posting for a persisted group history row',
-    () {
-      final entry = TravelHistoryEntry.fromSupabase({
-        'id': 'group-history-id',
-        'source_type': 'group',
-        'title': 'Group city tour',
-        'destination': 'Kuala Lumpur',
-        'started_at': '2026-09-10T01:00:00Z',
-        'ended_at': '2026-09-10T02:15:00Z',
-        'itinerary': const [],
-      });
+  test('exposes Community posting for a persisted group history row', () {
+    final entry = TravelHistoryEntry.fromSupabase({
+      'id': 'group-history-id',
+      'source_type': 'group',
+      'title': 'Group city tour',
+      'destination': 'Kuala Lumpur',
+      'started_at': '2026-09-10T01:00:00Z',
+      'ended_at': '2026-09-10T02:15:00Z',
+      'itinerary': const [],
+    });
 
-      expect(entry.isPersisted, isTrue);
-      expect(entry.canShareToCommunity, isFalse);
-    },
-  );
+    expect(entry.isPersisted, isTrue);
+    expect(entry.canShareToCommunity, isTrue);
+  });
 }

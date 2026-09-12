@@ -139,6 +139,26 @@ void main() {
     },
   );
 
+  testWidgets('deleting the displayed group does not rebuild a null lobby', (
+    tester,
+  ) async {
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('group_actions_menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete group'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm_delete_group_button')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(controller.activeGroup, isNull);
+  });
+
   test('creator meetup must be within 5 km of every live member', () async {
     await controller.openGroup('GROUP_001');
     final members = [

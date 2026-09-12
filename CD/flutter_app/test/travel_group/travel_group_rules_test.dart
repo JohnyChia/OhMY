@@ -192,6 +192,57 @@ void main() {
       expect(group.memberIds.length, lessThan(group.maxMembers));
     });
 
+    test('creator can own only one ongoing group at a time', () async {
+      final emptyRepository = MockTravelGroupRepository(
+        groups: [],
+        requests: [],
+        suggestions: [],
+        itinerary: [],
+      );
+      final singleGroupController = TravelGroupController(
+        repository: emptyRepository,
+      );
+      await singleGroupController.createGroup(
+        name: 'KLCC Evening Stroll',
+        destination: _place(),
+        description: 'A relaxed evening walk.',
+        tags: const ['Nature'],
+        maxMembers: 4,
+        joinMode: JoinMode.open,
+      );
+
+      await expectLater(
+        singleGroupController.createGroup(
+          name: 'Another Group',
+          destination: _ampangPlace(),
+          description: 'This must wait until the first group ends.',
+          tags: const ['Heritage'],
+          maxMembers: 4,
+          joinMode: JoinMode.open,
+        ),
+        throwsA(
+          isA<TravelGroupException>().having(
+            (error) => error.code,
+            'code',
+            'ongoing_group_exists',
+          ),
+        ),
+      );
+
+      await singleGroupController.endTrip();
+      expect(singleGroupController.hasOngoingCreatedGroup, isFalse);
+
+      final nextGroup = await singleGroupController.createGroup(
+        name: 'Another Group',
+        destination: _ampangPlace(),
+        description: 'This can start after the first group ends.',
+        tags: const ['Heritage'],
+        maxMembers: 4,
+        joinMode: JoinMode.open,
+      );
+      expect(nextGroup.name, 'Another Group');
+    });
+
     test('createGroup follows the repository-assigned group id', () async {
       final remoteRepository = _RemoteIdRepository();
       final remoteController = TravelGroupController(
@@ -252,6 +303,24 @@ void main() {
       expect(controller.isMember, isTrue);
     });
 
+    test('a creator cannot join another ongoing group', () async {
+      await controller.restoreOngoingCreatedGroup();
+      await controller.openGroup('GROUP_002');
+
+      await expectLater(
+        controller.joinActiveGroup(
+          location: const GeoCoordinate(3.1580, 101.7120),
+        ),
+        throwsA(
+          isA<TravelGroupException>().having(
+            (error) => error.code,
+            'code',
+            'creator_already_in_group',
+          ),
+        ),
+      );
+    });
+
     test('the first destination cannot be suggested again', () async {
       await controller.createGroup(
         name: 'KLCC Evening Stroll',
@@ -286,22 +355,6 @@ void main() {
         ),
       );
     });
-
-    test(
-      'creator can simulate demo travellers after confirming group',
-      () async {
-        await controller.openGroup('GROUP_001');
-        await controller.confirmGroup();
-
-        final simulated = await controller.simulateDemoMembersTowardMeetup(
-          latitude: 3.1500,
-          longitude: 101.7100,
-          resetPositions: true,
-        );
-
-        expect(simulated, 2);
-      },
-    );
 
     test(
       'reorder recalculates legs and itinerary stops can be removed',

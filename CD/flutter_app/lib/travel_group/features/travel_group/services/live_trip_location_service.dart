@@ -28,7 +28,7 @@ class LiveMemberLocation {
   final double? accuracyMeters;
 
   bool get isFresh =>
-      DateTime.now().difference(updatedAt) < const Duration(seconds: 30);
+      DateTime.now().difference(updatedAt) < const Duration(minutes: 2);
 }
 
 typedef LiveTripLocationServiceFactory =

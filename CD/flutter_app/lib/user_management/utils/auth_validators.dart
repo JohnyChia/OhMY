@@ -49,13 +49,14 @@ class AuthValidators {
     final requiredError = requiredField(value, 'your password');
     if (requiredError != null) return requiredError;
 
-    final passwordPattern = RegExp(r'^[A-Za-z0-9]{8,16}$');
+    final passwordPattern = RegExp(r'^[A-Za-z0-9]{8,20}$');
     if (!passwordPattern.hasMatch(value!)) {
-      return 'Use 8–16 letters and numbers only.';
+      return 'Use 8-20 letters and numbers only.';
     }
-    if (!RegExp(r'[A-Za-z]').hasMatch(value) ||
+    if (!RegExp(r'[A-Z]').hasMatch(value) ||
+        !RegExp(r'[a-z]').hasMatch(value) ||
         !RegExp(r'[0-9]').hasMatch(value)) {
-      return 'Include at least one letter and one number.';
+      return 'Include an uppercase letter, a lowercase letter, and a number.';
     }
     return null;
   }

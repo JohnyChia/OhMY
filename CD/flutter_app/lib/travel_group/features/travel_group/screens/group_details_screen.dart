@@ -122,27 +122,6 @@ class GroupDetailsScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              if (kDebugMode && controller.isUsingSimulatedLocation) ...[
-                AppPanel(
-                  color: const Color(0xFFFFF6E8),
-                  borderColor: const Color(0xFFF2CB8D),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Test location: at this destination',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: controller.useActualLocation,
-                        child: const Text('Use GPS'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
               SizedBox(
                 width: double.infinity,
                 child: _actionButton(context, group),
@@ -216,31 +195,6 @@ class GroupDetailsScreen extends StatelessWidget {
             builder: (_) => VerificationRequiredScreen(controller: controller),
           ),
         );
-      } else if (error.code == 'outside_destination_radius' && kDebugMode) {
-        final simulate = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: const Text('Outside the 10 km join area'),
-            content: Text(
-              '${error.message}\n\nFor testing on distant devices, you can temporarily publish this device at ${controller.activeGroup!.destination}.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                key: const Key('simulate_near_destination_button'),
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Simulate near destination'),
-              ),
-            ],
-          ),
-        );
-        if (simulate == true && context.mounted) {
-          controller.simulateLocationNearDestination();
-          await _join(context);
-        }
       } else {
         showTravelGroupMessage(context, error.message, error: true);
       }
@@ -258,8 +212,6 @@ class GroupDetailsScreen extends StatelessWidget {
   }
 
   Future<GeoCoordinate> _joinLocation() async {
-    final simulated = controller.simulatedLocationOverride;
-    if (simulated != null) return simulated;
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const TravelGroupException(
         'Turn on precise location before joining a travel group.',

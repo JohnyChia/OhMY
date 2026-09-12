@@ -476,9 +476,7 @@ class _TripCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        isGroup
-                            ? 'Completed group trip'
-                            : 'Completed solo trip',
+                        isGroup ? 'Travel Group' : 'Solo Trip',
                         style: TextStyle(
                           color: isGroup ? const Color(0xFF7656C9) : _blue,
                           fontSize: 9,

@@ -14,7 +14,14 @@ class TravelerProfile {
   final String? budgetPreference;
 
   bool get hasCompletedOnboarding =>
-      favoriteCategories.any((category) => category.trim().isNotEmpty);
+      favoriteCategories
+          .map((category) => category.trim())
+          .where((category) => category.isNotEmpty)
+          .toSet()
+          .length >=
+      3;
+
+  bool get requiresFirstTimeOnboarding => !hasCompletedOnboarding;
 
   factory TravelerProfile.fromJson(Map<String, dynamic> json) {
     final categories = json['favorite_categories'];
