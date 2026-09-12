@@ -9,6 +9,7 @@ import 'package:community_discovery/community_discovery.dart';
 import '../shared/widgets/wau_loading_indicator.dart';
 import '../shared/utils/place_description.dart';
 import '../user_management/services/traveler_profile_service.dart';
+import '../user_management/services/saved_location_service.dart';
 
 typedef OpenSoloPlace = void Function(Map<String, dynamic>? recommendation);
 
@@ -51,6 +52,8 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
     WidgetsBinding.instance.addObserver(this);
     _lastPreferenceKey = _preferenceKey(currentTravelerPreferences.value);
     currentTravelerPreferences.addListener(_preferencesChanged);
+    savedLocationService.changes.addListener(_savedLocationsChanged);
+    unawaited(_loadSavedLocations());
     unawaited(_loadPlaces());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
@@ -67,7 +70,30 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
     WidgetsBinding.instance.removeObserver(this);
     _placeRetryTimer?.cancel();
     currentTravelerPreferences.removeListener(_preferencesChanged);
+    savedLocationService.changes.removeListener(_savedLocationsChanged);
     super.dispose();
+  }
+
+  Future<void> _loadSavedLocations() async {
+    try {
+      await savedLocationService.fetch(force: true);
+      _savedLocationsChanged();
+    } on SavedLocationFailure {
+      // The bookmark action will show an error if saving is requested.
+    }
+  }
+
+  void _savedLocationsChanged() {
+    if (!mounted) return;
+    setState(() {
+      _bookmarkedPlaceIds
+        ..clear()
+        ..addAll(
+          savedLocationService.cached
+              .map((location) => location.googlePlaceId)
+              .whereType<String>(),
+        );
+    });
   }
 
   @override
@@ -236,14 +262,26 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
         .toList(growable: false);
   }
 
-  void _togglePlaceBookmark(Map<String, dynamic> item) {
-    final id = _place(item)['id']?.toString();
-    if (id == null || id.isEmpty) return;
-    setState(() {
-      _bookmarkedPlaceIds.contains(id)
-          ? _bookmarkedPlaceIds.remove(id)
-          : _bookmarkedPlaceIds.add(id);
-    });
+  Future<void> _togglePlaceBookmark(Map<String, dynamic> item) async {
+    try {
+      final saved = await savedLocationService.toggle(item);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? 'Location saved to bookmarks.'
+                : 'Location removed from bookmarks.',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } on SavedLocationFailure catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _openHomeSearch() async {
@@ -307,7 +345,7 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
                 bookmarkedIds: _bookmarkedPlaceIds,
                 placeOf: _place,
                 onOpen: (item) => widget.onOpenSoloMap(item),
-                onBookmark: _togglePlaceBookmark,
+                onBookmark: (item) => unawaited(_togglePlaceBookmark(item)),
               ),
             ),
             SliverToBoxAdapter(

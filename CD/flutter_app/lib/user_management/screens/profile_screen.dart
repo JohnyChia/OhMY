@@ -8,6 +8,7 @@ import '../models/traveler_profile.dart';
 import '../services/auth_service.dart';
 import '../services/traveler_profile_service.dart';
 import 'edit_profile_screen.dart';
+import 'bookmarks_screen.dart';
 import 'travel_history_screen.dart';
 import 'verification/verification_capture_screen.dart';
 
@@ -95,7 +96,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _showLaterMessage('Bookmarks');
       return;
     }
-    await openCommunityBookmarks(context, controller: controller);
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => BookmarksScreen(communityController: controller),
+      ),
+    );
   }
 
   Future<void> _openTravelHistory() async {

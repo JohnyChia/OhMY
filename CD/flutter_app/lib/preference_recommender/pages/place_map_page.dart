@@ -14,6 +14,7 @@ import '../features/routes/navigation_sensor.dart';
 import '../features/weather/weather_feature.dart';
 import '../widgets/wau_loading_indicator.dart';
 import '../../user_management/services/traveler_profile_service.dart';
+import '../../user_management/services/saved_location_service.dart';
 import 'package:community_discovery/community_discovery.dart'
     show SupabaseConfig;
 import '../../shared/services/recommendation_sound.dart';
@@ -74,6 +75,8 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     super.initState();
     completedJourneyLocation.addListener(_resumeAtCompletedJourneyLocation);
     currentTravelerPreferences.addListener(_onPreferencesChanged);
+    savedLocationService.changes.addListener(_onSavedLocationsChanged);
+    unawaited(_loadSavedLocations());
     unawaited(initializeCurrentLocation());
     if (widget.autofocusSearch) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -88,6 +91,56 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         searchFocus.requestFocus();
         unawaited(runSearch(query: initialQuery));
       });
+    }
+  }
+
+  Future<void> _loadSavedLocations() async {
+    try {
+      await savedLocationService.fetch(force: true);
+      _onSavedLocationsChanged();
+    } on SavedLocationFailure {
+      // Saving will surface a useful message if the user taps the button.
+    }
+  }
+
+  void _onSavedLocationsChanged() {
+    if (!mounted) return;
+    final selectedItem = selected;
+    setState(() {
+      bookmarkedRecommendations
+        ..clear()
+        ..addAll(
+          savedLocationService.cached
+              .map((location) => location.googlePlaceId)
+              .whereType<String>(),
+        );
+      bookmarked =
+          selectedItem != null && savedLocationService.isSaved(selectedItem);
+    });
+  }
+
+  Future<void> _toggleBookmark(Map<String, dynamic> item) async {
+    try {
+      final isSaved = await savedLocationService.toggle(item);
+      if (!mounted) return;
+      setState(() {
+        bookmarked = selected == item ? isSaved : bookmarked;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isSaved
+                ? 'Location saved to bookmarks.'
+                : 'Location removed from bookmarks.',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } on SavedLocationFailure catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
     }
   }
 
@@ -444,7 +497,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     setState(() {
       selected = item;
       highlightedRecommendationId = null;
-      bookmarked = false;
+      bookmarked = savedLocationService.isSaved(item);
       message = null;
       if (create) {
         markers = {
@@ -1180,7 +1233,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                           _overlayAction(
                             bookmarked ? Icons.bookmark : Icons.bookmark_border,
                             'Bookmark',
-                            () => setState(() => bookmarked = !bookmarked),
+                            () => unawaited(_toggleBookmark(item)),
                           ),
                           _overlayAction(
                             Icons.lightbulb_outline_rounded,
@@ -1353,13 +1406,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                       _overlayAction(
                         isBookmarked ? Icons.bookmark : Icons.bookmark_border,
                         'Bookmark',
-                        () => setState(() {
-                          if (isBookmarked) {
-                            bookmarkedRecommendations.remove(placeId);
-                          } else {
-                            bookmarkedRecommendations.add(placeId);
-                          }
-                        }),
+                        () => unawaited(_toggleBookmark(item)),
                       ),
                     ],
                   ),
@@ -1478,6 +1525,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   void dispose() {
     completedJourneyLocation.removeListener(_resumeAtCompletedJourneyLocation);
     currentTravelerPreferences.removeListener(_onPreferencesChanged);
+    savedLocationService.changes.removeListener(_onSavedLocationsChanged);
     searchDebounce?.cancel();
     messageTimer?.cancel();
     search.dispose();
@@ -1500,6 +1548,47 @@ class PlaceDetailPage extends StatefulWidget {
 class _PlaceDetailPageState extends State<PlaceDetailPage> {
   bool saved = false;
   int page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    saved = savedLocationService.isSaved(widget.item);
+    savedLocationService.changes.addListener(_savedChanged);
+    unawaited(_refreshSavedState());
+  }
+
+  Future<void> _refreshSavedState() async {
+    try {
+      await savedLocationService.fetch();
+      _savedChanged();
+    } on SavedLocationFailure {
+      // The bookmark action reports errors when the user requests it.
+    }
+  }
+
+  void _savedChanged() {
+    if (mounted) {
+      setState(() => saved = savedLocationService.isSaved(widget.item));
+    }
+  }
+
+  Future<void> _toggleSaved() async {
+    try {
+      await savedLocationService.toggle(widget.item);
+    } on SavedLocationFailure catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    savedLocationService.changes.removeListener(_savedChanged);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.item['place'] as Map<String, dynamic>,
@@ -1520,7 +1609,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         title: Text(n, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            onPressed: () => setState(() => saved = !saved),
+            onPressed: () => unawaited(_toggleSaved()),
             icon: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
           ),
         ],

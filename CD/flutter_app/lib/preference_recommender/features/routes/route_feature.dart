@@ -23,6 +23,7 @@ import '../../../shared/utils/place_description.dart';
 import '../../widgets/wau_loading_indicator.dart';
 import '../../../user_management/models/travel_history_entry.dart';
 import '../../../user_management/services/travel_history_service.dart';
+import '../../../user_management/services/saved_location_service.dart';
 
 const _routeBlue = Color(0xff3266cc);
 const _routeInk = Color(0xff14213d);
@@ -171,6 +172,8 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   late RouteLocation destination;
   List<Map<String, dynamic>> results = [];
   bool searching = false;
+  bool loadingSaved = false;
+  List<RouteLocation> savedLocations = const [];
   int activeField = 0, tab = 0;
   String? error;
 
@@ -179,6 +182,37 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     super.initState();
     destination = widget.destination;
     destinationController.text = destination.name;
+    savedLocationService.changes.addListener(_savedLocationsChanged);
+    unawaited(_loadSavedLocations());
+  }
+
+  Future<void> _loadSavedLocations({bool force = true}) async {
+    if (mounted) setState(() => loadingSaved = true);
+    try {
+      await savedLocationService.fetch(force: force);
+      _savedLocationsChanged();
+    } on SavedLocationFailure catch (exception) {
+      if (mounted) setState(() => error = exception.message);
+    } finally {
+      if (mounted) setState(() => loadingSaved = false);
+    }
+  }
+
+  void _savedLocationsChanged() {
+    if (!mounted) return;
+    setState(() {
+      savedLocations = savedLocationService.cached
+          .map(
+            (location) => RouteLocation(
+              id: location.googlePlaceId,
+              name: location.title,
+              address: location.address,
+              latitude: location.latitude,
+              longitude: location.longitude,
+            ),
+          )
+          .toList(growable: false);
+    });
   }
 
   Future<Position?> currentPosition() async {
@@ -378,7 +412,10 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
         ButtonSegment(value: 2, label: Text('Saved')),
       ],
       selected: {tab},
-      onSelectionChanged: (value) => setState(() => tab = value.first),
+      onSelectionChanged: (value) {
+        setState(() => tab = value.first);
+        if (value.first == 2) unawaited(_loadSavedLocations());
+      },
       showSelectedIcon: false,
     ),
   );
@@ -420,7 +457,10 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
         ],
       );
     }
-    final items = tab == 2 ? <RouteLocation>[] : [widget.destination];
+    if (tab == 2 && loadingSaved) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final items = tab == 2 ? savedLocations : [widget.destination];
     if (items.isEmpty) {
       return const Center(
         child: Text(
@@ -434,7 +474,10 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
       itemCount: items.length,
       itemBuilder: (_, index) => Card(
         child: ListTile(
-          leading: const Icon(Icons.history, color: _routeBlue),
+          leading: Icon(
+            tab == 2 ? Icons.bookmark : Icons.history,
+            color: _routeBlue,
+          ),
           title: Text(items[index].name),
           subtitle: Text(items[index].address, maxLines: 2),
           trailing: const Icon(Icons.chevron_right),
@@ -446,6 +489,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
 
   @override
   void dispose() {
+    savedLocationService.changes.removeListener(_savedLocationsChanged);
     startController.dispose();
     destinationController.dispose();
     super.dispose();
@@ -1032,10 +1076,56 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     activeRoutes = List<DrivingRoute>.from(widget.routes);
     selectedRoute = widget.initialRoute;
     journeyStartedAt = DateTime.now();
+    savedLocationService.changes.addListener(_navigationBookmarksChanged);
+    unawaited(_loadNavigationBookmarks());
+  }
+
+  Future<void> _loadNavigationBookmarks() async {
+    try {
+      await savedLocationService.fetch(force: true);
+      _navigationBookmarksChanged();
+    } on SavedLocationFailure {
+      // The bookmark action reports errors if saving is requested.
+    }
+  }
+
+  void _navigationBookmarksChanged() {
+    if (!mounted) return;
+    setState(() {
+      bookmarkedRecommendations
+        ..clear()
+        ..addAll(
+          savedLocationService.cached
+              .map((location) => location.googlePlaceId)
+              .whereType<String>(),
+        );
+    });
+  }
+
+  Future<void> _toggleNavigationBookmark(Map<String, dynamic> item) async {
+    try {
+      final saved = await savedLocationService.toggle(item);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved
+                ? 'Location saved to bookmarks.'
+                : 'Location removed from bookmarks.',
+          ),
+        ),
+      );
+    } on SavedLocationFailure catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
+    }
   }
 
   @override
   void dispose() {
+    savedLocationService.changes.removeListener(_navigationBookmarksChanged);
     navigationCameraBearing.dispose();
     super.dispose();
   }
@@ -2403,11 +2493,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                         navigationOverlayAction(
                           bookmarked ? Icons.bookmark : Icons.bookmark_border,
                           'Bookmark',
-                          () => setState(
-                            () => bookmarked
-                                ? bookmarkedRecommendations.remove(placeId)
-                                : bookmarkedRecommendations.add(placeId),
-                          ),
+                          () => unawaited(_toggleNavigationBookmark(item)),
                         ),
                       ],
                     ),
@@ -2613,13 +2699,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                           navigationCardAction(
                             bookmarked ? Icons.bookmark : Icons.bookmark_border,
                             'Bookmark',
-                            () => setState(() {
-                              if (bookmarked) {
-                                bookmarkedRecommendations.remove(placeId);
-                              } else {
-                                bookmarkedRecommendations.add(placeId);
-                              }
-                            }),
+                            () => unawaited(_toggleNavigationBookmark(item)),
                           ),
                         ],
                       ),
@@ -2710,6 +2790,46 @@ class _NavigationPlaceDetailPageState
   int photoPage = 0;
 
   @override
+  void initState() {
+    super.initState();
+    bookmarked = savedLocationService.isSaved(widget.item);
+    savedLocationService.changes.addListener(_bookmarkChanged);
+    unawaited(_refreshBookmark());
+  }
+
+  Future<void> _refreshBookmark() async {
+    try {
+      await savedLocationService.fetch();
+      _bookmarkChanged();
+    } on SavedLocationFailure {
+      // The bookmark action reports errors if saving is requested.
+    }
+  }
+
+  void _bookmarkChanged() {
+    if (mounted) {
+      setState(() => bookmarked = savedLocationService.isSaved(widget.item));
+    }
+  }
+
+  Future<void> _toggleBookmark() async {
+    try {
+      await savedLocationService.toggle(widget.item);
+    } on SavedLocationFailure catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    savedLocationService.changes.removeListener(_bookmarkChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final place = Map<String, dynamic>.from(
       widget.item['place'] as Map? ?? const {},
@@ -2735,7 +2855,7 @@ class _NavigationPlaceDetailPageState
         title: Text(title, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            onPressed: () => setState(() => bookmarked = !bookmarked),
+            onPressed: () => unawaited(_toggleBookmark()),
             icon: Icon(bookmarked ? Icons.bookmark : Icons.bookmark_border),
           ),
         ],
