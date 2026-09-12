@@ -8,15 +8,23 @@ import '../models/saved_location.dart';
 final savedLocationService = SavedLocationService();
 
 class SavedLocationService {
-  SavedLocationService({SupabaseClient? client})
-    : _client = client ?? Supabase.instance.client;
+  SavedLocationService({SupabaseClient? client}) : _injectedClient = client;
 
-  final SupabaseClient _client;
+  final SupabaseClient? _injectedClient;
   final ValueNotifier<int> changes = ValueNotifier<int>(0);
   List<SavedLocation> _cached = const [];
   String? _cachedUserId;
 
   List<SavedLocation> get cached => List.unmodifiable(_cached);
+
+  SupabaseClient? get _client {
+    if (_injectedClient != null) return _injectedClient;
+    try {
+      return Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
 
   String contentHashFor(Map<String, dynamic> item) {
     final place = Map<String, dynamic>.from(item['place'] as Map? ?? const {});
@@ -31,18 +39,19 @@ class SavedLocationService {
   }
 
   bool isSaved(Map<String, dynamic> item) {
-    final userId = _client.auth.currentUser?.id;
+    final userId = _client?.auth.currentUser?.id;
     if (userId == null || userId != _cachedUserId) return false;
     final hash = contentHashFor(item);
     return _cached.any((location) => location.contentHash == hash);
   }
 
   Future<List<SavedLocation>> fetch({bool force = false}) async {
-    final user = _client.auth.currentUser;
+    final client = _client;
+    final user = client?.auth.currentUser;
     if (user == null) throw const SavedLocationFailure('Please sign in first.');
     if (!force && _cachedUserId == user.id) return cached;
     try {
-      final rows = await _client
+      final rows = await client!
           .from('saved_travel_items')
           .select()
           .eq('source_type', 'place')
@@ -68,7 +77,7 @@ class SavedLocationService {
   }
 
   Future<bool> toggle(Map<String, dynamic> item) async {
-    final user = _client.auth.currentUser;
+    final user = _client?.auth.currentUser;
     if (user == null) throw const SavedLocationFailure('Please sign in first.');
     if (_cachedUserId != user.id) await fetch(force: true);
     final hash = contentHashFor(item);
@@ -82,7 +91,8 @@ class SavedLocationService {
   }
 
   Future<SavedLocation> save(Map<String, dynamic> item) async {
-    final user = _client.auth.currentUser;
+    final client = _client;
+    final user = client?.auth.currentUser;
     if (user == null) throw const SavedLocationFailure('Please sign in first.');
     final place = _jsonMap(item['place']);
     final analysis = _jsonMap(item['analysis']);
@@ -125,7 +135,7 @@ class SavedLocationService {
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
     try {
-      final row = await _client
+      final row = await client!
           .from('saved_travel_items')
           .upsert(payload, onConflict: 'user_id,content_hash')
           .select()
@@ -144,10 +154,11 @@ class SavedLocationService {
   }
 
   Future<void> remove(SavedLocation location) async {
-    final user = _client.auth.currentUser;
+    final client = _client;
+    final user = client?.auth.currentUser;
     if (user == null) throw const SavedLocationFailure('Please sign in first.');
     try {
-      await _client
+      await client!
           .from('saved_travel_items')
           .delete()
           .eq('user_id', user.id)

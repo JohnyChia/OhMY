@@ -1551,7 +1551,6 @@ class CommunityModulePage extends StatelessWidget {
         controller: controller,
         showBottomNavigation: false,
         preferredTagNames: preferences,
-        includeDemoLikes: true,
         integrationCallbacks: CommunityIntegrationCallbacks(
           onStartJourney: onStartJourney,
         ),

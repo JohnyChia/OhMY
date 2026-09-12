@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -34,11 +35,74 @@ class _BookmarkedPostsScreenState extends State<BookmarkedPostsScreen> {
     builder: (context, _) {
       final posts = widget.controller.bookmarkedPosts;
       return Scaffold(
-        appBar: AppBar(title: const Text('Saved posts')),
-        body: SavedPostsSection(
-          controller: widget.controller,
-          integrationCallbacks: widget.integrationCallbacks,
-          posts: posts,
+        backgroundColor: const Color(0xFFFFFCF8),
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          toolbarHeight: 68,
+          leadingWidth: 68,
+          leading: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+            child: Material(
+              color: const Color(0xF7FFFFFF),
+              elevation: 3,
+              shadowColor: const Color(0x33000000),
+              shape: const CircleBorder(
+                side: BorderSide(color: Color(0xFFBFD3F2)),
+              ),
+              child: IconButton(
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(
+                  Icons.arrow_back,
+                  color: Color(0xFF28599F),
+                  size: 25,
+                ),
+              ),
+            ),
+          ),
+          title: const Text(
+            'Saved posts',
+            style: TextStyle(
+              color: Color(0xFF17345F),
+              fontSize: 27,
+              fontWeight: FontWeight.w800,
+              fontFamily: 'serif',
+            ),
+          ),
+          centerTitle: false,
+        ),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRect(
+              child: ImageFiltered(
+                imageFilter: ui.ImageFilter.blur(sigmaX: 3.5, sigmaY: 3.5),
+                child: Transform.scale(
+                  scale: 1.02,
+                  child: Image.asset(
+                    'assets/images/user_management/saved_post_bg.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            ),
+            const ColoredBox(color: Color(0x14FFFFFF)),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 68),
+                child: SavedPostsSection(
+                  controller: widget.controller,
+                  integrationCallbacks: widget.integrationCallbacks,
+                  posts: posts,
+                ),
+              ),
+            ),
+          ],
         ),
       );
     },

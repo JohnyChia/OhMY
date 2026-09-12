@@ -78,11 +78,7 @@ class _PostImageState extends State<PostImage> {
               child: _ImageBadge(label: '${_page + 1}/$count'),
             ),
           if (widget.openFullscreenOnTap)
-            const Positioned(
-              left: 10,
-              bottom: 10,
-              child: _ImageBadge(label: 'Tap to view full screen'),
-            ),
+            const Positioned(right: 10, bottom: 10, child: _FullscreenBadge()),
         ],
       ),
     );
@@ -190,6 +186,22 @@ class _ImageBadge extends StatelessWidget {
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       child: Text(label, style: const TextStyle(color: Colors.white)),
+    ),
+  );
+}
+
+class _FullscreenBadge extends StatelessWidget {
+  const _FullscreenBadge();
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: Colors.black54,
+      borderRadius: BorderRadius.circular(20),
+    ),
+    child: const Padding(
+      padding: EdgeInsets.all(8),
+      child: Icon(Icons.fullscreen, size: 20, color: Colors.white),
     ),
   );
 }

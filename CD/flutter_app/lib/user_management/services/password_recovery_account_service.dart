@@ -51,8 +51,9 @@ class PasswordRecoveryAccountService {
     } on RecoveryAccountCheckFailure {
       rethrow;
     } catch (error) {
-      if (kDebugMode)
+      if (kDebugMode) {
         debugPrint('Recovery account check failed: ${error.runtimeType}');
+      }
       throw const RecoveryAccountCheckFailure(
         'Cannot check your account. Make sure the laptop authentication '
         'service is running and try again.',

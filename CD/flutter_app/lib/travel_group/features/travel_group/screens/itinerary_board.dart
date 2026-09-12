@@ -109,22 +109,14 @@ class ItineraryBoard extends StatelessWidget {
               if (controller.itinerary.isNotEmpty)
                 SliverReorderableList(
                   itemCount: controller.itinerary.length,
-                  onReorder: controller.isCreator
+                  onReorderItem: controller.isCreator
                       ? (oldIndex, newIndex) async {
-                          // Flutter's onReorder reports the insertion position
-                          // before the dragged item is removed from the list.
-                          final targetIndex = newIndex > oldIndex
-                              ? newIndex - 1
-                              : newIndex;
                           if (!controller.canReorderStop(oldIndex) ||
-                              !controller.canReorderStop(targetIndex)) {
+                              !controller.canReorderStop(newIndex)) {
                             return;
                           }
                           try {
-                            await controller.reorderStops(
-                              oldIndex,
-                              targetIndex,
-                            );
+                            await controller.reorderStops(oldIndex, newIndex);
                           } on TravelGroupException catch (error) {
                             if (context.mounted) {
                               showTravelGroupMessage(

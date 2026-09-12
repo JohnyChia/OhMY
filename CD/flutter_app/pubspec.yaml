@@ -87,6 +87,7 @@ flutter:
     - assets/images/branding/
     - assets/images/navigation/
     - assets/images/start_trip_selection/
+    - assets/images/user_management/
 
 flutter_launcher_icons:
   android: true

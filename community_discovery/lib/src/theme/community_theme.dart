@@ -4,7 +4,7 @@ abstract final class CommunityColors {
   static const primary = Color(0xFF3667CF);
   static const headerStart = Color(0xFFE8E4FF);
   static const headerEnd = Color(0xFF8FB5FF);
-  static const surface = Color(0xFFF6F8FC);
+  static const surface = Color(0xFFF5F6F8);
   static const ink = Color(0xFF172641);
 }
 
@@ -22,7 +22,7 @@ ThemeData buildCommunityTheme() {
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.white,
       foregroundColor: CommunityColors.ink,
-      elevation: 0,
+      elevation: 0.5,
       centerTitle: true,
     ),
     cardTheme: const CardThemeData(
@@ -30,8 +30,8 @@ ThemeData buildCommunityTheme() {
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(18)),
-        side: BorderSide(color: Color(0xFFD8E2F2)),
+        borderRadius: BorderRadius.all(Radius.circular(16)),
+        side: BorderSide(color: Color(0xFFE2E5EA)),
       ),
     ),
     inputDecorationTheme: const InputDecorationTheme(

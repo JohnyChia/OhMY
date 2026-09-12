@@ -524,10 +524,12 @@ class _VerificationHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        TextButton(
+        IconButton(
+          tooltip: backLabel,
           onPressed: onBack,
-          style: TextButton.styleFrom(padding: EdgeInsets.zero),
-          child: Text('‹  $backLabel'),
+          padding: EdgeInsets.zero,
+          alignment: Alignment.centerLeft,
+          icon: const Icon(Icons.arrow_back),
         ),
         const Spacer(),
         Text(

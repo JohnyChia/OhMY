@@ -68,6 +68,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
     Set<int> tagIds = const {},
     bool bookmarkedOnly = false,
   }) async {
+    final normalizedQuery = query.trim().toLowerCase();
     final rows = await _client.rpc(
       'community_feed_v5',
       params: {
@@ -111,6 +112,14 @@ class SupabaseCommunityRepository implements CommunityRepository {
             publicImageUrls: publicImageUrls,
           );
         })
+        .where(
+          (post) =>
+              normalizedQuery.isEmpty ||
+              '${post.title} ${post.attractionName} ${post.locationName} '
+                      '${post.description} ${post.tags.join(' ')}'
+                  .toLowerCase()
+                  .contains(normalizedQuery),
+        )
         .toList(growable: false);
   }
 
@@ -232,14 +241,23 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<CommunityPost> updatePost(UpdatePostInput input) async {
-    final replacements = input.images;
-    if (replacements != null &&
-        (replacements.isEmpty || replacements.length > 6)) {
+    final newImages = input.images;
+    final galleryChanged =
+        newImages != null || input.retainedImagePaths != null;
+    final retainedPaths = input.retainedImagePaths ?? const <String>[];
+    final finalCount = retainedPaths.length + (newImages?.length ?? 0);
+    if (retainedPaths.toSet().length != retainedPaths.length) {
+      throw ArgumentError('The same picture cannot be added more than once.');
+    }
+    if (galleryChanged && (finalCount < 1 || finalCount > 6)) {
       throw ArgumentError('Select between 1 and 6 pictures.');
     }
-    final imagePaths = replacements == null
+    final uploadedPaths = newImages == null || newImages.isEmpty
         ? <String>[]
-        : await _uploadImages(replacements);
+        : await _uploadImages(newImages);
+    final imagePaths = galleryChanged
+        ? [...retainedPaths, ...uploadedPaths]
+        : <String>[];
     try {
       await _validationApi.updatePost(
         postId: input.postId,
@@ -247,11 +265,14 @@ class SupabaseCommunityRepository implements CommunityRepository {
         description: input.description.trim(),
         imagePaths: imagePaths,
       );
-      if (replacements != null && input.existingImagePaths.isNotEmpty) {
+      if (galleryChanged && input.existingImagePaths.isNotEmpty) {
+        final removedPaths = input.existingImagePaths
+            .where((path) => !retainedPaths.contains(path))
+            .toList(growable: false);
         try {
-          await _client.storage
-              .from('community-posts')
-              .remove(input.existingImagePaths);
+          if (removedPaths.isNotEmpty) {
+            await _client.storage.from('community-posts').remove(removedPaths);
+          }
         } catch (_) {
           // The database update succeeded; orphan cleanup can be retried later.
         }
@@ -259,8 +280,8 @@ class SupabaseCommunityRepository implements CommunityRepository {
       final posts = await getPosts();
       return posts.firstWhere((post) => post.id == input.postId);
     } catch (_) {
-      if (imagePaths.isNotEmpty) {
-        await _client.storage.from('community-posts').remove(imagePaths);
+      if (uploadedPaths.isNotEmpty) {
+        await _client.storage.from('community-posts').remove(uploadedPaths);
       }
       rethrow;
     }
@@ -298,6 +319,15 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   Future<List<String>> _uploadImages(List<PostImageUpload> images) async {
+    for (var index = 0; index < images.length; index++) {
+      for (var previous = 0; previous < index; previous++) {
+        if (_sameBytes(images[index].bytes, images[previous].bytes)) {
+          throw ArgumentError(
+            'The same picture cannot be added more than once.',
+          );
+        }
+      }
+    }
     final timestamp = DateTime.now().microsecondsSinceEpoch;
     final paths = <String>[];
     try {
@@ -326,5 +356,13 @@ class SupabaseCommunityRepository implements CommunityRepository {
       }
       rethrow;
     }
+  }
+
+  bool _sameBytes(List<int> left, List<int> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
   }
 }

@@ -2,7 +2,6 @@ import 'package:community_discovery/src/community_app.dart';
 import 'package:community_discovery/src/integration/community_integration_callbacks.dart';
 import 'package:community_discovery/src/state/community_controller.dart';
 import 'package:community_discovery/src/ui/community_feed_screen.dart';
-import 'package:community_discovery/src/ui/widgets/post_engagement.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,11 +20,11 @@ void main() {
     expect(find.text('Open sample Trip History'), findsNothing);
     expect(find.text('Sign in'), findsNothing);
 
-    await tester.tap(find.byTooltip('All tags'));
+    await tester.tap(find.byTooltip('Sort and filter'));
     await tester.pumpAndSettle();
     expect(find.text('0 selected'), findsOneWidget);
     expect(find.text('Heritage'), findsWidgets);
-    expect(find.text('Show all posts'), findsOneWidget);
+    expect(find.text('Apply and show all'), findsOneWidget);
   });
 
   testWidgets('host app can hide standalone Community navigation', (
@@ -48,6 +47,23 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
   });
 
+  testWidgets('community search does not match an author name', (tester) async {
+    final controller = CommunityController(FakeCommunityRepository());
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityFeedScreen(controller: controller)),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.enterText(find.byType(TextField), 'Aina');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Morning light at Kwai Chai Hong'), findsNothing);
+    expect(find.text('No posts found'), findsOneWidget);
+  });
+
   testWidgets('community header offers latest and most liked sorting', (
     tester,
   ) async {
@@ -59,12 +75,18 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Latest'), findsOneWidget);
-    await tester.tap(find.byTooltip('Arrange posts'));
+    await tester.tap(find.byTooltip('Sort and filter'));
     await tester.pumpAndSettle();
+    expect(find.text('Latest'), findsOneWidget);
     await tester.tap(find.text('Most liked'));
     await tester.pumpAndSettle();
-    expect(find.text('Most liked'), findsOneWidget);
+    final sortControl = tester.widget(
+      find.byWidgetPredicate((widget) => widget is SegmentedButton),
+    );
+    expect(
+      (sortControl as dynamic).selected.single.toString(),
+      contains('mostLiked'),
+    );
   });
 
   testWidgets('only matching preference tags appear below the heading', (
@@ -88,11 +110,6 @@ void main() {
       find.text('No saved preference tags are available.'),
       findsOneWidget,
     );
-  });
-
-  test('demo likes add a stable visible count', () async {
-    final post = (await FakeCommunityRepository().getPosts()).single;
-    expect(displayedLikeCount(post, includeDemo: true), greaterThan(0));
   });
 
   testWidgets('an author sees delete controls but cannot bookmark own post', (

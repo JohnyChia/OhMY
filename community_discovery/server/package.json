@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "seed:comments": "tsx scripts/seed-community-comments.ts",
+    "seed:likes": "tsx scripts/seed-community-likes.ts",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
