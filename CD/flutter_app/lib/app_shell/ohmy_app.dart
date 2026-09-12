@@ -1,0 +1,1110 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../ai_chatbot/main.dart' show ChatScreen;
+import '../ai_chatbot/services/nova_invocation_manager.dart';
+import '../ai_chatbot/services/nova_initial_permission_service.dart';
+import '../ai_chatbot/services/nova_action_bridge.dart';
+import '../ai_chatbot/services/nova_owner_action_dispatcher.dart';
+import '../ai_chatbot/services/nova_voice_controller.dart';
+import '../ai_chatbot/widgets/nova_bottom_assistant.dart';
+import '../community_discovery/data/community_repository.dart';
+import '../community_discovery/data/demo_community_repository.dart';
+import '../community_discovery/data/supabase_community_repository.dart';
+import '../community_discovery/state/community_controller.dart';
+import '../community_discovery/ui/community_feed_screen.dart';
+import '../preference_recommender/pages/place_map_page.dart';
+import '../travel_group/features/travel_group/controllers/travel_group_controller.dart';
+import '../travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
+import '../travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
+import '../user_management/screens/auth/auth_gate.dart';
+import '../user_management/screens/profile_screen.dart';
+
+// Community Discovery can be moved to its live Supabase repository separately
+// from authentication. Keeping this off preserves the teammate's prototype
+// posts while User Management still uses Supabase Auth and profile data.
+const _useSupabaseCommunity = bool.fromEnvironment(
+  'USE_SUPABASE_COMMUNITY',
+  defaultValue: false,
+);
+
+class OhMyApp extends StatelessWidget {
+  const OhMyApp({super.key, required this.supabaseEnabled});
+
+  final bool supabaseEnabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final shell = OhMyShell(supabaseEnabled: supabaseEnabled);
+    return MaterialApp(
+      title: 'ohMY',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3266CC)),
+        scaffoldBackgroundColor: const Color(0xFFF8FBFF),
+        navigationBarTheme: const NavigationBarThemeData(
+          height: 72,
+          backgroundColor: Colors.white,
+          indicatorColor: Color(0xFFDDE8FF),
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        ),
+      ),
+      home: NovaPermissionBootstrap(
+        child: supabaseEnabled ? AuthGate(authenticatedHome: shell) : shell,
+      ),
+    );
+  }
+}
+
+class OhMyShell extends StatefulWidget {
+  const OhMyShell({super.key, required this.supabaseEnabled});
+
+  final bool supabaseEnabled;
+
+  @override
+  State<OhMyShell> createState() => _OhMyShellState();
+}
+
+class _OhMyShellState extends State<OhMyShell> {
+  int _selectedIndex = 0;
+  final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
+  late final CommunityController _communityController;
+  late final List<WidgetBuilder> _rootBuilders;
+  late final NovaOwnerActionRegistration _novaTripActionRegistration;
+  late final NovaOwnerActionRegistration _novaMapActionRegistration;
+  late final NovaOwnerActionRegistration _novaCommunityActionRegistration;
+  late final NovaOwnerActionRegistration _novaProfileActionRegistration;
+
+  @override
+  void initState() {
+    super.initState();
+    NovaInvocationManager.initialize().then((_) {
+      NovaInvocationManager.startForegroundWakeListener();
+    });
+    final CommunityRepository communityRepository =
+        widget.supabaseEnabled && _useSupabaseCommunity
+        ? SupabaseCommunityRepository(Supabase.instance.client)
+        : DemoCommunityRepository();
+    _communityController = CommunityController(communityRepository);
+    _novaTripActionRegistration = NovaOwnerActionDispatcher.register(
+      target: 'trip',
+      handler: _openNovaStartTrip,
+    );
+    _novaMapActionRegistration = NovaOwnerActionDispatcher.register(
+      target: 'map',
+      handler: _openNovaRecommendations,
+    );
+    _novaCommunityActionRegistration = NovaOwnerActionDispatcher.register(
+      target: 'community',
+      handler: _openNovaCommunity,
+    );
+    _novaProfileActionRegistration = NovaOwnerActionDispatcher.register(
+      target: 'profile',
+      handler: _openNovaProfile,
+    );
+    _rootBuilders = [
+      (context) => HomeModulePage(onOpenTab: _selectTab),
+      (context) => const ChatScreen(showBottomNavigation: false),
+      (context) => const StartTripHubPage(),
+      (context) => CommunityModulePage(controller: _communityController),
+      (context) => widget.supabaseEnabled
+          ? ProfileScreen(
+              showBottomNavigation: false,
+              communityController: _communityController,
+            )
+          : const ModuleSetupPage(
+              icon: Icons.person_outline,
+              title: 'Profile setup required',
+              message:
+                  'Start Flutter with SUPABASE_URL and SUPABASE_ANON_KEY to use authentication and profile features.',
+            ),
+    ];
+  }
+
+  @override
+  void dispose() {
+    _novaTripActionRegistration.dispose();
+    _novaMapActionRegistration.dispose();
+    _novaCommunityActionRegistration.dispose();
+    _novaProfileActionRegistration.dispose();
+    _communityController.dispose();
+    super.dispose();
+  }
+
+  void _selectTab(int index) {
+    if (_selectedIndex == index) {
+      _navigatorKeys[index].currentState?.popUntil((route) => route.isFirst);
+      return;
+    }
+    setState(() => _selectedIndex = index);
+  }
+
+  Future<NovaOwnerActionResult> _openNovaStartTrip(NovaAction action) async {
+    if (action.type != 'start_journey') {
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.rejected,
+        message: 'Unsupported Start Trip action.',
+        errorCode: 'UNSUPPORTED_TRIP_ACTION',
+      );
+    }
+    final destination =
+        action.parameters['destination']?.toString().trim() ?? '';
+    final interests = _novaInterests(action);
+    _selectTab(2);
+    final navigator = _navigatorKeys[2].currentState;
+    if (navigator == null) {
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.failed,
+        message: 'Start Trip navigation is not ready.',
+        errorCode: 'TRIP_NAVIGATOR_UNAVAILABLE',
+      );
+    }
+
+    navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => PlaceMapPage(
+          initialQuery: destination,
+          initialPreferences: interests,
+          initialBudget: action.parameters['budget']?.toString() ?? '',
+          autoStartRoute: true,
+          isAiJourney: true,
+        ),
+      ),
+    );
+    return NovaOwnerActionResult(
+      action: action,
+      status: NovaOwnerActionStatus.executed,
+      message: 'Start Trip opened for $destination.',
+    );
+  }
+
+  Future<NovaOwnerActionResult> _openNovaRecommendations(
+    NovaAction action,
+  ) async {
+    if (action.type != 'show_place_results') {
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.rejected,
+        message: 'Unsupported recommendation action.',
+        errorCode: 'UNSUPPORTED_MAP_ACTION',
+      );
+    }
+    _selectTab(2);
+    final navigator = _navigatorKeys[2].currentState;
+    if (navigator == null) {
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.failed,
+        message: 'Recommendation navigation is not ready.',
+        errorCode: 'MAP_NAVIGATOR_UNAVAILABLE',
+      );
+    }
+    navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => PlaceMapPage(
+          initialQuery: action.parameters['destination']?.toString(),
+          initialPreferences: _novaInterests(action),
+          autoSelectTopResult: true,
+        ),
+      ),
+    );
+    return NovaOwnerActionResult(
+      action: action,
+      status: NovaOwnerActionStatus.executed,
+      message: 'Recommendation map opened.',
+    );
+  }
+
+  Future<NovaOwnerActionResult> _openNovaCommunity(NovaAction action) async {
+    if (action.type != 'community_results') {
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.rejected,
+        message: 'Unsupported community action.',
+        errorCode: 'UNSUPPORTED_COMMUNITY_ACTION',
+      );
+    }
+    _selectTab(3);
+    return NovaOwnerActionResult(
+      action: action,
+      status: NovaOwnerActionStatus.executed,
+      message: 'Community opened.',
+    );
+  }
+
+  Future<NovaOwnerActionResult> _openNovaProfile(NovaAction action) async {
+    if (action.type != 'preferences_updated') {
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.rejected,
+        message: 'Unsupported profile action.',
+        errorCode: 'UNSUPPORTED_PROFILE_ACTION',
+      );
+    }
+    _selectTab(4);
+    return NovaOwnerActionResult(
+      action: action,
+      status: NovaOwnerActionStatus.executed,
+      message: 'Profile opened.',
+    );
+  }
+
+  List<String> _novaInterests(NovaAction action) {
+    final values = action.parameters['interests'];
+    return values is List
+        ? values
+              .whereType<String>()
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty)
+              .toList()
+        : const [];
+  }
+
+  Future<bool> _handleBack() async {
+    final navigator = _navigatorKeys[_selectedIndex].currentState;
+    if (navigator != null && await navigator.maybePop()) return false;
+    if (_selectedIndex != 0) {
+      _selectTab(0);
+      return false;
+    }
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (await _handleBack() && context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _selectedIndex,
+              children: List.generate(
+                _rootBuilders.length,
+                (index) => Navigator(
+                  key: _navigatorKeys[index],
+                  onGenerateRoute: (_) =>
+                      MaterialPageRoute<void>(builder: _rootBuilders[index]),
+                ),
+              ),
+            ),
+            if (_selectedIndex != 1)
+              Positioned(
+                left: 20,
+                right: 20,
+                top: MediaQuery.paddingOf(context).top + 6,
+                child: ValueListenableBuilder<NovaVoiceState>(
+                  valueListenable: NovaVoiceController.state,
+                  builder: (_, state, _) => AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    reverseDuration: const Duration(milliseconds: 180),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(
+                        scale: Tween<double>(begin: .86, end: 1).animate(
+                          CurvedAnimation(
+                            parent: animation,
+                            curve: Curves.easeOutBack,
+                          ),
+                        ),
+                        child: child,
+                      ),
+                    ),
+                    child: state.phase == NovaVoicePhase.idle
+                        ? const SizedBox.shrink(key: ValueKey('nova-idle'))
+                        : Align(
+                            key: const ValueKey('nova-island'),
+                            alignment: Alignment.topCenter,
+                            child: NovaBottomAssistant(
+                              state: state,
+                              onDismiss: NovaVoiceController.reset,
+                              compact: true,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+          child: Material(
+            elevation: 10,
+            shadowColor: Colors.black26,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: const BorderSide(color: Color(0xFFE5E8ED)),
+            ),
+            child: NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: _selectTab,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.smart_toy_outlined),
+                  selectedIcon: Icon(Icons.smart_toy),
+                  label: 'AI Chat',
+                ),
+                NavigationDestination(
+                  icon: _StartTripNavigationIcon(),
+                  selectedIcon: _StartTripNavigationIcon(selected: true),
+                  label: 'Start Trip',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.map_outlined),
+                  selectedIcon: Icon(Icons.map),
+                  label: 'Community',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: 'Profile',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class HomeModulePage extends StatelessWidget {
+  const HomeModulePage({super.key, required this.onOpenTab});
+
+  final ValueChanged<int> onOpenTab;
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final greeting = _greeting();
+    final userName = _userName();
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FBFE),
+      body: Stack(
+        children: [
+          Container(
+            height: 150,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF8FB1FA), Color(0xFF9CBBFF)],
+              ),
+            ),
+          ),
+          ListView(
+            padding: EdgeInsets.fromLTRB(24, topPadding + 18, 24, 110),
+            children: [
+              _HomeSearchBar(onTap: () => onOpenTab(2)),
+              SizedBox(height: 150 - topPadding - 18 - 49 + 18),
+              Text(
+                '$greeting, $userName',
+                style: const TextStyle(
+                  color: Color(0xFF121F38),
+                  fontSize: 20,
+                  height: 1.3,
+                ),
+              ),
+              const Text(
+                'Your recommendations are ready.',
+                style: TextStyle(
+                  color: Color(0xFF596B8A),
+                  fontSize: 12,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _JourneyCard(onTap: () => onOpenTab(2)),
+              const SizedBox(height: 18),
+              const _SectionHeading(
+                title: 'Current conditions',
+                trailing: 'Kuala Lumpur • Now',
+              ),
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  Expanded(child: _WeatherCard()),
+                  SizedBox(width: 14),
+                  Expanded(child: _TrafficCard()),
+                ],
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                'Picked for your preferences',
+                style: TextStyle(color: Color(0xFF121F38), fontSize: 16),
+              ),
+              const SizedBox(height: 2),
+              const Text(
+                'Culture • Food • Café hopping',
+                style: TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _BatuCavesCard(onTap: () => onOpenTab(2)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: _MorePlacesCard(onTap: () => onOpenTab(2))),
+                ],
+              ),
+              const SizedBox(height: 22),
+              _GroupPreviewCard(onTap: () => onOpenTab(2)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _greeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
+  String _userName() {
+    try {
+      final fullName =
+          Supabase.instance.client.auth.currentUser?.userMetadata?['full_name']
+              ?.toString()
+              .trim() ??
+          '';
+      if (fullName.isNotEmpty) return fullName.split(RegExp(r'\s+')).first;
+    } catch (_) {
+      // Supabase is intentionally unavailable in local/demo mode.
+    }
+    return 'Traveller';
+  }
+}
+
+class _HomeSearchBar extends StatelessWidget {
+  const _HomeSearchBar({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF7F3FB),
+      borderRadius: BorderRadius.circular(28),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(28),
+        child: const SizedBox(
+          height: 49,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Search Attractions ...',
+                    style: TextStyle(color: Color(0xFF49454F), fontSize: 16),
+                  ),
+                ),
+                Icon(Icons.search, color: Color(0xFF49454F), size: 25),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _JourneyCard extends StatelessWidget {
+  const _JourneyCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFF2E60C4),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: const SizedBox(
+          height: 114,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(18, 15, 14, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'START A NEW JOURNEY',
+                        style: TextStyle(
+                          color: Color(0xFFE5F0FF),
+                          fontSize: 10,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Where would you like to go?',
+                        style: TextStyle(color: Colors.white, fontSize: 18),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        'Choose Solo Trip or join a nearby Group Trip.',
+                        style: TextStyle(
+                          color: Color(0xFFE8F2FF),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: Colors.white, size: 28),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.title, required this.trailing});
+
+  final String title;
+  final String trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(color: Color(0xFF121F38), fontSize: 16),
+          ),
+        ),
+        Text(
+          trailing,
+          style: const TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+        ),
+      ],
+    );
+  }
+}
+
+class _WeatherCard extends StatelessWidget {
+  const _WeatherCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ConditionCard(
+      backgroundColor: Color(0xFFE8F5FF),
+      icon: Icons.wb_sunny_outlined,
+      iconColor: Color(0xFFFFA60D),
+      value: '30°C',
+      valueColor: Color(0xFF2E60C4),
+      label: 'Sunny',
+    );
+  }
+}
+
+class _TrafficCard extends StatelessWidget {
+  const _TrafficCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ConditionCard(
+      backgroundColor: Color(0xFFFFF2E3),
+      icon: Icons.air,
+      iconColor: Color(0xFFE07314),
+      value: 'Moderate',
+      valueColor: Color(0xFF121F38),
+      label: '+4 min nearby',
+    );
+  }
+}
+
+class _ConditionCard extends StatelessWidget {
+  const _ConditionCard({
+    required this.backgroundColor,
+    required this.icon,
+    required this.iconColor,
+    required this.value,
+    required this.valueColor,
+    required this.label,
+  });
+
+  final Color backgroundColor;
+  final IconData icon;
+  final Color iconColor;
+  final String value;
+  final Color valueColor;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 76,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(15),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(value, style: TextStyle(color: valueColor, fontSize: 17)),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Color(0xFF596B8A),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BatuCavesCard extends StatelessWidget {
+  const _BatuCavesCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OutlinedHomeCard(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 76,
+            height: 80,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2B861),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: const Icon(
+              Icons.change_history,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Batu Caves',
+                  style: TextStyle(color: Color(0xFF121F38), fontSize: 14),
+                ),
+                SizedBox(height: 5),
+                Text(
+                  'Matches Culture',
+                  style: TextStyle(color: Color(0xFF2E60C4), fontSize: 10),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  '18 min • 11.4 km',
+                  style: TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MorePlacesCard extends StatelessWidget {
+  const _MorePlacesCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OutlinedHomeCard(
+      onTap: onTap,
+      backgroundColor: Colors.white,
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('+12', style: TextStyle(color: Color(0xFF2E60C4), fontSize: 23)),
+          SizedBox(height: 2),
+          Text(
+            'places nearby',
+            style: TextStyle(color: Color(0xFF596B8A), fontSize: 10),
+          ),
+          SizedBox(height: 5),
+          Icon(Icons.arrow_forward, color: Color(0xFF2E60C4), size: 15),
+        ],
+      ),
+    );
+  }
+}
+
+class _OutlinedHomeCard extends StatelessWidget {
+  const _OutlinedHomeCard({
+    required this.onTap,
+    required this.child,
+    this.backgroundColor = const Color(0xFFF3F7FE),
+  });
+
+  final VoidCallback onTap;
+  final Widget child;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: backgroundColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15),
+        side: const BorderSide(color: Color(0xFFC7D6F2)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          height: 100,
+          child: Padding(padding: const EdgeInsets.all(9), child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupPreviewCard extends StatelessWidget {
+  const _GroupPreviewCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF5F0FF),
+      borderRadius: BorderRadius.circular(15),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: const SizedBox(
+          height: 82,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(14, 12, 14, 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 42,
+                  child: Icon(
+                    Icons.groups_outlined,
+                    color: Color(0xFF734FBF),
+                    size: 28,
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Petaling Street Food Hunt',
+                        style: TextStyle(
+                          color: Color(0xFF121F38),
+                          fontSize: 14,
+                        ),
+                      ),
+                      SizedBox(height: 5),
+                      Text(
+                        '3/5 travellers • 0.8 km away',
+                        style: TextStyle(
+                          color: Color(0xFF596B8A),
+                          fontSize: 10,
+                        ),
+                      ),
+                      Spacer(),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          'View lobby  ›',
+                          style: TextStyle(
+                            color: Color(0xFF2E60C4),
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StartTripNavigationIcon extends StatelessWidget {
+  const _StartTripNavigationIcon({this.selected = false});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: const BoxDecoration(
+        color: Color(0xFF3B73E8),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        selected ? Icons.luggage : Icons.luggage_outlined,
+        color: Colors.white,
+        size: 23,
+      ),
+    );
+  }
+}
+
+class StartTripHubPage extends StatelessWidget {
+  const StartTripHubPage({
+    super.key,
+    this.initialDestination,
+    this.initialPreferences = const [],
+    this.isAiJourney = false,
+  });
+
+  final String? initialDestination;
+  final List<String> initialPreferences;
+  final bool isAiJourney;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Start Trip')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Text(
+            'How would you like to travel?',
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Solo trips use personalised recommendations with weather and live traffic. Group trips open the shared Travel Group experience.',
+          ),
+          const SizedBox(height: 24),
+          _TripModeCard(
+            icon: Icons.person_pin_circle_outlined,
+            title: 'Solo trip',
+            subtitle:
+                'Search places, receive recommendations, check weather and traffic, then build your route.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PlaceMapPage(
+                  initialQuery: initialDestination,
+                  initialPreferences: initialPreferences,
+                  autoStartRoute:
+                      initialDestination?.trim().isNotEmpty ?? false,
+                  isAiJourney: isAiJourney,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _TripModeCard(
+            icon: Icons.groups_outlined,
+            title: 'Group trip',
+            subtitle:
+                'Discover or create a travel group, vote on stops and manage a shared itinerary.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const _StandaloneTravelGroupPage(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TripModeCard extends StatelessWidget {
+  const _TripModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(radius: 25, child: Icon(icon)),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(subtitle),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CommunityModulePage extends StatelessWidget {
+  const CommunityModulePage({super.key, required this.controller});
+
+  final CommunityController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return CommunityFeedScreen(
+      controller: controller,
+      showBottomNavigation: false,
+    );
+  }
+}
+
+class _StandaloneTravelGroupPage extends StatefulWidget {
+  const _StandaloneTravelGroupPage();
+
+  @override
+  State<_StandaloneTravelGroupPage> createState() =>
+      _StandaloneTravelGroupPageState();
+}
+
+class _StandaloneTravelGroupPageState
+    extends State<_StandaloneTravelGroupPage> {
+  late final TravelGroupController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TravelGroupController(
+      repository: MockTravelGroupRepository.seeded(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      TravelGroupDiscoveryScreen(controller: _controller);
+}
+
+class ModuleSetupPage extends StatelessWidget {
+  const ModuleSetupPage({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 56,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 18),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 10),
+              Text(message, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

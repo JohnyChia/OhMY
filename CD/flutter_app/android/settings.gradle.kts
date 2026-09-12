@@ -24,3 +24,5 @@ plugins {
 }
 
 include(":app")
+include(":openwakeword")
+project(":openwakeword").projectDir = file("third_party/openwakeword-android-kt/wakeword")

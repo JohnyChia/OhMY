@@ -31,12 +31,20 @@ dependencies:
   flutter:
     sdk: flutter
 
+  camera: ^0.11.2+1
+  flutter_svg: ^2.2.0
   http: ^1.6.0
   google_maps_flutter: ^2.18.0
   google_maps_flutter_android: ^2.19.10
   google_maps_flutter_platform_interface: ^2.16.0
   geolocator: ^14.0.2
   url_launcher: ^6.3.2
+  supabase_flutter: ^2.17.2
+  image_picker: ^1.2.3
+  flutter_tts: ^4.2.5
+  record: ^6.2.1
+  path_provider: ^2.1.6
+  google_fonts: ^8.2.1
 
 dev_dependencies:
   flutter_test:
@@ -63,6 +71,10 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/auth/
+    - assets/images/travel_group/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

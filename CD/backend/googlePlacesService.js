@@ -41,7 +41,10 @@ async function searchPlaces(query) {
                     "places.viewport",
                     "places.types",
                     "places.primaryType",
-                    "places.googleMapsUri"
+                    "places.googleMapsUri",
+                    "places.rating",
+                    "places.userRatingCount",
+                    "places.addressComponents"
                 ].join(",")
             },
 
@@ -62,6 +65,13 @@ async function searchPlaces(query) {
             JSON.stringify(data)
         );
     }
+
+    data.places = (data.places || []).filter((place) =>
+        (place.addressComponents || []).some((component) =>
+            (component.types || []).includes("country") &&
+            component.shortText === "MY"
+        )
+    );
 
     return data;
 }

@@ -37,25 +37,23 @@ Bookmarks, user-profile preferences, expandable journey details, voice guidance,
 .
 ├── backend/
 │   ├── public/                         Existing HTML/CSS/JavaScript prototype
-│   ├── scripts/                        Tagging and recommendation checks
 │   ├── server.js                       Express entry point and API routes
-│   ├── tagging-service.js              Rule-based review tagging
-│   ├── ranking-service.js              Similarity and cultural ranking
-│   ├── candidate-query-planner.js      Tags to Google place-type search plan
-│   ├── googlePlacesService.js          Google Places requests
-│   ├── routing-service.js              Google Routes integration
-│   ├── weather-service.js              Google Weather integration
-│   ├── collectPlaces.js                Attraction data collection utility
-│   ├── attractions.json                Development tagging dataset
+│   ├── modules/
+│   │   ├── preference_recommender/     Places, tagging, ranking, data and tests
+│   │   ├── weather_traffic/            Weather and traffic-aware routing
+│   │   ├── ai_chatbot/                 Standalone AI assistant backend
+│   │   └── verified_traveller/         Standalone verification backend
 │   ├── .env.example                    Safe backend configuration template
 │   ├── package.json
 │   └── package-lock.json
 ├── flutter_app/
 │   ├── lib/
 │   │   ├── main.dart                   Application entry and Android map setup
-│   │   ├── pages/place_map_page.dart   Search, map, recommendations and details
-│   │   ├── route_feature.dart          Route setup, selection and navigation
-│   │   └── weather_feature.dart        Weather model, service and UI
+│   │   ├── preference_recommender/     Map, recommendations, routes and weather
+│   │   ├── ai_chatbot/                 AI assistant Flutter module
+│   │   ├── community_discovery/        Community Discovery Flutter module
+│   │   ├── travel_group/               Travel Group Flutter module
+│   │   └── user_management/            Authentication and profile module
 │   ├── android/                         Android configuration
 │   ├── plugins/google_maps_flutter_android/
 │   │                                    Local POI-tap plugin override
@@ -306,8 +304,8 @@ Backend syntax and regression checks:
 ```powershell
 cd backend
 node --check server.js
-node --check tagging-service.js
-node --check routing-service.js
+node --check modules/preference_recommender/tagging-service.js
+node --check modules/weather_traffic/routing-service.js
 npm run test:tagging
 npm run test:recommendation
 ```
@@ -391,4 +389,3 @@ git push -u origin feature/short-description
 ```
 
 Open a pull request, document setup changes, and avoid mixing unrelated module changes in one commit.
-
