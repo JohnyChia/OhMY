@@ -50,6 +50,7 @@ class NativeNavigationMap extends StatefulWidget {
     required this.onLocation,
     required this.onProgress,
     required this.onStatus,
+    this.onCameraBearingChanged,
     this.memberPins = const [],
     this.simulationOriginLatitude,
     this.simulationOriginLongitude,
@@ -71,6 +72,7 @@ class NativeNavigationMap extends StatefulWidget {
   )
   onProgress;
   final ValueChanged<String?> onStatus;
+  final ValueChanged<double>? onCameraBearingChanged;
   final List<NavigationMemberPin> memberPins;
   final double? simulationOriginLatitude;
   final double? simulationOriginLongitude;
@@ -80,12 +82,18 @@ class NativeNavigationMap extends StatefulWidget {
 }
 
 class NativeNavigationMapState extends State<NativeNavigationMap> {
+  static const double _compactBottomInset = 142;
+  static const double _expandedBottomInset = 278;
+  static const double _recommendationBottomInset = 420;
+
   navigation.GoogleNavigationViewController? _controller;
   StreamSubscription<navigation.OnArrivalEvent>? _arrivalSubscription;
   StreamSubscription<navigation.RoadSnappedLocationUpdatedEvent>?
   _locationSubscription;
   StreamSubscription<navigation.RemainingTimeOrDistanceChangedEvent>?
   _progressSubscription;
+  bool _bottomPanelExpanded = false;
+  bool _recommendationPanelVisible = false;
   StreamSubscription<navigation.GpsAvailabilityChangeEvent>? _gpsSubscription;
   Timer? _routeRetryTimer;
   bool _sessionInitialized = false;
@@ -359,7 +367,9 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
       await controller.setReportIncidentButtonEnabled(false);
       await controller.setRecenterButtonEnabled(false);
       await controller.settings.setMyLocationButtonEnabled(false);
-      await controller.setPadding(const EdgeInsets.only(bottom: 118));
+      await controller.setPadding(
+        const EdgeInsets.only(bottom: _compactBottomInset),
+      );
       if (_hasLocation &&
           (defaultTargetPlatform != TargetPlatform.android ||
               _gpsValidForNavigation ||
@@ -523,13 +533,30 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   }
 
   Future<void> setBottomPanelExpanded(bool expanded) async {
+    _bottomPanelExpanded = expanded;
+    await _applyViewportPadding();
+  }
+
+  Future<void> setRecommendationPanelVisible(bool visible) async {
+    _recommendationPanelVisible = visible;
     try {
-      await _controller?.setPadding(
-        EdgeInsets.only(bottom: expanded ? 246 : 118),
+      await _applyViewportPadding();
+      await _controller?.followMyLocation(
+        navigation.CameraPerspective.topDownHeadingUp,
+        zoomLevel: visible ? 17 : 18,
       );
     } catch (error) {
       if (!_closing) _fail(_friendlyError(error));
     }
+  }
+
+  Future<void> _applyViewportPadding() async {
+    final bottom = _recommendationPanelVisible
+        ? _recommendationBottomInset
+        : _bottomPanelExpanded
+        ? _expandedBottomInset
+        : _compactBottomInset;
+    await _controller?.setPadding(EdgeInsets.only(bottom: bottom));
   }
 
   Future<void> _applyAudioGuidanceSettings() async {
@@ -650,6 +677,8 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
       children: [
         navigation.GoogleMapsNavigationView(
           onViewCreated: _onViewCreated,
+          onCameraMove: (position) =>
+              widget.onCameraBearingChanged?.call(position.bearing),
           initialNavigationUIEnabledPreference:
               navigation.NavigationUIEnabledPreference.automatic,
           initialMapType: navigation.MapType.normal,
@@ -657,7 +686,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
           initialZoomControlsEnabled: false,
           initialTiltGesturesEnabled: false,
           initialForceNightMode: navigation.NavigationForceNightMode.forceDay,
-          initialPadding: const EdgeInsets.only(bottom: 118),
+          initialPadding: const EdgeInsets.only(bottom: _compactBottomInset),
         ),
         if (_startupMessage != null)
           Positioned(

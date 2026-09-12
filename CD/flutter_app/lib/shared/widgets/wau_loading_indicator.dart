@@ -27,34 +27,38 @@ class _WauLoadingIndicatorState extends State<WauLoadingIndicator>
   )..repeat();
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      RotationTransition(
-        turns: CurvedAnimation(parent: _controller, curve: Curves.linear),
-        child: Image.asset(
-          'assets/images/preference_recommender/wau.png',
-          width: widget.size,
-          height: widget.size,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-          semanticLabel: 'Loading',
-        ),
-      ),
-      if (widget.label != null) ...[
-        const SizedBox(height: 8),
-        Text(
-          widget.label!,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: widget.labelColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) {
+    final effectiveLabel =
+        widget.label ?? (widget.size >= 40 ? 'Loading...' : null);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        RotationTransition(
+          turns: CurvedAnimation(parent: _controller, curve: Curves.linear),
+          child: Image.asset(
+            'assets/images/preference_recommender/wau.png',
+            width: widget.size,
+            height: widget.size,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            semanticLabel: 'Loading',
           ),
         ),
+        if (effectiveLabel != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            effectiveLabel,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: widget.labelColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ],
-    ],
-  );
+    );
+  }
 
   @override
   void dispose() {

@@ -121,18 +121,20 @@ function buildNearbySearchPlan({
         );
     }
 
-    if (
-        selected.length < maximumSearchTypes
-        && !selected.some(item => item.type === FALLBACK_TYPE)
-    ) {
-        selected.push({
+    if (!selected.some(item => item.type === FALLBACK_TYPE)) {
+        const mappedFallback = candidates.get(FALLBACK_TYPE);
+        const fallback = mappedFallback || {
             type: FALLBACK_TYPE,
             reasons: [{
                 name: "Broad attraction fallback",
                 group: "fallback"
             }],
             mappingPriority: 0
-        });
+        };
+        // Reserve discovery coverage for broadly classified attractions even
+        // when preference-specific mappings fill every available search slot.
+        if (selected.length >= maximumSearchTypes) selected.pop();
+        selected.push(fallback);
     }
 
     if (selected.length === 0) {

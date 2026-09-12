@@ -31,14 +31,17 @@ const {
     storeTaggedPlace
 } = require("./modules/preference_recommender/place-cache-service");
 const {
-    analyzePlace
+    analyzePlace,
+    validatePlaceCandidate
 } = require("./modules/preference_recommender/place-analysis-service");
 const {
     TAGGER_VERSION,
     RECOMMENDATION_RESULTS_PER_TYPE,
     RECOMMENDATION_CANDIDATE_LIMIT,
+    RECOMMENDATION_DISCOVERY_LIMIT,
     RECOMMENDATION_DETAILS_CONCURRENCY,
-    RECOMMENDATION_MAXIMUM_SEARCH_TYPES
+    RECOMMENDATION_MAXIMUM_SEARCH_TYPES,
+    RECOMMENDATION_DISPLAY_LIMIT
 } = require("./modules/preference_recommender/config");
 const {
     getWeatherOverview,
@@ -1625,7 +1628,7 @@ app.post(
                 }
             }
 
-            const candidates =
+            const discoveredCandidates =
                 Array.from(candidateMap.values())
                     .filter(
                         place =>
@@ -1633,12 +1636,26 @@ app.post(
                             <= NEARBY_RADIUS_METRES
                             && place.id
                                 !== reference.destination?.id
+                            && validatePlaceCandidate(place).eligible
                     )
-                    .sort(
-                        (a, b) =>
-                            a.distanceMetres
-                            - b.distanceMetres
-                    )
+                    .sort((a, b) => {
+                        const preferenceCoverage = candidate =>
+                            new Set(
+                                candidate.discoveredFrom.flatMap(
+                                    source => source.referenceTags
+                                )
+                            ).size;
+                        return preferenceCoverage(b)
+                            - preferenceCoverage(a)
+                            || b.discoveredFrom.length
+                                - a.discoveredFrom.length
+                            || a.distanceMetres
+                                - b.distanceMetres;
+                    })
+                    .slice(0, RECOMMENDATION_DISCOVERY_LIMIT);
+
+            const candidates =
+                discoveredCandidates
                     .slice(0, RECOMMENDATION_CANDIDATE_LIMIT);
 
             let cachedCandidates = new Map();
@@ -2010,7 +2027,7 @@ app.post(
             const matchedPlaces =
                 rankedTaggedPlaces.filter(
                     item => item.eligible
-                );
+                ).slice(0, RECOMMENDATION_DISPLAY_LIMIT);
 
             // Use the same Google Routes service as the directions screen so
             // recommendation cards do not display straight-line estimates.
@@ -2083,8 +2100,10 @@ app.post(
                 configuration: {
                     resultsPerSearchType: RECOMMENDATION_RESULTS_PER_TYPE,
                     candidateLimit: RECOMMENDATION_CANDIDATE_LIMIT,
+                    discoveryLimit: RECOMMENDATION_DISCOVERY_LIMIT,
                     detailsConcurrency: RECOMMENDATION_DETAILS_CONCURRENCY,
-                    maximumSearchTypes: RECOMMENDATION_MAXIMUM_SEARCH_TYPES
+                    maximumSearchTypes: RECOMMENDATION_MAXIMUM_SEARCH_TYPES,
+                    displayLimit: RECOMMENDATION_DISPLAY_LIMIT
                 },
                 origin: {
                     latitude,
@@ -2107,6 +2126,8 @@ app.post(
                     ),
                 candidateCount:
                     candidates.length,
+                discoveredCandidateCount:
+                    discoveredCandidates.length,
                 taggedCount:
                     taggedPlaces.length,
                 matchedCount:

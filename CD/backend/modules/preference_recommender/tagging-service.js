@@ -67,11 +67,11 @@ const CONFIG = {
     PLACE_TAG_THRESHOLD: 0.10,
 
 
-    // Cultural tags are more prone to false positives from broad
-    // words such as "culture", "history", and "experience".
-    // Establish that the PLACE is culturally relevant using agreement
-    // across reviews, then allow individual specific cultural tags.
-    CULTURAL_PLACE_MIN_REVIEWS: 2,
+    // Cultural tags are more prone to false positives from broad words such
+    // as "culture", "history", and "experience". A single review may still
+    // establish cultural relevance, but only after the existing NLP evidence,
+    // specificity, negation, review-score and place-support gates all pass.
+    CULTURAL_PLACE_MIN_REVIEWS: 1,
 
 
     // Google Places currently supplies at most five reviews in the
@@ -2238,8 +2238,8 @@ class TaggingService {
         // history. Together they establish a cultural place, allowing
         // the specific architecture evidence to remain sensitive.
         //
-        // A generic restaurant with one noisy use of "culture" does
-        // not establish place-level cultural relevance.
+        // One review that independently passes the cultural NLP rules is
+        // sufficient. A generic use of "culture" still fails at review level.
         // ----------------------------------------------------
 
         const culturallyRelevantReviewCount =
@@ -2251,8 +2251,7 @@ class TaggingService {
             ).length;
 
         const culturallyRelevantPlace =
-            relevantReviews.length < 2
-            || culturallyRelevantReviewCount
+            culturallyRelevantReviewCount
                 >= CONFIG.CULTURAL_PLACE_MIN_REVIEWS;
 
 
