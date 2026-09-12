@@ -16,9 +16,61 @@ test('approves meaningful location-related text', () => {
   assert.equal(reviewPostText(base).approved, true);
 });
 
+test('approves a joined form of a spaced Travel History location', () => {
+  const result = reviewPostText({
+    ...base,
+    title: 'TARUMT',
+    description: 'I love TARUMT',
+    destination: 'TAR UMT, Kuala Lumpur',
+    attraction: 'TAR UMT, Kuala Lumpur',
+    aliases: [],
+  });
+  assert.equal(result.approved, true);
+});
+
+test('requires the title and description to each mention the trip location', () => {
+  const missingTitle = reviewPostText({
+    ...base,
+    title: 'A wonderful day',
+  });
+  assert.equal(missingTitle.code, 'LOCATION_MISMATCH');
+  assert.deepEqual(Object.keys(missingTitle.fieldErrors), ['title']);
+  assert.match(missingTitle.fieldErrors.title, /^The title must/);
+
+  const missingDescription = reviewPostText({
+    ...base,
+    description: 'The campus was enjoyable and easy to explore.',
+  });
+  assert.equal(missingDescription.code, 'LOCATION_MISMATCH');
+  assert.deepEqual(Object.keys(missingDescription.fieldErrors), ['description']);
+  assert.match(missingDescription.fieldErrors.description, /^The description must/);
+});
+
+test('a compact location match must contain the complete location name', () => {
+  const result = reviewPostText({
+    ...base,
+    title: 'A lovely campus',
+    description: 'I enjoyed an unrelated university campus today.',
+    destination: 'TAR UMT, Kuala Lumpur',
+    attraction: 'TAR UMT, Kuala Lumpur',
+    aliases: [],
+  });
+  assert.equal(result.code, 'LOCATION_MISMATCH');
+});
+
 test('rejects deliberately separated profanity', () => {
   const result = reviewPostText({ ...base, description: 'Kuala Lumpur was f u c k i n g unpleasant today.' });
   assert.equal(result.code, 'INAPPROPRIATE_LANGUAGE');
+  assert.deepEqual(Object.keys(result.fieldErrors), ['description']);
+});
+
+test('assigns title profanity to the title field', () => {
+  const result = reviewPostText({
+    ...base,
+    title: 'A fucking morning at Kwai Chai Hong',
+  });
+  assert.equal(result.code, 'INAPPROPRIATE_LANGUAGE');
+  assert.deepEqual(Object.keys(result.fieldErrors), ['title']);
 });
 
 test('rejects leetspeak profanity', () => {
@@ -100,12 +152,31 @@ test('tag detection uses location and place types, never post text', () => {
   assert.deepEqual(detected.map((tag) => tag.id), [13, 5]);
 });
 
-test('unknown locations use the database-configured fallback', () => {
+test('unknown place types are not assigned a misleading fallback tag', () => {
   const detected = detectLocationTags({
     destination: 'Unknown', attraction: 'Unknown', placeTypes: [], tags, rules: [],
     fallbackTagName: 'Cultural Experience',
   });
-  assert.deepEqual(detected.map((tag) => tag.id), [21]);
+  assert.deepEqual(detected, []);
+});
+
+test('Google university types map a campus to Educational', () => {
+  const educationalTags: TagRow[] = [
+    ...tags,
+    { id: 10, name: 'Educational', tag_type: 'general' },
+  ];
+  const detected = detectLocationTags({
+    destination: 'TAR UMT, Kuala Lumpur',
+    attraction: 'TAR UMT',
+    placeTypes: ['university', 'educational_institution', 'point_of_interest'],
+    tags: educationalTags,
+    rules: [
+      { tag_id: 10, place_type: 'university', weight: 6 },
+      { tag_id: 10, place_type: 'educational_institution', weight: 6 },
+    ],
+    fallbackTagName: 'Cultural Experience',
+  });
+  assert.deepEqual(detected.map((tag) => tag.id), [10]);
 });
 
 test('identical text cannot influence location-only tags', () => {

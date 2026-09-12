@@ -18,6 +18,7 @@ void main() {
     expect(entry.destination, 'Kuala Lumpur');
     expect(entry.completedAt, DateTime.utc(2026, 9, 1, 4));
     expect(entry.isPersisted, isFalse);
+    expect(entry.canShareToCommunity, isFalse);
   });
 
   test('maps a completed unified trip with itinerary details', () {

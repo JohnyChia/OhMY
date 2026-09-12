@@ -28,9 +28,11 @@ class PlaceMapPage extends StatefulWidget {
     super.key,
     this.autofocusSearch = false,
     this.initialRecommendation,
+    this.initialSearchQuery,
   });
   final bool autofocusSearch;
   final Map<String, dynamic>? initialRecommendation;
+  final String? initialSearchQuery;
   @override
   State<PlaceMapPage> createState() => _PlaceMapPageState();
 }
@@ -77,6 +79,15 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     if (widget.autofocusSearch) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) searchFocus.requestFocus();
+      });
+    }
+    final initialQuery = widget.initialSearchQuery?.trim() ?? '';
+    if (initialQuery.isNotEmpty) {
+      search.text = initialQuery;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        searchFocus.requestFocus();
+        unawaited(runSearch(query: initialQuery));
       });
     }
   }

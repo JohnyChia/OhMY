@@ -6,13 +6,13 @@ This package contains the Flutter Community Discovery feature, its private Node.
 
 Apply `CD/supabase/migrations/20260911_travel_history.sql` first, then every file in this package's `supabase/migrations/` in filename order. The Community migrations change only Community-owned structures. They read `travel_history_entries` and `tags` but never update either shared table. `202609100004_filter_tags_rpc.sql` exposes shared tags through `get_filter_tags_v1()` without changing their RLS.
 
-`202609100005_remove_legacy_review_rpcs.sql` removes the obsolete SQL review-preview and v2/v3 client write functions. `202609110002_travel_history_integration_v5.sql` then installs the Travel History link and private Node/v5 path. Apply both even when earlier migrations were already run.
+`202609100005_remove_legacy_review_rpcs.sql` removes the obsolete SQL review-preview and v2/v3 client write functions. `202609110002_travel_history_integration_v5.sql` installs the Travel History link and private Node/v5 path. `202609120001_all_history_post_eligibility.sql` then enables both solo and group history rows and updates the legacy post trigger. `202609120002_community_ownership_controls.sql` fixes Auth usernames, prevents self-bookmarks, and adds owner deletion RPCs. `202609120003_comment_spam_controls.sql` adds a server-enforced five-minute cooldown for each user/post combination and duplicate protection. `202609120004_google_place_tag_mappings.sql` maps current Google Places types to existing tags and corrects legacy TAR UMT posts. Apply all six even when earlier migrations were already run.
 
 The final write path is service-only:
 
 - Flutter cannot execute `community_create_post_v5` or `community_update_post_v5`.
 - Node verifies the user's bearer JWT and calls the private v5 RPCs with the server secret.
-- Supabase verifies ownership of the solo Profile Travel History row, rejects group history, enforces one post per history entry, and permits author-only editing.
+- Supabase verifies ownership of the Profile Travel History row for both solo and group history, enforces one post per history entry, and permits author-only editing.
 
 Enable Supabase Realtime for `community_posts`, `community_post_likes`, `community_post_bookmarks`, and `community_post_comments`.
 
@@ -81,7 +81,7 @@ Import only `package:community_discovery/community_discovery.dart`. The host own
 
 ## 4. Trip History create/edit
 
-Only render a Community action for a persisted Supabase `travel_history_entries` row whose `source_type` is `solo`. Group trips, itinerary stops, and local fallback/demo cards must not expose the action. Convert the host solo-history model into the public Community model and call:
+Render a Community action for every persisted Supabase `travel_history_entries` row, including both `solo` and `group` history. Itinerary stops and local fallback/demo cards must not expose the action. Convert the host history model into the public Community model and call:
 
 ```dart
 await openTripHistoryPostAction(
@@ -97,9 +97,9 @@ await openTripHistoryPostAction(
 );
 ```
 
-The entrypoint calls `community_post_id_for_history_v5`: no post opens Create; an existing owner post opens Edit. Create Post locks the location to the solo-history row's displayed `destination`. The presence of the owned solo database row is sufficient eligibility; Community does not inspect a separate status table or its itinerary stops. The server rechecks ownership and `source_type`, so button visibility is not the security boundary.
+The entrypoint calls `community_post_id_for_history_v5`: no post opens Create; an existing owner post opens Edit. Create Post locks the location to the history row's displayed `destination`. The presence of the owned database history row is sufficient eligibility; Community does not inspect a separate status table or its itinerary stops. The server rechecks ownership, so button visibility is not the security boundary.
 
-Publishing requires 1–6 JPG/JPEG/PNG images, at most 10 MB each. Node validates title and description for length, meaningfulness, repetition, abusive/obfuscated language, links, and relevance to the locked trip location. Any link is rejected. Tags are assigned separately from destination, attraction, database aliases/rules, and optional Google Places types; post text never selects tags.
+Publishing requires 1–6 JPG/JPEG/PNG images, at most 10 MB each. Node validates title and description separately for length, meaningfulness, repetition, abusive/obfuscated language, links, and relevance to the locked trip location. Both fields must relate to that location. Spaced and joined forms of the same complete location name (for example, `TAR UMT` and `TARUMT`) are equivalent. Any link is rejected. Tags are assigned separately from the Google Places types for the locked destination/attraction and explicit database location rules; post text never selects tags.
 
 ## 5. Profile bookmarks
 
@@ -113,7 +113,7 @@ await openCommunityBookmarks(
 );
 ```
 
-To embed bookmarks inside Profile, render `SavedPostsSection`. Selecting a bookmark opens its original post.
+To embed bookmarks inside Profile, render `SavedPostsSection`. Selecting a bookmark opens its original post. Authors cannot bookmark their own posts; the Flutter control is hidden and Supabase rejects direct self-bookmark inserts.
 
 ## 6. Start Journey callback
 
@@ -134,11 +134,11 @@ The tappable location on Post Details invokes this callback. The host should pre
 
 ## 7. Authentication and ownership
 
-The host must sign the user in through its existing authentication flow before Community operations that mutate user data. This module deliberately has no credential fields. Likes, bookmarks, comments, create, and edit use the current Supabase session. Comments are limited to 500 characters and author identity comes from the authenticated server/database context rather than Flutter input.
+The host must sign the user in through its existing authentication flow before Community operations that mutate user data. This module deliberately has no credential fields. Likes, bookmarks, comments, create, edit, and delete use the current Supabase session. Comments are limited to 500 characters and author identity comes from the authenticated server/database context rather than Flutter input. Comment authors can delete their own comments; a post author can moderate comments on their post and permanently delete the post.
 
 ## 8. Operational configuration
 
-Manage blocked terms, allow-list entries, location aliases, tag rules, and fallback tag through the community-owned Supabase configuration tables. Do not modify the shared `tags` table from this module. Google Places failure falls back to database mappings.
+Manage blocked terms, allow-list entries, location aliases, and tag rules through the community-owned Supabase configuration tables. Do not modify the shared `tags` table from this module. Google Places failure can use an explicit location rule; otherwise publishing fails closed instead of assigning a generic category.
 
 Image-location moderation is not implemented. A future system may combine EXIF GPS, Places metadata, optional server-side vision, and manual review for uncertain images.
 
@@ -149,13 +149,13 @@ Image-location moderation is not implemented. A future system may combine EXIF G
 - Confirm Flutter contains only URL, publishable key, and API URL.
 - Wire the host's existing authenticated Supabase client.
 - Add Community to the host navigation.
-- Wire only persisted solo Profile Travel History rows with `openTripHistoryPostAction`.
+- Wire every persisted solo or group Profile Travel History row with `openTripHistoryPostAction`.
 - Wire Profile with `openCommunityBookmarks` or `SavedPostsSection`.
 - Wire `onStartJourney` to the host journey route.
 - Enable Realtime for posts, likes, bookmarks, and comments.
 - Run `npm test`, `npm run build`, `flutter analyze`, `flutter test`, and `flutter build apk --debug`.
 - Test two signed-in sessions for comment/like synchronization and duplicate-submission protection.
-- Test persisted solo/unposted → Create, persisted solo/posted → Edit, and group/demo/fallback → no action.
+- Test persisted solo/group unposted → Create, persisted solo/group posted → Edit, and demo/fallback → no action.
 - Test portrait/landscape galleries, full-screen paging, pinch/double-tap zoom, pan, and X dismissal.
 - When sharing the folder directly instead of through Git, exclude `server/.env`, `config/flutter.env.json`, and `android/local.properties`; each is machine-specific and ignored by Git.
 

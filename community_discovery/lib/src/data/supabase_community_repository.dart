@@ -127,15 +127,17 @@ class SupabaseCommunityRepository implements CommunityRepository {
   Future<List<CommunityComment>> getComments(String postId) async {
     final rows = await _client
         .from('community_post_comments')
-        .select('id, post_id, author_name, content, created_at')
+        .select('id, post_id, user_id, author_name, content, created_at')
         .eq('post_id', postId)
         .order('created_at');
-    return rows.map(CommunityComment.fromMap).toList(growable: false);
+    return rows
+        .map((row) => CommunityComment.fromMap(row, currentUserId: _userId))
+        .toList(growable: false);
   }
 
   @override
   Future<List<CompletedTrip>> getEligibleTrips() async {
-    final rows = await _client.rpc('eligible_community_history_entries_v5');
+    final rows = await _client.rpc('eligible_community_history_entries_v6');
     return (rows as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(CompletedTrip.fromMap)
@@ -187,16 +189,24 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<CommunityComment> addComment(String postId, String content) async {
-    final row = await _client
-        .from('community_post_comments')
-        .insert({
-          'post_id': postId,
-          'user_id': _userId,
-          'content': content.trim(),
-        })
-        .select('id, post_id, author_name, content, created_at')
-        .single();
-    return CommunityComment.fromMap(row);
+    try {
+      final rows = await _client.rpc(
+        'community_add_comment_v7',
+        params: {'p_post_id': postId, 'p_content': content.trim()},
+      );
+      final row = (rows as List<dynamic>).cast<Map<String, dynamic>>().single;
+      return CommunityComment.fromMap(row, currentUserId: _userId);
+    } on PostgrestException catch (error) {
+      throw StateError(error.message);
+    }
+  }
+
+  @override
+  Future<void> deleteComment(String commentId) async {
+    await _client.rpc(
+      'community_delete_comment_v6',
+      params: {'p_comment_id': commentId},
+    );
   }
 
   @override
@@ -253,6 +263,21 @@ class SupabaseCommunityRepository implements CommunityRepository {
         await _client.storage.from('community-posts').remove(imagePaths);
       }
       rethrow;
+    }
+  }
+
+  @override
+  Future<void> deletePost(String postId, List<String> imagePaths) async {
+    await _client.rpc(
+      'community_delete_post_v6',
+      params: {'p_post_id': postId},
+    );
+    if (imagePaths.isNotEmpty) {
+      try {
+        await _client.storage.from('community-posts').remove(imagePaths);
+      } catch (_) {
+        // The post is deleted; orphaned storage cleanup can be retried later.
+      }
     }
   }
 

@@ -11,3 +11,4 @@ export 'src/ui/bookmarked_posts_screen.dart'
     show BookmarkedPostsScreen, SavedPostsSection;
 export 'src/ui/community_feed_screen.dart' show CommunityFeedScreen;
 export 'src/ui/post_detail_screen.dart' show PostDetailScreen;
+export 'src/ui/create_post_screen.dart' show PostEditorResult;

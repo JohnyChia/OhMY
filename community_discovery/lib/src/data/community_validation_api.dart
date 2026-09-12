@@ -3,6 +3,19 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+class CommunityValidationException implements Exception {
+  const CommunityValidationException({
+    required this.reason,
+    this.fieldErrors = const <String, String>{},
+  });
+
+  final String reason;
+  final Map<String, String> fieldErrors;
+
+  @override
+  String toString() => reason;
+}
+
 class CommunityValidationApi {
   CommunityValidationApi({
     required String baseUrl,
@@ -79,15 +92,15 @@ class CommunityValidationApi {
     }
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      final fieldErrors = (decoded['fieldErrors'] as Map?)?.values
-          .map((value) => '$value')
-          .where((value) => value.trim().isNotEmpty)
-          .toSet()
-          .join(' ');
-      throw StateError(
-        fieldErrors?.isNotEmpty == true
-            ? fieldErrors!
-            : decoded['reason'] as String? ?? 'The post was rejected.',
+      final fieldErrors = <String, String>{};
+      for (final entry
+          in (decoded['fieldErrors'] as Map? ?? const {}).entries) {
+        final message = '${entry.value}'.trim();
+        if (message.isNotEmpty) fieldErrors['${entry.key}'] = message;
+      }
+      throw CommunityValidationException(
+        reason: decoded['reason'] as String? ?? 'The post was rejected.',
+        fieldErrors: fieldErrors,
       );
     }
     return decoded;
