@@ -30,7 +30,22 @@ void main() {
       nativeNavigationSource,
       contains('setNavigationFooterEnabled(false)'),
     );
+    expect(nativeNavigationSource, contains('setTrafficPromptsEnabled(false)'));
+    expect(
+      nativeNavigationSource,
+      contains('setTrafficIncidentCardsEnabled(false)'),
+    );
   });
+
+  test(
+    'traffic suggestions use sustained heavy traffic and a five minute delay',
+    () {
+      expect(routeSource, contains('_minimumTrafficDelayMinutes = 5'));
+      expect(routeSource, contains('Duration(seconds: 20)'));
+      expect(routeSource, contains('getCurrentRouteSegment()'));
+      expect(routeSource, isNot(contains('_maximumTrafficPrompts')));
+    },
+  );
 
   test('solo map does not render the MY logo badge', () {
     expect(soloMapSource, isNot(contains("'MY',")));

@@ -90,118 +90,128 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
       );
     }
 
-    return Scaffold(
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: SafeArea(
-              bottom: false,
-              child: NativeNavigationMap(
-                destinationName: stop.placeName,
-                destinationLatitude: stop.latitude!,
-                destinationLongitude: stop.longitude!,
-                routeToken: '',
-                trafficEnabled: true,
-                onArrived: () => unawaited(_completeStop()),
-                onLocation: (latitude, longitude) {
-                  final coordinate = widget.controller.effectiveLocation(
-                    latitude,
-                    longitude,
-                  );
-                  unawaited(
-                    _locationService
-                        .publishOwnLocation(
-                          latitude: coordinate.latitude,
-                          longitude: coordinate.longitude,
-                        )
-                        .catchError((Object error) {
-                          if (mounted) {
-                            setState(() {
-                              _statusMessage =
-                                  'Live location sharing failed: $error';
-                            });
-                          }
-                        }),
-                  );
-                },
-                onProgress: (distanceMeters, timeSeconds, _) {
-                  if (!mounted) return;
-                  setState(() {
-                    _remainingDistanceMeters = distanceMeters;
-                    _remainingTimeSeconds = timeSeconds;
-                  });
-                },
-                onStatus: (message) {
-                  if (mounted) setState(() => _statusMessage = message);
-                },
-              ),
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: AppColors.primary,
-                      elevation: 5,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.groups_rounded),
-                    label: const Text('Group lobby'),
-                  ),
-                  const Spacer(),
-                  ActionChip(
-                    avatar: const Icon(Icons.location_on_rounded, size: 18),
-                    label: Text('${_members.length} live'),
-                    onPressed: _showMembers,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (navigationSimulationEnabled)
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 66,
-              left: 16,
-              child: const Chip(label: Text('TEST SIMULATION · 5x')),
-            ),
-          if (_statusMessage != null)
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 112,
-              left: 24,
-              right: 24,
-              child: Material(
-                elevation: 4,
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    _statusMessage!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.red),
-                  ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        showTravelGroupMessage(
+          context,
+          'Use Group lobby or End journey to leave navigation.',
+        );
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: SafeArea(
+                bottom: false,
+                child: NativeNavigationMap(
+                  destinationName: stop.placeName,
+                  destinationLatitude: stop.latitude!,
+                  destinationLongitude: stop.longitude!,
+                  routeToken: '',
+                  trafficEnabled: true,
+                  onArrived: () => unawaited(_completeStop()),
+                  onLocation: (latitude, longitude) {
+                    final coordinate = widget.controller.effectiveLocation(
+                      latitude,
+                      longitude,
+                    );
+                    unawaited(
+                      _locationService
+                          .publishOwnLocation(
+                            latitude: coordinate.latitude,
+                            longitude: coordinate.longitude,
+                          )
+                          .catchError((Object error) {
+                            if (mounted) {
+                              setState(() {
+                                _statusMessage =
+                                    'Live location sharing failed: $error';
+                              });
+                            }
+                          }),
+                    );
+                  },
+                  onProgress: (distanceMeters, timeSeconds, _) {
+                    if (!mounted) return;
+                    setState(() {
+                      _remainingDistanceMeters = distanceMeters;
+                      _remainingTimeSeconds = timeSeconds;
+                    });
+                  },
+                  onStatus: (message) {
+                    if (mounted) setState(() => _statusMessage = message);
+                  },
                 ),
               ),
             ),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: MediaQuery.paddingOf(context).bottom + 12,
-            child: _JourneyCard(
-              stop: stop,
-              distanceText: _formatDistance(_remainingDistanceMeters),
-              timeText: _formatTime(_remainingTimeSeconds),
-              completing: _completing,
-              isCreator: widget.controller.isCreator,
-              onArrived: _completeStop,
-              onEnd: _confirmEndTrip,
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: AppColors.primary,
+                        elevation: 5,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.groups_rounded),
+                      label: const Text('Group lobby'),
+                    ),
+                    const Spacer(),
+                    ActionChip(
+                      avatar: const Icon(Icons.location_on_rounded, size: 18),
+                      label: Text('${_members.length} live'),
+                      onPressed: _showMembers,
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+            if (navigationSimulationEnabled)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + 66,
+                left: 16,
+                child: const Chip(label: Text('TEST SIMULATION · 5x')),
+              ),
+            if (_statusMessage != null)
+              Positioned(
+                top: MediaQuery.paddingOf(context).top + 112,
+                left: 24,
+                right: 24,
+                child: Material(
+                  elevation: 4,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      _statusMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: MediaQuery.paddingOf(context).bottom + 12,
+              child: _JourneyCard(
+                stop: stop,
+                distanceText: _formatDistance(_remainingDistanceMeters),
+                timeText: _formatTime(_remainingTimeSeconds),
+                completing: _completing,
+                isCreator: widget.controller.isCreator,
+                onArrived: _completeStop,
+                onEnd: _confirmEndTrip,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

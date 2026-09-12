@@ -2063,6 +2063,42 @@ app.post(
                     item => item.eligible
                 );
 
+            // Use the same Google Routes service as the directions screen so
+            // recommendation cards do not display straight-line estimates.
+            await Promise.all(
+                matchedPlaces.map(async item => {
+                    const location = item.place?.location;
+                    if (
+                        !Number.isFinite(location?.latitude)
+                        || !Number.isFinite(location?.longitude)
+                    ) {
+                        return;
+                    }
+                    try {
+                        const result = await computeDrivingRoutes({
+                            startLat: latitude,
+                            startLon: longitude,
+                            endLat: location.latitude,
+                            endLon: location.longitude
+                        });
+                        const preferredRoute = result.routes?.[0];
+                        if (!preferredRoute) return;
+                        item.place.routeDistanceKm =
+                            preferredRoute.distanceKm;
+                        item.place.routeDistanceMetres =
+                            Math.round(preferredRoute.distanceKm * 1000);
+                        item.place.etaMinutes =
+                            preferredRoute.durationMinutes;
+                        item.place.etaEstimated = false;
+                    } catch (routeError) {
+                        console.warn(
+                            `Recommendation route metrics failed for ${item.place?.id || "unknown"}:`,
+                            routeError.message
+                        );
+                    }
+                })
+            );
+
             const cacheHits = taggedPlaces.filter(
                 item => item.source === "supabase_cache"
             ).length;

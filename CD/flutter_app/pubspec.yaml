@@ -35,6 +35,7 @@ dependencies:
     path: ../../community_discovery
 
   camera: ^0.11.2+1
+  audioplayers: ^6.7.1
   flutter_svg: ^2.2.0
   http: ^1.6.0
   google_maps_flutter: ^2.18.0
@@ -79,6 +80,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/audio/
     - assets/images/auth/
     - assets/images/travel_group/
     - assets/images/preference_recommender/

@@ -5,7 +5,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = ''
 as $$
   select
     target_user_id = auth.uid()::text

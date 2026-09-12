@@ -15,6 +15,10 @@ const bool navigationSimulationEnabled = bool.fromEnvironment(
 );
 const double navigationSimulationSpeed = 5;
 
+/// Shared app-shell signal. The regular bottom navigation must not compete
+/// with the native turn-by-turn controls while this view is mounted.
+final ValueNotifier<bool> navigationExperienceActive = ValueNotifier(false);
+
 /// Owns the short-lived Google Navigation SDK session used during a journey.
 ///
 /// The normal discovery map remains a `google_maps_flutter` map. This widget is
@@ -60,11 +64,12 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   _locationSubscription;
   StreamSubscription<navigation.RemainingTimeOrDistanceChangedEvent>?
   _progressSubscription;
-  StreamSubscription<navigation.GpsAvailabilityChangeEvent>?
-  _gpsSubscription;
+  StreamSubscription<navigation.GpsAvailabilityChangeEvent>? _gpsSubscription;
+  Timer? _routeRetryTimer;
   bool _sessionInitialized = false;
   bool _hasLocation = false;
   bool _gpsValidForNavigation = false;
+  int _locationSamples = 0;
   bool _routeStarted = false;
   bool _simulationRunning = false;
   bool _closing = false;
@@ -74,6 +79,9 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) navigationExperienceActive.value = true;
+    });
     unawaited(_initialize());
   }
 
@@ -87,6 +95,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
         oldWidget.destinationLongitude != widget.destinationLongitude ||
         oldWidget.destinationName != widget.destinationName ||
         oldWidget.routeToken != widget.routeToken) {
+      _routeRetryTimer?.cancel();
       _routeStarted = false;
       if (_hasLocation) unawaited(_setDestinationAndStart());
     }
@@ -156,16 +165,19 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
             remainingDistanceThresholdMeters: 25,
           );
       if (defaultTargetPlatform == TargetPlatform.android) {
-        _gpsSubscription = await navigation.GoogleMapsNavigator
-            .setOnGpsAvailabilityChangeListener((event) {
-          _gpsValidForNavigation = event.isGpsValidForNavigation;
-          if (_gpsValidForNavigation &&
-              _hasLocation &&
-              !_routeStarted &&
-              _controller != null) {
-            unawaited(_setDestinationAndStart());
-          }
-        });
+        _gpsSubscription =
+            await navigation
+                .GoogleMapsNavigator.setOnGpsAvailabilityChangeListener((
+              event,
+            ) {
+              _gpsValidForNavigation = event.isGpsValidForNavigation;
+              if (_gpsValidForNavigation &&
+                  _hasLocation &&
+                  !_routeStarted &&
+                  _controller != null) {
+                unawaited(_setDestinationAndStart());
+              }
+            });
       }
       _locationSubscription =
           await navigation
@@ -173,14 +185,17 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
             event,
           ) {
             _hasLocation = true;
+            _locationSamples++;
             widget.onLocation(
               event.location.latitude,
               event.location.longitude,
             );
             if (!_routeStarted &&
                 _controller != null &&
+                _routeRetryTimer?.isActive != true &&
                 (defaultTargetPlatform != TargetPlatform.android ||
-                    _gpsValidForNavigation)) {
+                    _gpsValidForNavigation ||
+                    _locationSamples >= 2)) {
               unawaited(_setDestinationAndStart());
             }
           });
@@ -203,12 +218,16 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
       await controller.setIndoorEnabled(false);
       await controller.setNavigationUIEnabled(true);
       await controller.setNavigationFooterEnabled(false);
+      await controller.setTrafficPromptsEnabled(false);
+      await controller.setTrafficIncidentCardsEnabled(false);
+      await controller.setReportIncidentButtonEnabled(false);
       await controller.setRecenterButtonEnabled(false);
       await controller.settings.setMyLocationButtonEnabled(false);
       await controller.setPadding(const EdgeInsets.only(bottom: 118));
       if (_hasLocation &&
           (defaultTargetPlatform != TargetPlatform.android ||
-              _gpsValidForNavigation)) {
+              _gpsValidForNavigation ||
+              _locationSamples >= 2)) {
         await _setDestinationAndStart();
       }
     } catch (error) {
@@ -268,6 +287,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
           widget.onStatus(
             'Improving GPS accuracy before calculating the route…',
           );
+          _scheduleRouteRetry();
           return;
         }
         if (status == navigation.NavigationRouteStatus.networkError &&
@@ -304,6 +324,9 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
       // The app supplies its own cancel/ETA/routes footer. Keep Google's
       // maneuver header, but prevent its native footer intercepting taps.
       await _controller!.setNavigationFooterEnabled(false);
+      await _controller!.setTrafficPromptsEnabled(false);
+      await _controller!.setTrafficIncidentCardsEnabled(false);
+      await _controller!.setReportIncidentButtonEnabled(false);
       await _controller!.setRecenterButtonEnabled(false);
       await _controller!.followMyLocation(
         navigation.CameraPerspective.topDownHeadingUp,
@@ -318,6 +341,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
         _simulationRunning = true;
       }
       _routeAttempt = 0;
+      _routeRetryTimer?.cancel();
       widget.onStatus(null);
       if (mounted) setState(() => _startupMessage = null);
     } catch (error) {
@@ -335,6 +359,16 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
     } catch (error) {
       if (!_closing) _fail(_friendlyError(error));
     }
+  }
+
+  void _scheduleRouteRetry() {
+    _routeRetryTimer?.cancel();
+    _routeRetryTimer = Timer(const Duration(seconds: 2), () {
+      if (_closing || _routeStarted || !_hasLocation || _controller == null) {
+        return;
+      }
+      unawaited(_setDestinationAndStart());
+    });
   }
 
   /// Stops native guidance before the Flutter route is removed.
@@ -368,6 +402,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   Future<void> _cleanup() async {
     if (_closing) return;
     _closing = true;
+    _routeRetryTimer?.cancel();
     await _arrivalSubscription?.cancel();
     await _progressSubscription?.cancel();
     await _gpsSubscription?.cancel();
@@ -387,6 +422,9 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      navigationExperienceActive.value = false;
+    });
     unawaited(_cleanup());
     super.dispose();
   }

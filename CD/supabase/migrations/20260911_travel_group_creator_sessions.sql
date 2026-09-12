@@ -80,7 +80,7 @@ create or replace function public.sync_travel_group_member_count()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = ''
 as $$
 declare
   target_group_id uuid;
@@ -128,7 +128,7 @@ create or replace function public.create_travel_group_with_destination(
 returns uuid
 language plpgsql
 security invoker
-set search_path = public
+set search_path = ''
 as $$
 declare
   new_group_id uuid;
@@ -178,7 +178,7 @@ create or replace function public.confirm_travel_group(target_group_id uuid)
 returns uuid
 language plpgsql
 security invoker
-set search_path = public
+set search_path = ''
 as $$
 declare
   new_session_id uuid;
@@ -228,7 +228,7 @@ create or replace function public.begin_travel_group_journey(target_group_id uui
 returns uuid
 language plpgsql
 security invoker
-set search_path = public
+set search_path = ''
 as $$
 declare
   target_session_id uuid;
@@ -315,7 +315,7 @@ create or replace function public.complete_travel_group_stop(
 returns void
 language plpgsql
 security invoker
-set search_path = public
+set search_path = ''
 as $$
 begin
   if not public.is_travel_group_creator(target_group_id) then
@@ -344,7 +344,7 @@ create or replace function public.confirm_travel_group_suggestion(
 returns uuid
 language plpgsql
 security invoker
-set search_path = public
+set search_path = ''
 as $$
 declare
   selected public.travel_group_suggestions%rowtype;
@@ -403,7 +403,7 @@ create or replace function public.end_travel_group_journey(target_group_id uuid)
 returns void
 language plpgsql
 security invoker
-set search_path = public
+set search_path = ''
 as $$
 begin
   if not public.is_travel_group_creator(target_group_id) then

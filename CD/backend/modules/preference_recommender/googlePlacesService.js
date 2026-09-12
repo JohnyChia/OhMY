@@ -67,7 +67,8 @@ async function searchPlaces(query) {
                     "places.types",
                     "places.primaryType",
                     "places.googleMapsUri",
-                    "places.addressComponents"
+                    "places.addressComponents",
+                    "routingSummaries"
                 ].join(",")
             },
 
