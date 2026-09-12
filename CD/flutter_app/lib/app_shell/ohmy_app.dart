@@ -15,6 +15,7 @@ import '../travel_group/features/travel_group/services/live_trip_location_servic
 import '../travel_group/features/travel_group/services/supabase_live_trip_location_service.dart';
 import '../user_management/screens/auth/auth_gate.dart';
 import '../user_management/screens/profile_screen.dart';
+import '../user_management/services/traveler_profile_service.dart';
 import 'ohmy_bottom_navigation_bar.dart';
 
 // Temporary development switch. Pass
@@ -112,7 +113,10 @@ class _OhMyShellState extends State<OhMyShell> {
               message:
                   'Start Flutter with SUPABASE_URL, SUPABASE_ANON_KEY, and COMMUNITY_API_URL.',
             )
-          : CommunityModulePage(controller: _communityController!),
+          : CommunityModulePage(
+              controller: _communityController!,
+              onStartJourney: _openCommunityLocationInStartTrip,
+            ),
       (context) => widget.supabaseEnabled
           ? ProfileScreen(
               showBottomNavigation: false,
@@ -167,6 +171,30 @@ class _OhMyShellState extends State<OhMyShell> {
       return;
     }
     setState(() => _selectedIndex = index);
+  }
+
+  Future<void> _openCommunityLocationInStartTrip(
+    StartJourneyRequest request,
+  ) async {
+    final query = request.attractionName.trim().isNotEmpty
+        ? request.attractionName.trim()
+        : request.destinationName.trim();
+    if (!mounted) return;
+
+    if (_selectedIndex != 2) {
+      setState(() => _selectedIndex = 2);
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    final navigator = _navigatorKeys[2].currentState;
+    if (navigator == null || !mounted) return;
+    navigator.popUntil((route) => route.isFirst);
+    await navigator.push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/start-trip/solo-map'),
+        builder: (_) => PlaceMapPage(initialSearchQuery: query),
+      ),
+    );
   }
 
   Future<bool> _handleBack() async {
@@ -829,15 +857,28 @@ class _TripModeCard extends StatelessWidget {
 }
 
 class CommunityModulePage extends StatelessWidget {
-  const CommunityModulePage({super.key, required this.controller});
+  const CommunityModulePage({
+    super.key,
+    required this.controller,
+    required this.onStartJourney,
+  });
 
   final CommunityController controller;
+  final StartJourneyCallback onStartJourney;
 
   @override
   Widget build(BuildContext context) {
-    return CommunityFeedScreen(
-      controller: controller,
-      showBottomNavigation: false,
+    return ValueListenableBuilder<List<String>>(
+      valueListenable: currentTravelerPreferences,
+      builder: (context, preferences, _) => CommunityFeedScreen(
+        controller: controller,
+        showBottomNavigation: false,
+        preferredTagNames: preferences,
+        includeDemoLikes: true,
+        integrationCallbacks: CommunityIntegrationCallbacks(
+          onStartJourney: onStartJourney,
+        ),
+      ),
     );
   }
 }

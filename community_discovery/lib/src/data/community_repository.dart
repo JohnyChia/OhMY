@@ -57,8 +57,10 @@ abstract interface class CommunityRepository {
   Future<void> setLiked(String postId, bool liked);
   Future<void> setBookmarked(String postId, bool bookmarked);
   Future<CommunityComment> addComment(String postId, String content);
+  Future<void> deleteComment(String commentId);
   Future<CommunityPost> createPost(CreatePostInput input);
   Future<CommunityPost> updatePost(UpdatePostInput input);
+  Future<void> deletePost(String postId, List<String> imagePaths);
   Stream<void> get changes;
   Future<void> dispose();
 }

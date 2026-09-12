@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../data/community_repository.dart';
+import '../data/community_validation_api.dart';
 import '../models/community_post.dart';
 import '../models/completed_trip.dart';
 import '../state/community_controller.dart';
+import 'widgets/community_status_card.dart';
+
+enum PostEditorResult { saved, deleted }
 
 class CreatePostScreen extends StatefulWidget {
   const CreatePostScreen({
@@ -34,7 +38,30 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   final List<PostImageUpload> _images = [];
   bool _replacingImages = false;
   bool _publishing = false;
+  bool _deleting = false;
+  final Map<String, _SubmissionFeedback> _fieldFeedback = {};
+  _SubmissionFeedback? _submissionFeedback;
   bool get _isEditing => widget.post != null;
+
+  void _clearFeedback(String field) {
+    if (_fieldFeedback.containsKey(field) || _submissionFeedback != null) {
+      setState(() {
+        _fieldFeedback.remove(field);
+        _submissionFeedback = null;
+      });
+    }
+  }
+
+  void _showLocalError(String field, String message) {
+    setState(() {
+      _fieldFeedback[field] = _SubmissionFeedback(
+        title: 'Rejected',
+        message: message,
+        isRejection: true,
+      );
+      _submissionFeedback = null;
+    });
+  }
 
   @override
   void initState() {
@@ -60,9 +87,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Future<void> _pickImages() async {
     final remaining = _isEditing && !_replacingImages ? 6 : 6 - _images.length;
     if (remaining <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('A post can contain up to 6 pictures.')),
-      );
+      _showLocalError('images', 'A post can contain up to 6 pictures.');
       return;
     }
     final selected = await _picker.pickMultiImage(
@@ -76,9 +101,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       final bytes = await image.readAsBytes();
       if (bytes.lengthInBytes > 10 * 1024 * 1024) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('${image.name} is larger than 10 MB.')),
-          );
+          _showLocalError('images', '${image.name} is larger than 10 MB.');
         }
         return;
       }
@@ -87,12 +110,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           : 'jpg';
       if (!{'jpg', 'jpeg', 'png'}.contains(extension)) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${image.name}: only JPG, JPEG, and PNG are accepted.',
-              ),
-            ),
+          _showLocalError(
+            'images',
+            '${image.name}: only JPG, JPEG, and PNG are accepted.',
           );
         }
         return;
@@ -105,6 +125,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         _replacingImages = true;
       }
       _images.addAll(uploads.take(6 - _images.length));
+      _fieldFeedback.remove('images');
+      _submissionFeedback = null;
     });
   }
 
@@ -112,21 +134,47 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     final trip = _selectedTrip;
     final title = _titleController.text.trim();
     final description = _descriptionController.text.trim();
-    if ((!_isEditing && trip == null) ||
-        (!_isEditing && _images.isEmpty) ||
-        (_isEditing && _replacingImages && _images.isEmpty) ||
-        title.length < 3 ||
-        description.length < 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Add a title, description, picture, and completed trip.',
-          ),
-        ),
-      );
+    final localErrors = <String, String>{};
+    if (!_isEditing && trip == null) {
+      localErrors['trip'] = 'Choose a completed trip.';
+    }
+    if (!_isEditing && _images.isEmpty) {
+      localErrors['images'] = 'Select at least one picture.';
+    } else if (_isEditing && _replacingImages && _images.isEmpty) {
+      localErrors['images'] = 'Select at least one replacement picture.';
+    }
+    if (title.length < 3 || title.length > 120) {
+      localErrors['title'] = 'Title must be between 3 and 120 characters.';
+    }
+    if (description.length < 10 || description.length > 1000) {
+      localErrors['description'] =
+          'Description must be between 10 and 1000 characters.';
+    }
+    if (localErrors.isNotEmpty) {
+      setState(() {
+        _fieldFeedback
+          ..clear()
+          ..addEntries(
+            localErrors.entries.map(
+              (entry) => MapEntry(
+                entry.key,
+                _SubmissionFeedback(
+                  title: 'Rejected',
+                  message: entry.value,
+                  isRejection: true,
+                ),
+              ),
+            ),
+          );
+        _submissionFeedback = null;
+      });
       return;
     }
-    setState(() => _publishing = true);
+    setState(() {
+      _publishing = true;
+      _fieldFeedback.clear();
+      _submissionFeedback = null;
+    });
     try {
       if (_isEditing) {
         await widget.controller.updatePost(
@@ -148,19 +196,95 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
         );
       }
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
+      if (mounted) Navigator.pop(context, PostEditorResult.saved);
+    } on CommunityValidationException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '${_isEditing ? 'Post could not be updated' : 'Post could not be published'}: $error',
-            ),
-          ),
-        );
+        setState(() {
+          _fieldFeedback.clear();
+          for (final entry in error.fieldErrors.entries) {
+            if (const {
+              'trip',
+              'images',
+              'title',
+              'description',
+            }.contains(entry.key)) {
+              _fieldFeedback[entry.key] = _SubmissionFeedback(
+                title: 'Rejected',
+                message: entry.value,
+                isRejection: true,
+              );
+            }
+          }
+          _submissionFeedback = _fieldFeedback.isEmpty
+              ? _SubmissionFeedback(
+                  title: 'Rejected',
+                  message: error.reason,
+                  details: error.fieldErrors.values.toList(growable: false),
+                  isRejection: true,
+                )
+              : null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _fieldFeedback.clear();
+          _submissionFeedback = const _SubmissionFeedback(
+            title: 'Could not check post',
+            message:
+                'The validation service is unavailable. Check your connection and try again.',
+          );
+        });
       }
     } finally {
       if (mounted) setState(() => _publishing = false);
+    }
+  }
+
+  Future<void> _deletePost() async {
+    final post = widget.post;
+    if (post == null || _deleting) return;
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete permanently?'),
+            content: const Text(
+              'This post and all of its comments will be deleted.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    setState(() => _deleting = true);
+    try {
+      await widget.controller.deletePost(post.id);
+      if (mounted) Navigator.pop(context, PostEditorResult.deleted);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _submissionFeedback = _SubmissionFeedback(
+            title: 'Post not deleted',
+            message: error
+                .toString()
+                .replaceFirst('Bad state: ', '')
+                .replaceFirst('Exception: ', ''),
+            isRejection: true,
+          );
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
     }
   }
 
@@ -168,6 +292,19 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: Text(_isEditing ? 'Edit post' : 'Share a completed trip'),
+      actions: [
+        if (_isEditing)
+          IconButton(
+            tooltip: 'Delete post',
+            onPressed: _publishing || _deleting ? null : _deletePost,
+            icon: _deleting
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.delete_outline),
+          ),
+      ],
     ),
     body: FutureBuilder<List<CompletedTrip>>(
       future: _trips,
@@ -223,6 +360,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   isThreeLine: true,
                 ),
               ),
+              if (_fieldFeedback['trip'] case final feedback?) ...[
+                const SizedBox(height: 8),
+                _FeedbackCard(feedback: feedback),
+              ],
             ],
             const SizedBox(height: 22),
             Text(
@@ -240,8 +381,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   ? const []
                   : widget.post?.allImageUrls ?? const [],
               onPick: _pickImages,
-              onRemove: (index) => setState(() => _images.removeAt(index)),
+              onRemove: (index) => setState(() {
+                _images.removeAt(index);
+                _fieldFeedback.remove('images');
+                _submissionFeedback = null;
+              }),
             ),
+            if (_fieldFeedback['images'] case final feedback?) ...[
+              const SizedBox(height: 8),
+              _FeedbackCard(feedback: feedback),
+            ],
             const SizedBox(height: 22),
             Text(
               _isEditing ? 'Title' : '3. Add a title',
@@ -250,9 +399,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: _titleController,
+              onChanged: (_) => _clearFeedback('title'),
               maxLength: 120,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Example: Morning light at Kwai Chai Hong',
+                errorText: _fieldFeedback['title']?.inlineMessage,
+                errorMaxLines: 4,
               ),
             ),
             const SizedBox(height: 12),
@@ -263,11 +415,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: _descriptionController,
+              onChanged: (_) => _clearFeedback('description'),
               minLines: 4,
               maxLines: 7,
               maxLength: 1000,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: 'Share practical tips or a memorable moment…',
+                errorText: _fieldFeedback['description']?.inlineMessage,
+                errorMaxLines: 4,
               ),
             ),
             const SizedBox(height: 12),
@@ -280,9 +435,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 ),
               ),
             ),
+            if (_submissionFeedback case final feedback?) ...[
+              const SizedBox(height: 14),
+              _FeedbackCard(feedback: feedback),
+            ],
             const SizedBox(height: 26),
             FilledButton.icon(
-              onPressed: _publishing ? null : _publish,
+              onPressed: _publishing || _deleting ? null : _publish,
               icon: _publishing
                   ? const SizedBox.square(
                       dimension: 18,
@@ -304,6 +463,39 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         );
       },
     ),
+  );
+}
+
+class _SubmissionFeedback {
+  const _SubmissionFeedback({
+    required this.title,
+    required this.message,
+    this.details = const <String>[],
+    this.isRejection = false,
+  });
+
+  final String title;
+  final String message;
+  final List<String> details;
+  final bool isRejection;
+
+  String get inlineMessage => [
+    message,
+    ...details,
+  ].where((value) => value.trim().isNotEmpty).join('\n');
+}
+
+class _FeedbackCard extends StatelessWidget {
+  const _FeedbackCard({required this.feedback});
+
+  final _SubmissionFeedback feedback;
+
+  @override
+  Widget build(BuildContext context) => CommunityStatusCard(
+    title: feedback.title,
+    message: feedback.message,
+    details: feedback.details,
+    isError: feedback.isRejection,
   );
 }
 

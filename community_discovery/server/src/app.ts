@@ -88,7 +88,8 @@ export function createApp(dependencies: AppDependencies) {
         body: {
           approved: false,
           code: 'TAG_CONFIGURATION_MISSING',
-          reason: 'No location tag mapping or fallback tag is configured.',
+          reason:
+            'Google Places did not return a supported location category. Please retry later.',
           fieldErrors: {},
         },
       };

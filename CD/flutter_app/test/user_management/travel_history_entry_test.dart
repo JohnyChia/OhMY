@@ -18,6 +18,7 @@ void main() {
     expect(entry.destination, 'Kuala Lumpur');
     expect(entry.completedAt, DateTime.utc(2026, 9, 1, 4));
     expect(entry.isPersisted, isFalse);
+    expect(entry.canShareToCommunity, isFalse);
   });
 
   test('maps a completed unified trip with itinerary details', () {
@@ -46,7 +47,7 @@ void main() {
   });
 
   test(
-    'does not expose Community posting for a persisted group history row',
+    'exposes Community posting for a persisted group history row',
     () {
       final entry = TravelHistoryEntry.fromSupabase({
         'id': 'group-history-id',
@@ -59,7 +60,7 @@ void main() {
       });
 
       expect(entry.isPersisted, isTrue);
-      expect(entry.canShareToCommunity, isFalse);
+      expect(entry.canShareToCommunity, isTrue);
     },
   );
 }

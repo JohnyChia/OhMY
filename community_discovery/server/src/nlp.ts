@@ -161,25 +161,44 @@ function containsLink(value: string): boolean {
   );
 }
 
+function locationNameVariants(value: string): string[] {
+  const variants = [
+    value,
+    ...value.split(/[,;/|()[\]{}\-\u2013\u2014]+/u),
+  ];
+  return [...new Set(variants.map((variant) => normalizeText(variant)).filter(Boolean))];
+}
+
 function locationMatches(
-  title: string,
-  description: string,
+  value: string,
   destination: string,
   attraction: string,
   aliases: LocationAlias[],
 ): boolean {
-  const normalizedText = normalizeText(`${title} ${description}`);
-  const expected = [destination, attraction];
-  const normalizedExpected = new Set(expected.map(normalizeText).filter(Boolean));
+  const normalizedText = normalizeText(value);
+  const expected = [
+    ...locationNameVariants(destination),
+    ...locationNameVariants(attraction),
+  ];
+  const normalizedExpected = new Set(expected);
   for (const alias of aliases) {
-    if (normalizedExpected.has(normalizeText(alias.canonical_location))) expected.push(alias.alias);
+    const canonicalVariants = locationNameVariants(alias.canonical_location);
+    if (canonicalVariants.some((variant) => normalizedExpected.has(variant))) {
+      expected.push(...locationNameVariants(alias.alias));
+    }
   }
 
   const textTokens = new Set(tokens(normalizedText));
   return expected.some((candidate) => {
-    const phrase = normalizeText(candidate);
+    const phrase = candidate;
     if (!phrase) return false;
     if (` ${normalizedText} `.includes(` ${phrase} `)) return true;
+    const compactPhrase = phrase.replace(/\s/g, '');
+    // Common place names are often written both spaced and joined, for
+    // example "TAR UMT" and "TARUMT" or "Kuala Lumpur" and
+    // "KualaLumpur". Only accept the complete compact location token so a
+    // short, unrelated partial word cannot satisfy the location check.
+    if (compactPhrase.length >= 5 && textTokens.has(compactPhrase)) return true;
     const important = tokens(phrase).filter((token) => token.length >= 3 && !stopWords.has(token));
     if (important.length === 0) return false;
     const matches = important.filter((word) =>
@@ -189,6 +208,13 @@ function locationMatches(
     ).length;
     return matches / important.length >= 0.5;
   });
+}
+
+function locationPrompt(destination: string, attraction: string): string {
+  const names = [...new Set([attraction.trim(), destination.trim()].filter(Boolean))];
+  return names.length === 0
+    ? 'Mention the completed trip location.'
+    : `Mention ${names.join(' or ')}.`;
 }
 
 export function reviewPostText(input: ReviewInput): ReviewResult {
@@ -228,21 +254,64 @@ export function reviewPostText(input: ReviewInput): ReviewResult {
     return { approved: false, reason: 'Use clear, meaningful language.', code: 'LOW_QUALITY_TEXT', fieldErrors };
   }
 
-  if (containsBlockedLanguage(`${title} ${description}`, input.blockedTerms, input.allowList)) {
+  const titleContainsBlockedLanguage = containsBlockedLanguage(
+    title,
+    input.blockedTerms,
+    input.allowList,
+  );
+  const descriptionContainsBlockedLanguage = containsBlockedLanguage(
+    description,
+    input.blockedTerms,
+    input.allowList,
+  );
+  if (titleContainsBlockedLanguage || descriptionContainsBlockedLanguage) {
+    if (titleContainsBlockedLanguage) {
+      fieldErrors.title = 'Remove inappropriate or disguised abusive language from the title.';
+    }
+    if (descriptionContainsBlockedLanguage) {
+      fieldErrors.description =
+        'Remove inappropriate or disguised abusive language from the description.';
+    }
     return {
       approved: false,
       reason: 'Your post contains inappropriate language. Remove it and try again.',
       code: 'INAPPROPRIATE_LANGUAGE',
-      fieldErrors: { description: 'Remove inappropriate or disguised abusive language.' },
+      fieldErrors,
     };
   }
 
-  if (!locationMatches(title, description, input.destination, input.attraction, input.aliases)) {
+  const titleMatches = locationMatches(
+    title,
+    input.destination,
+    input.attraction,
+    input.aliases,
+  );
+  const descriptionMatches = locationMatches(
+    description,
+    input.destination,
+    input.attraction,
+    input.aliases,
+  );
+  if (!titleMatches || !descriptionMatches) {
+    const prompt = locationPrompt(input.destination, input.attraction);
+    if (!titleMatches) {
+      fieldErrors.title =
+        `The title must clearly relate to the completed trip location. ${prompt}`;
+    }
+    if (!descriptionMatches) {
+      fieldErrors.description =
+        `The description must clearly relate to the completed trip location. ${prompt}`;
+    }
+    const missingField = !titleMatches && !descriptionMatches
+      ? 'The title and description must each'
+      : !titleMatches
+        ? 'The title must'
+        : 'The description must';
     return {
       approved: false,
-      reason: 'The title or description must clearly relate to the completed trip location.',
+      reason: `${missingField} clearly relate to the completed trip location.`,
       code: 'LOCATION_MISMATCH',
-      fieldErrors: { description: `Mention ${input.attraction} or ${input.destination}.` },
+      fieldErrors,
     };
   }
 
@@ -283,8 +352,7 @@ export function detectLocationTags(input: {
     .map(({ tag }) => ({ id: tag.id, name: tag.name, type: tag.tag_type }));
 
   if (ranked.length > 0) return ranked;
-  const fallback = input.tags.find(
-    (tag) => normalizeText(tag.name) === normalizeText(input.fallbackTagName),
-  );
-  return fallback ? [{ id: fallback.id, name: fallback.name, type: fallback.tag_type }] : [];
+  // Do not guess a category when Google Places returns no mapped location
+  // type. Publishing fails closed until an explicit place-type rule exists.
+  return [];
 }

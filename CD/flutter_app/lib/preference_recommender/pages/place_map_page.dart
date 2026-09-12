@@ -23,7 +23,10 @@ const blue = Color(0xff3266cc),
     soft = Color(0xffedf4ff);
 
 class PlaceMapPage extends StatefulWidget {
-  const PlaceMapPage({super.key});
+  const PlaceMapPage({super.key, this.initialSearchQuery});
+
+  final String? initialSearchQuery;
+
   @override
   State<PlaceMapPage> createState() => _PlaceMapPageState();
 }
@@ -62,6 +65,15 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     super.initState();
     completedJourneyLocation.addListener(_resumeAtCompletedJourneyLocation);
     unawaited(initializeCurrentLocation());
+    final initialQuery = widget.initialSearchQuery?.trim() ?? '';
+    if (initialQuery.isNotEmpty) {
+      search.text = initialQuery;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        searchFocus.requestFocus();
+        unawaited(runSearch(query: initialQuery));
+      });
+    }
   }
 
   void _resumeAtCompletedJourneyLocation() {

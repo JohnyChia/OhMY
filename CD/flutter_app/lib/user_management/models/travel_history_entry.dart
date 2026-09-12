@@ -50,7 +50,7 @@ class TravelHistoryEntry {
   /// False only for local fallback cards that do not exist in Supabase.
   final bool isPersisted;
 
-  bool get canShareToCommunity => isPersisted && type == TravelHistoryType.solo;
+  bool get canShareToCommunity => isPersisted;
 
   factory TravelHistoryEntry.fromSupabase(Map<String, dynamic> row) {
     if (row['source_type'] == null && row['travel_groups'] is Map) {

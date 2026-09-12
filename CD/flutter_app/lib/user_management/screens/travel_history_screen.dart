@@ -245,15 +245,17 @@ class _CommunityPostActionState extends State<_CommunityPostAction> {
   );
 
   Future<void> _open() async {
-    await openTripHistoryPostAction(
+    final result = await openTripHistoryPostAction(
       context,
       controller: widget.controller,
       historyEntry: _communityTrip,
     );
     if (mounted) {
-      setState(
-        () => _post = widget.controller.getPostForHistoryEntry(widget.trip.id),
-      );
+      setState(() {
+        _post = result == PostEditorResult.deleted
+            ? Future<CommunityPost?>.value(null)
+            : widget.controller.getPostForHistoryEntry(widget.trip.id);
+      });
     }
   }
 

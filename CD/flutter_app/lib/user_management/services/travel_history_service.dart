@@ -36,10 +36,10 @@ class TravelHistoryService {
 
       // The shared history table may be hidden by RLS even though the
       // Community security-definer function can see this user's eligible
-      // completed solo trips. Prefer those real IDs so Create/Edit Post can
+      // completed trips. Prefer those real IDs so Create/Edit Post can
       // pass server-side ownership validation. Local demo IDs must never be
       // sent to the Community publishing API.
-      final eligibleHistory = await _fetchEligibleCommunitySoloTrips();
+      final eligibleHistory = await _fetchEligibleCommunityHistoryTrips();
       return eligibleHistory;
     } on PostgrestException catch (error) {
       if (_isMissingHistoryTable(error)) {
@@ -135,29 +135,33 @@ class TravelHistoryService {
     return error.code == 'PGRST205' || error.code == '42P01';
   }
 
-  Future<List<TravelHistoryEntry>> _fetchEligibleCommunitySoloTrips() async {
+  Future<List<TravelHistoryEntry>> _fetchEligibleCommunityHistoryTrips() async {
     try {
       final response = await _client.rpc(
-        'eligible_community_history_entries_v5',
+        'eligible_community_history_entries_v6',
       );
       final rows = (response as List<dynamic>).cast<Map<String, dynamic>>();
-      return rows.map(_eligibleSoloFromCommunity).toList(growable: false);
+      return rows.map(_eligibleHistoryFromCommunity).toList(growable: false);
     } catch (_) {
       return const [];
     }
   }
 
-  TravelHistoryEntry _eligibleSoloFromCommunity(Map<String, dynamic> row) {
+  TravelHistoryEntry _eligibleHistoryFromCommunity(Map<String, dynamic> row) {
     final completedAt =
         DateTime.tryParse(row['ended_at']?.toString() ?? '') ?? DateTime.now();
     final destination =
         row['location_name']?.toString().trim() ?? 'Unknown destination';
-    final title = row['title']?.toString().trim() ?? 'Completed solo trip';
+    final isGroup = row['source_type']?.toString() == 'group';
+    final fallbackTitle = isGroup
+        ? 'Completed group trip'
+        : 'Completed solo trip';
+    final title = row['title']?.toString().trim() ?? fallbackTitle;
 
     return TravelHistoryEntry(
       id: row['id'].toString(),
-      type: TravelHistoryType.solo,
-      title: title.isEmpty ? 'Completed solo trip' : title,
+      type: isGroup ? TravelHistoryType.group : TravelHistoryType.solo,
+      title: title.isEmpty ? fallbackTitle : title,
       destination: destination.isEmpty ? 'Unknown destination' : destination,
       startedAt: completedAt.subtract(const Duration(hours: 1)),
       completedAt: completedAt,

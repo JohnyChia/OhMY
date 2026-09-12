@@ -10,3 +10,4 @@ export 'src/state/community_controller.dart' show CommunityController;
 export 'src/ui/bookmarked_posts_screen.dart'
     show BookmarkedPostsScreen, SavedPostsSection;
 export 'src/ui/community_feed_screen.dart' show CommunityFeedScreen;
+export 'src/ui/create_post_screen.dart' show PostEditorResult;

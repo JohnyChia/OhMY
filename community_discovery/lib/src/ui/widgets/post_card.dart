@@ -4,6 +4,7 @@ import '../../models/community_post.dart';
 import '../../integration/community_integration_callbacks.dart';
 import '../../state/community_controller.dart';
 import '../post_detail_screen.dart';
+import 'post_engagement.dart';
 import 'post_image.dart';
 
 class PostCard extends StatelessWidget {
@@ -12,11 +13,13 @@ class PostCard extends StatelessWidget {
     required this.post,
     required this.controller,
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
+    this.includeDemoLikes = false,
   });
 
   final CommunityPost post;
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
+  final bool includeDemoLikes;
 
   @override
   Widget build(BuildContext context) => Card(
@@ -28,6 +31,7 @@ class PostCard extends StatelessWidget {
             postId: post.id,
             controller: controller,
             integrationCallbacks: integrationCallbacks,
+            includeDemoLikes: includeDemoLikes,
           ),
         ),
       ),
@@ -46,7 +50,7 @@ class PostCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${post.authorName}  •  Verified traveller',
+                    post.authorName,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
@@ -89,7 +93,9 @@ class PostCard extends StatelessWidget {
                     color: post.isLiked ? Colors.pink : null,
                   ),
                 ),
-                Text('${post.likeCount}'),
+                Text(
+                  '${displayedLikeCount(post, includeDemo: includeDemoLikes)}',
+                ),
                 IconButton(
                   tooltip: 'Comments',
                   onPressed: () => Navigator.of(context).push(
@@ -98,6 +104,7 @@ class PostCard extends StatelessWidget {
                         postId: post.id,
                         controller: controller,
                         integrationCallbacks: integrationCallbacks,
+                        includeDemoLikes: includeDemoLikes,
                       ),
                     ),
                   ),
@@ -105,16 +112,19 @@ class PostCard extends StatelessWidget {
                 ),
                 Text('${post.commentCount}'),
                 const Spacer(),
-                IconButton(
-                  tooltip: post.isBookmarked ? 'Remove bookmark' : 'Bookmark',
-                  onPressed: () => controller.toggleBookmark(post.id),
-                  icon: Icon(
-                    post.isBookmarked ? Icons.bookmark : Icons.bookmark_border,
-                    color: post.isBookmarked
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
+                if (!post.isOwner)
+                  IconButton(
+                    tooltip: post.isBookmarked ? 'Remove bookmark' : 'Bookmark',
+                    onPressed: () => controller.toggleBookmark(post.id),
+                    icon: Icon(
+                      post.isBookmarked
+                          ? Icons.bookmark
+                          : Icons.bookmark_border,
+                      color: post.isBookmarked
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
                   ),
-                ),
               ],
             ),
           ),

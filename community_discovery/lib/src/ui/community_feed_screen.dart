@@ -2,11 +2,16 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/community_post.dart';
+import '../models/discovery_tag.dart';
 import '../state/community_controller.dart';
 import '../integration/community_integration_callbacks.dart';
 import '../theme/community_theme.dart';
 import 'bookmarked_posts_screen.dart';
+import 'widgets/post_engagement.dart';
 import 'widgets/post_card.dart';
+
+enum _PostSort { latest, mostLiked }
 
 class CommunityFeedScreen extends StatefulWidget {
   const CommunityFeedScreen({
@@ -14,10 +19,14 @@ class CommunityFeedScreen extends StatefulWidget {
     required this.controller,
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
     this.showBottomNavigation = true,
+    this.preferredTagNames,
+    this.includeDemoLikes = false,
   });
 
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
+  final List<String>? preferredTagNames;
+  final bool includeDemoLikes;
 
   /// Keep this enabled only when Community Discovery runs as a standalone app.
   /// The host OhMY shell owns the real navigation after integration.
@@ -30,6 +39,7 @@ class CommunityFeedScreen extends StatefulWidget {
 class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   final _searchController = TextEditingController();
   Timer? _debounce;
+  _PostSort _sort = _PostSort.latest;
 
   @override
   void initState() {
@@ -53,11 +63,47 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
     );
   }
 
+  List<DiscoveryTag> _visibleTags(List<DiscoveryTag> tags) {
+    final preferences = widget.preferredTagNames;
+    if (preferences == null) return tags;
+    final normalized = preferences
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    return tags
+        .where((tag) => normalized.contains(tag.name.trim().toLowerCase()))
+        .toList(growable: false);
+  }
+
+  List<CommunityPost> _sortedPosts(List<CommunityPost> posts) {
+    final sorted = List<CommunityPost>.of(posts);
+    switch (_sort) {
+      case _PostSort.latest:
+        sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+      case _PostSort.mostLiked:
+        sorted.sort((a, b) {
+          final likes =
+              displayedLikeCount(
+                b,
+                includeDemo: widget.includeDemoLikes,
+              ).compareTo(
+                displayedLikeCount(a, includeDemo: widget.includeDemoLikes),
+              );
+          return likes != 0 ? likes : b.createdAt.compareTo(a.createdAt);
+        });
+        break;
+    }
+    return sorted;
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.controller,
     builder: (context, _) {
       final state = widget.controller;
+      final visibleTags = _visibleTags(state.tags);
+      final visiblePosts = _sortedPosts(state.posts);
       return Scaffold(
         body: SafeArea(
           child: RefreshIndicator(
@@ -91,13 +137,54 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                                 style: Theme.of(context).textTheme.headlineSmall
                                     ?.copyWith(fontWeight: FontWeight.w800),
                               ),
-                              const SizedBox(height: 3),
-                              Text(
-                                state.selectedTagIds.isEmpty
-                                    ? 'Posts from completed trips'
-                                    : '${state.selectedTagIds.length} discovery filter(s) selected',
-                              ),
+                              if (state.selectedTagIds.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${state.selectedTagIds.length} discovery filter(s) selected',
+                                ),
+                              ],
                             ],
+                          ),
+                        ),
+                        PopupMenuButton<_PostSort>(
+                          tooltip: 'Arrange posts',
+                          initialValue: _sort,
+                          onSelected: (value) => setState(() => _sort = value),
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(
+                              value: _PostSort.latest,
+                              child: Text('Latest'),
+                            ),
+                            PopupMenuItem(
+                              value: _PostSort.mostLiked,
+                              child: Text('Most liked'),
+                            ),
+                          ],
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outlineVariant,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.swap_vert, size: 18),
+                                const SizedBox(width: 5),
+                                Text(
+                                  _sort == _PostSort.latest
+                                      ? 'Latest'
+                                      : 'Most liked',
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -105,24 +192,35 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                   ),
                 ),
                 SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 46,
-                    child: ListView(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      scrollDirection: Axis.horizontal,
-                      children: state.tags.map((tag) {
-                        final selected = state.selectedTagIds.contains(tag.id);
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: FilterChip(
-                            label: Text(tag.name),
-                            selected: selected,
-                            onSelected: (_) => state.toggleTag(tag.id),
+                  child: visibleTags.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.fromLTRB(18, 0, 18, 10),
+                          child: Text(
+                            'No saved preference tags are available.',
                           ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
+                        )
+                      : SizedBox(
+                          height: 46,
+                          child: ListView(
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            scrollDirection: Axis.horizontal,
+                            children: visibleTags.map((tag) {
+                              final selected = state.selectedTagIds.contains(
+                                tag.id,
+                              );
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: FilterChip(
+                                  label: Text(tag.name),
+                                  selected: selected,
+                                  onSelected: (_) => state.toggleTag(tag.id),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
                 ),
                 if (state.isLoading)
                   const SliverFillRemaining(
@@ -169,12 +267,13 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
                     sliver: SliverList.separated(
-                      itemCount: state.posts.length,
+                      itemCount: visiblePosts.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 14),
                       itemBuilder: (context, index) => PostCard(
-                        post: state.posts[index],
+                        post: visiblePosts[index],
                         controller: state,
                         integrationCallbacks: widget.integrationCallbacks,
+                        includeDemoLikes: widget.includeDemoLikes,
                       ),
                     ),
                   ),
@@ -383,13 +482,43 @@ class _Header extends StatelessWidget {
     child: Row(
       children: [
         Expanded(
-          child: TextField(
-            controller: controller,
-            onChanged: onSearch,
-            textInputAction: TextInputAction.search,
-            decoration: const InputDecoration(
-              hintText: 'Search posts, places or tags…',
-              prefixIcon: Icon(Icons.search),
+          child: SizedBox(
+            height: 49,
+            child: TextField(
+              controller: controller,
+              onChanged: onSearch,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search posts, places or tags…',
+                suffixIcon: controller.text.isEmpty
+                    ? const Icon(Icons.search)
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          controller.clear();
+                          onSearch('');
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                filled: true,
+                fillColor: const Color(0xFFF7F3FB),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 18),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 1.5,
+                  ),
+                ),
+              ),
             ),
           ),
         ),

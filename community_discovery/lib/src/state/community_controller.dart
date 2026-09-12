@@ -117,6 +117,11 @@ class CommunityController extends ChangeNotifier {
 
   Future<void> toggleBookmark(String postId) async {
     final before = postById(postId);
+    if (before.isOwner) {
+      _error = 'You cannot bookmark your own post.';
+      notifyListeners();
+      return;
+    }
     final bookmarked = !before.isBookmarked;
     _replacePost(before.copyWith(isBookmarked: bookmarked));
     notifyListeners();
@@ -139,6 +144,17 @@ class CommunityController extends ChangeNotifier {
     _replacePost(before.copyWith(commentCount: before.commentCount + 1));
     notifyListeners();
     return comment;
+  }
+
+  Future<void> deleteComment(String postId, String commentId) async {
+    await _repository.deleteComment(commentId);
+    final before = postById(postId);
+    _replacePost(
+      before.copyWith(
+        commentCount: before.commentCount > 0 ? before.commentCount - 1 : 0,
+      ),
+    );
+    notifyListeners();
   }
 
   Future<List<CompletedTrip>> getEligibleTrips() =>
@@ -192,6 +208,21 @@ class CommunityController extends ChangeNotifier {
     _replacePost(post);
     notifyListeners();
     return post;
+  }
+
+  Future<void> deletePost(String postId) async {
+    final post = postById(postId);
+    if (!post.isOwner) {
+      throw StateError('Only the author can delete this post.');
+    }
+    await _repository.deletePost(postId, post.imagePaths);
+    _posts = _posts.where((item) => item.id != postId).toList();
+    _bookmarkedPosts = _bookmarkedPosts
+        .where((item) => item.id != postId)
+        .toList();
+    // Keep the cached value long enough for an open detail/editor route to
+    // finish its closing frame after listeners are notified.
+    notifyListeners();
   }
 
   @override

@@ -4,6 +4,7 @@ import '../models/community_comment.dart';
 import '../integration/community_integration_callbacks.dart';
 import '../state/community_controller.dart';
 import 'create_post_screen.dart';
+import 'widgets/post_engagement.dart';
 import 'widgets/post_image.dart';
 
 class PostDetailScreen extends StatefulWidget {
@@ -12,11 +13,13 @@ class PostDetailScreen extends StatefulWidget {
     required this.postId,
     required this.controller,
     this.integrationCallbacks = const CommunityIntegrationCallbacks(),
+    this.includeDemoLikes = false,
   });
 
   final String postId;
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
+  final bool includeDemoLikes;
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -26,6 +29,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final _commentController = TextEditingController();
   late Future<List<CommunityComment>> _comments;
   bool _submitting = false;
+  String? _commentError;
   late int _lastCommentCount;
 
   @override
@@ -40,7 +44,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final count = widget.controller.postById(widget.postId).commentCount;
     if (count == _lastCommentCount || !mounted) return;
     _lastCommentCount = count;
-    setState(() => _comments = widget.controller.getComments(widget.postId));
+    setState(() {
+      _comments = widget.controller.getComments(widget.postId);
+    });
   }
 
   @override
@@ -54,24 +60,86 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     if (_submitting) return;
     final content = _commentController.text.trim();
     if (content.isEmpty || content.length > 500) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Comments must be 1–500 characters.')),
-      );
+      setState(() => _commentError = 'Comments must be 1–500 characters.');
       return;
     }
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      _commentError = null;
+    });
     try {
       await widget.controller.addComment(widget.postId, content);
       _commentController.clear();
-      setState(() => _comments = widget.controller.getComments(widget.postId));
+      setState(() {
+        _comments = widget.controller.getComments(widget.postId);
+      });
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Comment was not sent: $error')));
+        final message = error
+            .toString()
+            .replaceFirst('Bad state: ', '')
+            .replaceFirst('Exception: ', '');
+        setState(() => _commentError = message);
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<bool> _confirmDelete(String message) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete permanently?'),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _deletePost() async {
+    if (!await _confirmDelete(
+      'This post and all of its comments will be deleted.',
+    )) {
+      return;
+    }
+    try {
+      await widget.controller.deletePost(widget.postId);
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Post could not be deleted: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteComment(CommunityComment comment) async {
+    if (!await _confirmDelete('This comment will be deleted.')) return;
+    try {
+      await widget.controller.deleteComment(widget.postId, comment.id);
+      if (mounted) {
+        setState(() {
+          _comments = widget.controller.getComments(widget.postId);
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Comment could not be deleted: $error')),
+        );
+      }
     }
   }
 
@@ -88,15 +156,24 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 tooltip: 'Edit post',
                 icon: const Icon(Icons.edit_outlined),
                 onPressed: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
+                  final result = await Navigator.of(context).push(
+                    MaterialPageRoute<PostEditorResult>(
                       builder: (_) => CreatePostScreen(
                         controller: widget.controller,
                         post: post,
                       ),
                     ),
                   );
+                  if (result == PostEditorResult.deleted && context.mounted) {
+                    Navigator.pop(context, true);
+                  }
                 },
+              ),
+            if (post.isOwner)
+              IconButton(
+                tooltip: 'Delete post',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: _deletePost,
               ),
           ],
         ),
@@ -110,7 +187,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               child: PostImage(
                 post: post,
                 height: 360,
-                fit: BoxFit.contain,
+                fit: BoxFit.cover,
                 openFullscreenOnTap: true,
               ),
             ),
@@ -159,7 +236,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 2),
               child: Text(
-                '${post.authorName} · Verified traveller · ${_relativeTime(post.createdAt)}',
+                '${post.authorName} · ${_relativeTime(post.createdAt)}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -175,21 +252,27 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                     ),
                     label: Text(post.isLiked ? 'Liked' : 'Like'),
                   ),
-                  Text('${post.likeCount}'),
+                  Text(
+                    '${displayedLikeCount(post, includeDemo: widget.includeDemoLikes)}',
+                  ),
                   const SizedBox(width: 8),
                   const Icon(Icons.chat_bubble_outline, size: 19),
                   const SizedBox(width: 5),
                   Text('${post.commentCount}'),
                   const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => widget.controller.toggleBookmark(post.id),
-                    icon: Icon(
-                      post.isBookmarked
-                          ? Icons.bookmark
-                          : Icons.bookmark_border,
+                  if (!post.isOwner)
+                    TextButton.icon(
+                      onPressed: () =>
+                          widget.controller.toggleBookmark(post.id),
+                      icon: Icon(
+                        post.isBookmarked
+                            ? Icons.bookmark
+                            : Icons.bookmark_border,
+                      ),
+                      label: Text(
+                        post.isBookmarked ? 'Bookmarked' : 'Bookmark',
+                      ),
                     ),
-                    label: Text(post.isBookmarked ? 'Bookmarked' : 'Bookmark'),
-                  ),
                 ],
               ),
             ),
@@ -247,7 +330,18 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               ),
                             ),
                             subtitle: Text(comment.content),
-                            trailing: Text(_relativeTime(comment.createdAt)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_relativeTime(comment.createdAt)),
+                                if (comment.isOwner || post.isOwner)
+                                  IconButton(
+                                    tooltip: 'Delete comment',
+                                    onPressed: () => _deleteComment(comment),
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       )
@@ -263,12 +357,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   Expanded(
                     child: TextField(
                       controller: _commentController,
+                      onChanged: (_) {
+                        if (_commentError != null) {
+                          setState(() => _commentError = null);
+                        }
+                      },
                       minLines: 1,
                       maxLines: 3,
                       maxLength: 500,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Add a comment…',
                         counterText: '',
+                        errorText: _commentError,
+                        errorMaxLines: 4,
                       ),
                     ),
                   ),
