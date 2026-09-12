@@ -29,10 +29,13 @@ class MockTravelGroupRepository implements TravelGroupRepository {
           id: 'STOP_001',
           groupId: 'GROUP_001',
           suggestionId: 'SUGGESTION_001',
-          placeName: 'Petaling Street Breakfast',
+          placeName: 'Petaling Street',
           position: 0,
           estimatedDurationMinutes: 60,
           travelTimeFromPreviousMinutes: 0,
+          placeId: 'places/petaling-street',
+          latitude: 3.1440,
+          longitude: 101.6968,
         ),
       ],
     );
@@ -538,6 +541,12 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   @override
   Future<TravelGroupTripSession> confirmGroup(String groupId) async {
     final group = _requireGroup(groupId);
+    if (group.memberCount < 2) {
+      throw const TravelGroupException(
+        'Wait for another traveller before confirming the group.',
+        'not_enough_members',
+      );
+    }
     group.confirmedAt ??= DateTime.now().toUtc();
     group.tripPhase = GroupTripPhase.gathering;
     return _sessions.putIfAbsent(
@@ -654,13 +663,16 @@ List<GroupSuggestion> _seedSuggestions() => [
     id: 'SUGGESTION_001',
     groupId: 'GROUP_001',
     suggestedByUserId: 'USER_100',
-    placeName: 'Petaling Street Breakfast',
+    placeName: 'Petaling Street',
     source: 'Attraction Directory',
     category: 'Food',
     distanceKm: 0.2,
     crowdLevel: 'Moderate',
     durationMinutes: 60,
     tags: ['Food', 'Budget'],
+    placeId: 'places/petaling-street',
+    latitude: 3.1440,
+    longitude: 101.6968,
     upvoterIds: {'USER_100', 'USER_101', 'USER_102'},
     isConfirmed: true,
   ),
@@ -675,6 +687,9 @@ List<GroupSuggestion> _seedSuggestions() => [
     crowdLevel: 'Moderate',
     durationMinutes: 60,
     tags: ['Cultural', 'Heritage'],
+    placeId: 'places/central-market',
+    latitude: 3.1459,
+    longitude: 101.6953,
     upvoterIds: {'USER_100', 'USER_101', 'USER_102', 'USER_103'},
     downvoterIds: {'USER_104'},
   ),
@@ -689,6 +704,9 @@ List<GroupSuggestion> _seedSuggestions() => [
     crowdLevel: 'Busy',
     durationMinutes: 90,
     tags: ['Food', 'Budget'],
+    placeId: 'places/kampung-baru',
+    latitude: 3.1643,
+    longitude: 101.7067,
     upvoterIds: {'USER_100', 'USER_101', 'USER_102'},
   ),
   GroupSuggestion(
@@ -702,6 +720,9 @@ List<GroupSuggestion> _seedSuggestions() => [
     crowdLevel: 'Low',
     durationMinutes: 45,
     tags: ['Nature', 'Casual'],
+    placeId: 'places/river-of-life',
+    latitude: 3.1477,
+    longitude: 101.6933,
     upvoterIds: {'USER_100', 'USER_101'},
   ),
 ];

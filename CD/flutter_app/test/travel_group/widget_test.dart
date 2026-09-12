@@ -6,6 +6,7 @@ import 'package:flutter_app/travel_group/features/travel_group/models/travel_gro
 import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/group_lobby_screen.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/group_details_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/itinerary_board.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/live_trip_location_service.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/travel_place_search_service.dart';
@@ -59,6 +60,65 @@ void main() {
       controller: controller,
       placeSearchService: placeSearch,
     ),
+  );
+
+  testWidgets(
+    'creator cannot confirm from the lobby until another traveller joins',
+    (tester) async {
+      await controller.openGroup('GROUP_001');
+      final group = controller.activeGroup!;
+      group.memberIds
+        ..clear()
+        ..add(group.creatorId);
+      group.memberCount = 1;
+      await tester.pumpWidget(
+        MaterialApp(home: GroupLobbyScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('confirm_group_button')),
+      );
+      expect(button.onPressed, isNull);
+      expect(find.text('Waiting for another traveller'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'outsider group details never reveal the confirmed meetup point',
+    (tester) async {
+      controller.switchUser(
+        PrototypeUser(
+          id: 'USER_500',
+          name: 'Outside traveller',
+          isVerified: true,
+        ),
+      );
+      await controller.openGroup('GROUP_001');
+      controller.activeGroup!.confirmedAt = DateTime.now();
+      final privateMeetup = controller.activeGroup!.meetupPoint;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GroupDetailsScreen(
+            controller: controller,
+            placeSearchService: placeSearch,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(privateMeetup), findsNothing);
+      expect(find.text('MEETUP POINT'), findsNothing);
+      await tester.drag(find.byType(ListView), const Offset(0, -420));
+      await tester.pumpAndSettle();
+      expect(find.text('FIRST DESTINATION'), findsOneWidget);
+      expect(
+        find.textContaining('Meetup and live locations stay private'),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
   );
 
   testWidgets(

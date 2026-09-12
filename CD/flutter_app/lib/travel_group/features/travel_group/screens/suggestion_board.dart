@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
@@ -43,15 +44,36 @@ class _SuggestionBoardState extends State<SuggestionBoard> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
-        Align(
-          alignment: Alignment.centerLeft,
-          child: FilledButton(
-            onPressed: () => _showPlaces(context),
-            style: FilledButton.styleFrom(minimumSize: const Size(142, 36)),
-            child: const Text('+ Suggest place'),
+        InkWell(
+          key: const Key('suggest_place_search'),
+          onTap: () => _showPlaces(context),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: AppColors.border),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.search_rounded, color: AppColors.primary),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Suggest a nearby place',
+                    style: TextStyle(color: AppColors.secondaryText),
+                  ),
+                ),
+                Icon(Icons.tune_rounded, color: AppColors.primary),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
+        _SuggestionMap(controller: controller),
+        const SizedBox(height: 14),
         const Text(
           'Ranked by member votes  •  Highest first',
           textAlign: TextAlign.center,
@@ -390,10 +412,10 @@ class _SuggestionCard extends StatelessWidget {
                   : FilledButton(
                       onPressed: () => controller.confirmSuggestion(suggestion),
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size(96, 30),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        minimumSize: const Size(76, 32),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
                       ),
-                      child: const Text('Confirm'),
+                      child: const Text('Add'),
                     ),
             ),
           ],
@@ -414,6 +436,57 @@ class _SuggestionCard extends StatelessWidget {
         showTravelGroupMessage(context, error.message, error: true);
       }
     }
+  }
+}
+
+class _SuggestionMap extends StatelessWidget {
+  const _SuggestionMap({required this.controller});
+
+  final TravelGroupController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final group = controller.activeGroup!;
+    final latitude = group.destinationLatitude;
+    final longitude = group.destinationLongitude;
+    if (latitude == null || longitude == null) return const SizedBox.shrink();
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('initial_destination'),
+        position: LatLng(latitude, longitude),
+        infoWindow: InfoWindow(title: group.destination),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+      for (final suggestion in controller.suggestions)
+        if (suggestion.latitude != null && suggestion.longitude != null)
+          Marker(
+            markerId: MarkerId(suggestion.id),
+            position: LatLng(suggestion.latitude!, suggestion.longitude!),
+            infoWindow: InfoWindow(title: suggestion.placeName),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              suggestion.isConfirmed
+                  ? BitmapDescriptor.hueGreen
+                  : BitmapDescriptor.hueViolet,
+            ),
+          ),
+    };
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        height: 190,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(latitude, longitude),
+            zoom: 12.8,
+          ),
+          markers: markers,
+          mapToolbarEnabled: false,
+          zoomControlsEnabled: false,
+          compassEnabled: false,
+          myLocationButtonEnabled: false,
+        ),
+      ),
+    );
   }
 }
 

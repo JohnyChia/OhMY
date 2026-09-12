@@ -5,6 +5,33 @@ import 'package:flutter_app/travel_group/features/travel_group/models/travel_gro
 import 'package:flutter_app/travel_group/features/travel_group/services/live_trip_location_service.dart';
 
 void main() {
+  test('creator cannot confirm a group while still alone', () async {
+    final repository = MockTravelGroupRepository.seeded();
+    final controller = TravelGroupController(repository: repository);
+    await controller.openGroup('GROUP_001');
+    final group = controller.activeGroup!;
+    group.memberIds
+      ..clear()
+      ..add(group.creatorId);
+    group.memberCount = 1;
+
+    await expectLater(
+      controller.confirmGroup(),
+      throwsA(
+        isA<TravelGroupException>()
+            .having((error) => error.code, 'code', 'not_enough_members')
+            .having(
+              (error) => error.message,
+              'message',
+              contains('another traveller'),
+            ),
+      ),
+    );
+    expect(group.isConfirmed, isFalse);
+    expect(await repository.getActiveTripSession(group.id), isNull);
+    controller.dispose();
+  });
+
   test(
     'joined traveller is blocked from solo until group is finished',
     () async {

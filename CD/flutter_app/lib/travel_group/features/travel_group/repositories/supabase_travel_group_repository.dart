@@ -34,13 +34,9 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
     bool openOnly = false,
   }) async {
     try {
-      final rows = await _client
-          .from('travel_groups')
-          .select()
-          .neq('status', 'completed')
-          .neq('status', 'cancelled')
-          .order('created_at', ascending: false)
-          .limit(100);
+      final rows = List<Map<String, dynamic>>.from(
+        await _client.rpc('discover_travel_groups'),
+      );
       final query = keyword.trim().toLowerCase();
       return rows
           .map(_groupFromRow)
@@ -62,18 +58,29 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   @override
   Future<TravelGroup?> getGroup(String groupId) async {
     try {
-      final row = await _client
-          .from('travel_groups')
-          .select()
-          .eq('id', groupId)
-          .maybeSingle();
-      if (row == null) return null;
+      final publicRows = List<Map<String, dynamic>>.from(
+        await _client.rpc(
+          'discover_travel_groups',
+          params: {'requested_group_id': groupId},
+        ),
+      );
+      if (publicRows.isEmpty) return null;
       final members = await _client
           .from('travel_group_members')
           .select('user_id')
           .eq('group_id', groupId);
+      final isMember = members.any(
+        (member) => member['user_id']?.toString() == _user.id,
+      );
+      final privateRow = isMember
+          ? await _client
+                .from('travel_groups')
+                .select()
+                .eq('id', groupId)
+                .maybeSingle()
+          : null;
       return _groupFromRow(
-        row,
+        privateRow ?? publicRows.first,
         memberIds: members
             .map((member) => member['user_id'].toString())
             .toList(growable: false),

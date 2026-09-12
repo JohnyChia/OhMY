@@ -122,6 +122,11 @@ class TravelGroupController extends ChangeNotifier {
 
   bool get isCreator => activeGroup?.creatorId == currentUser.id;
   bool get isMember => activeGroup?.memberIds.contains(currentUser.id) ?? false;
+  bool get canConfirmGroup =>
+      isCreator &&
+      activeGroup != null &&
+      !activeGroup!.isConfirmed &&
+      activeGroup!.memberCount >= minTravellersPerGroup;
   bool get hasOngoingCreatedGroup => ownedOngoingGroup != null;
   TravelGroup? get ongoingMemberGroup {
     final group = activeGroup;
@@ -859,6 +864,12 @@ class TravelGroupController extends ChangeNotifier {
 
   Future<void> confirmGroup() async {
     _requireCreator();
+    if (activeGroup!.memberCount < minTravellersPerGroup) {
+      throw const TravelGroupException(
+        'Wait for another traveller before confirming the group.',
+        'not_enough_members',
+      );
+    }
     activeSession = await repository.confirmGroup(activeGroup!.id);
     await refreshWorkspace();
   }

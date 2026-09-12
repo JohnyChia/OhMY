@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
@@ -25,6 +26,10 @@ class ItineraryBoard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (controller.itinerary.isNotEmpty) ...[
+                      _ItineraryMapPreview(controller: controller),
+                      const SizedBox(height: 10),
+                    ],
                     if (controller.itinerary.length > 1)
                       Container(
                         height: 39,
@@ -240,6 +245,74 @@ class ItineraryBoard extends StatelessWidget {
         showTravelGroupMessage(context, error.message, error: true);
       }
     }
+  }
+}
+
+class _ItineraryMapPreview extends StatelessWidget {
+  const _ItineraryMapPreview({required this.controller});
+
+  final TravelGroupController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final points = controller.itinerary
+        .where((stop) => stop.latitude != null && stop.longitude != null)
+        .map((stop) => LatLng(stop.latitude!, stop.longitude!))
+        .toList(growable: false);
+    if (points.isEmpty) return const SizedBox.shrink();
+    final markers = <Marker>{
+      for (var index = 0; index < controller.itinerary.length; index++)
+        if (controller.itinerary[index].latitude != null &&
+            controller.itinerary[index].longitude != null)
+          Marker(
+            markerId: MarkerId(controller.itinerary[index].id),
+            position: LatLng(
+              controller.itinerary[index].latitude!,
+              controller.itinerary[index].longitude!,
+            ),
+            infoWindow: InfoWindow(
+              title: controller.itinerary[index].placeName,
+              snippet:
+                  controller.itinerary[index].status == StopStatus.completed
+                  ? 'Completed'
+                  : index == 0
+                  ? 'First destination'
+                  : 'Stop ${index + 1}',
+            ),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              controller.itinerary[index].status == StopStatus.completed
+                  ? BitmapDescriptor.hueGreen
+                  : BitmapDescriptor.hueAzure,
+            ),
+          ),
+    };
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        height: 190,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: points.first,
+            zoom: 12.5,
+          ),
+          markers: markers,
+          polylines: points.length < 2
+              ? const {}
+              : {
+                  Polyline(
+                    polylineId: const PolylineId('itinerary_preview'),
+                    points: points,
+                    width: 5,
+                    color: AppColors.primary,
+                  ),
+                },
+          mapToolbarEnabled: false,
+          zoomControlsEnabled: false,
+          compassEnabled: false,
+          myLocationButtonEnabled: false,
+        ),
+      ),
+    );
   }
 }
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../preference_recommender/features/routes/navigation_sensor.dart';
 import '../../../core/theme/app_theme.dart';
@@ -464,6 +465,59 @@ class _StatusBadge extends StatelessWidget {
   }
 }
 
+class _LobbyMapPreview extends StatelessWidget {
+  const _LobbyMapPreview({required this.group, required this.liveMembers});
+
+  final TravelGroup group;
+  final List<LiveMemberLocation> liveMembers;
+
+  @override
+  Widget build(BuildContext context) {
+    final latitude = group.destinationLatitude;
+    final longitude = group.destinationLongitude;
+    if (latitude == null || longitude == null) return const SizedBox.shrink();
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('destination'),
+        position: LatLng(latitude, longitude),
+        infoWindow: InfoWindow(title: group.destination),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+      ),
+      for (var index = 0; index < liveMembers.length; index++)
+        Marker(
+          markerId: MarkerId('member_${liveMembers[index].userId}'),
+          position: LatLng(
+            liveMembers[index].coordinate.latitude,
+            liveMembers[index].coordinate.longitude,
+          ),
+          infoWindow: InfoWindow(title: liveMembers[index].displayName),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            index.isEven
+                ? BitmapDescriptor.hueRose
+                : BitmapDescriptor.hueViolet,
+          ),
+        ),
+    };
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        height: 190,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(
+            target: LatLng(latitude, longitude),
+            zoom: 12.5,
+          ),
+          markers: markers,
+          mapToolbarEnabled: false,
+          zoomControlsEnabled: false,
+          compassEnabled: false,
+          myLocationButtonEnabled: false,
+        ),
+      ),
+    );
+  }
+}
+
 class _LobbyTab extends StatelessWidget {
   const _LobbyTab({
     required this.controller,
@@ -488,6 +542,11 @@ class _LobbyTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
+        _LobbyMapPreview(
+          group: group,
+          liveMembers: group.isConfirmed ? liveMembers : const [],
+        ),
+        const SizedBox(height: 10),
         if (group.status == GroupStatus.completed)
           AppPanel(
             color: AppColors.successSurface,
@@ -564,9 +623,15 @@ class _LobbyTab extends StatelessWidget {
                   width: double.infinity,
                   child: FilledButton.icon(
                     key: const Key('confirm_group_button'),
-                    onPressed: () => _confirmGroup(context),
+                    onPressed: controller.canConfirmGroup
+                        ? () => _confirmGroup(context)
+                        : null,
                     icon: const Icon(Icons.group_add_rounded),
-                    label: const Text('Confirm group'),
+                    label: Text(
+                      controller.canConfirmGroup
+                          ? 'Confirm group'
+                          : 'Waiting for another traveller',
+                    ),
                   ),
                 ),
               ],
@@ -608,14 +673,16 @@ class _LobbyTab extends StatelessWidget {
                 ],
               ),
               Text(
-                group.meetupPoint.isEmpty
+                !group.isConfirmed
+                    ? 'Available after group confirmation.'
+                    : group.meetupPoint.isEmpty
                     ? controller.isCreator
                           ? 'See joined travellers live, then choose a fair meetup point.'
                           : 'The creator will set a meetup point after travellers join.'
                     : group.meetupPoint,
                 style: const TextStyle(fontSize: 15),
               ),
-              if (group.meetupNote.isNotEmpty) ...[
+              if (group.isConfirmed && group.meetupNote.isNotEmpty) ...[
                 const SizedBox(height: 9),
                 Container(
                   width: double.infinity,

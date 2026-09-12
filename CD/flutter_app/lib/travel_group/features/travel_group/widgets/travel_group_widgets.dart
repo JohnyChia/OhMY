@@ -25,7 +25,6 @@ class AppPill extends StatelessWidget {
       child: Container(
         height: 28,
         padding: const EdgeInsets.symmetric(horizontal: 14),
-        alignment: Alignment.center,
         decoration: BoxDecoration(
           color:
               backgroundColor ??
@@ -33,11 +32,14 @@ class AppPill extends StatelessWidget {
           border: selected ? null : Border.all(color: const Color(0xFFCCD9EF)),
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: selected ? Colors.white : const Color(0xFF536681),
+        child: Center(
+          widthFactor: 1,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: selected ? Colors.white : const Color(0xFF536681),
+            ),
           ),
         ),
       ),
