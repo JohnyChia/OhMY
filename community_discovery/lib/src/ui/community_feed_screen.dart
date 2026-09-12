@@ -44,9 +44,12 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(widget.controller.loadTags());
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !widget.controller.isLoading) {
+      if (!mounted) return;
+      // The controller is shared with Home. Notify it after mounting, not
+      // during the shell's build, when Home's listener cannot rebuild yet.
+      unawaited(widget.controller.loadTags());
+      if (!widget.controller.isLoading) {
         unawaited(widget.controller.loadPosts());
       }
     });

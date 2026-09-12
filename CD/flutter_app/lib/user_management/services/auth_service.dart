@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/app_user_profile.dart';
+import 'password_recovery_account_service.dart';
 
 class AuthFailure implements Exception {
   const AuthFailure(this.message);
@@ -15,10 +16,15 @@ class AuthFailure implements Exception {
 }
 
 class AuthService {
-  AuthService({SupabaseClient? client})
-    : _client = client ?? Supabase.instance.client;
+  AuthService({
+    SupabaseClient? client,
+    PasswordRecoveryAccountService? recoveryAccountService,
+  }) : _client = client ?? Supabase.instance.client,
+       _recoveryAccountService =
+           recoveryAccountService ?? PasswordRecoveryAccountService();
 
   final SupabaseClient _client;
+  final PasswordRecoveryAccountService _recoveryAccountService;
   static const _avatarBucket = 'profile-avatars';
 
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
@@ -124,8 +130,14 @@ class AuthService {
 
   Future<void> sendPasswordRecoveryOtp(String email) async {
     try {
-      // Supabase intentionally does not reveal whether this email exists.
+      // Supabase recovery itself hides unknown accounts. Only advance the
+      // UI after our server-side, rate-limited lookup confirms this account.
+      if (!await _recoveryAccountService.isRegistered(email)) {
+        throw const AuthFailure('This email address is not registered.');
+      }
       await _client.auth.resetPasswordForEmail(email.trim());
+    } on RecoveryAccountCheckFailure catch (error) {
+      throw AuthFailure(error.message);
     } catch (error) {
       throw _friendlyFailure(error);
     }

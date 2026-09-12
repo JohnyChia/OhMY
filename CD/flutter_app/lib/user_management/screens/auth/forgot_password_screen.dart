@@ -27,6 +27,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendCode() async {
+    if (_isLoading) return;
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
@@ -74,6 +75,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             TextFormField(
+              enabled: !_isLoading,
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               inputFormatters: AuthValidators.emailInputFormatters,

@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.widget.ImageView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
+import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.embedding.engine.dart.DartExecutor
 
 /**
@@ -46,7 +47,12 @@ class SplashActivity : Activity() {
     }
 
     private fun warmFlutterAndContinue() {
-        val flutterEngine = FlutterEngine(applicationContext)
+        // Preserve Flutter's launch options when warming our custom engine.
+        // Otherwise debugger/profiler and renderer options are silently ignored.
+        val flutterEngine = FlutterEngine(
+            applicationContext,
+            FlutterShellArgs.fromIntent(intent).toArray()
+        )
         FlutterEngineCache.getInstance().put(ENGINE_ID, flutterEngine)
         flutterEngine.dartExecutor.executeDartEntrypoint(
             DartExecutor.DartEntrypoint.createDefault()
