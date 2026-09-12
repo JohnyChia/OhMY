@@ -67,8 +67,7 @@ async function searchPlaces(query) {
                     "places.types",
                     "places.primaryType",
                     "places.googleMapsUri",
-                    "places.addressComponents",
-                    "routingSummaries"
+                    "places.addressComponents"
                 ].join(",")
             },
 
@@ -215,7 +214,7 @@ async function searchNearbyPlaces({
 async function getPlaceDetails(placeId) {
 
     const response = await fetch(
-        `${GOOGLE_PLACES_URL}/places/${placeId}`,
+        `${GOOGLE_PLACES_URL}/places/${placeId}?languageCode=en&regionCode=MY`,
         {
             method: "GET",
 

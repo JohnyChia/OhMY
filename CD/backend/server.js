@@ -31,6 +31,16 @@ const {
     storeTaggedPlace
 } = require("./modules/preference_recommender/place-cache-service");
 const {
+    analyzePlace
+} = require("./modules/preference_recommender/place-analysis-service");
+const {
+    TAGGER_VERSION,
+    RECOMMENDATION_RESULTS_PER_TYPE,
+    RECOMMENDATION_CANDIDATE_LIMIT,
+    RECOMMENDATION_DETAILS_CONCURRENCY,
+    RECOMMENDATION_MAXIMUM_SEARCH_TYPES
+} = require("./modules/preference_recommender/config");
+const {
     getWeatherOverview,
     lookupArea
 } = require("./modules/weather_traffic/weather-service");
@@ -1160,38 +1170,24 @@ app.post(
             const place =
                 await getPlaceDetails(placeId);
 
-            const reviewTexts =
-                (place.reviews || [])
-                    .map(
-                        review =>
-                            review.text?.text?.trim()
-                            || ""
-                    )
-                    .filter(Boolean);
-
-            if (reviewTexts.length === 0) {
-                return res.status(422).json({
-                    error:
-                        "Google Places returned no review text for this attraction."
-                });
-            }
-
             const taggingStart =
                 process.hrtime.bigint();
 
             const analysis =
-                tagger.aggregatePlace(reviewTexts);
+                analyzePlace(place, tagger, GENERAL_TAGS);
 
             let persisted = false;
+            let tagsChanged = null;
             try {
-                await storeTaggedPlace(
+                const persistence = await storeTaggedPlace(
                     supabase,
                     place,
                     analysis,
                     TAGGER_VERSION,
                     GENERAL_TAGS
                 );
-                persisted = true;
+                persisted = persistence.persisted;
+                tagsChanged = persistence.changed;
             } catch (cacheError) {
                 console.warn(
                     `Could not cache ${placeId}; returning live analysis:`,
@@ -1214,6 +1210,8 @@ app.post(
             res.json({
                 success: true,
                 persisted,
+                tagsChanged,
+                taggerVersion: TAGGER_VERSION,
                 place: {
                     id: place.id,
                     displayName: place.displayName,
@@ -1321,11 +1319,6 @@ app.get(
 // ============================================================
 
 const NEARBY_RADIUS_METRES = 10_000;
-const NEARBY_CANDIDATE_LIMIT = 30;
-const DETAILS_CONCURRENCY = 4;
-const MAXIMUM_SEARCH_TYPES = 6;
-const TAGGER_VERSION = process.env.TAGGER_VERSION || "rule-nlp-2026-09-10";
-const RESULTS_PER_SEARCH_TYPE = 8;
 
 const PREFERENCE_PLACE_TYPES = {
     Museum: new Set([
@@ -1483,26 +1476,8 @@ app.post(
                         destinationPlaceId
                     );
 
-                const destinationReviews =
-                    (destination.reviews || [])
-                        .map(
-                            review =>
-                                review.text?.text?.trim()
-                                || ""
-                        )
-                        .filter(Boolean);
-
-                if (destinationReviews.length === 0) {
-                    return res.status(422).json({
-                        error:
-                            "The selected destination has no usable reviews for tag generation."
-                    });
-                }
-
                 const destinationAnalysis =
-                    tagger.aggregatePlace(
-                        destinationReviews
-                    );
+                    analyzePlace(destination, tagger, GENERAL_TAGS);
 
                 reference = {
                     source: "destination",
@@ -1555,7 +1530,7 @@ app.post(
                     culturalTags:
                         reference.culturalTags,
                     maximumSearchTypes:
-                        MAXIMUM_SEARCH_TYPES
+                        RECOMMENDATION_MAXIMUM_SEARCH_TYPES
                 });
 
             const nearbySearches =
@@ -1570,7 +1545,7 @@ app.post(
                                 includedType:
                                     planItem.type,
                                 maxResultCount:
-                                    RESULTS_PER_SEARCH_TYPE
+                                    RECOMMENDATION_RESULTS_PER_TYPE
                             })
                     )
                 );
@@ -1664,7 +1639,7 @@ app.post(
                             a.distanceMetres
                             - b.distanceMetres
                     )
-                    .slice(0, NEARBY_CANDIDATE_LIMIT);
+                    .slice(0, RECOMMENDATION_CANDIDATE_LIMIT);
 
             let cachedCandidates = new Map();
             try {
@@ -1683,7 +1658,7 @@ app.post(
             const processed =
                 await mapWithConcurrency(
                     candidates,
-                    DETAILS_CONCURRENCY,
+                    RECOMMENDATION_DETAILS_CONCURRENCY,
                     async candidate => {
                         try {
                             const cached = cachedCandidates.get(candidate.id);
@@ -1791,6 +1766,8 @@ app.post(
                                     eligible: ranking.matchingTags.length > 0,
                                     performance: { taggingMs: 0 },
                                     persisted: true,
+                                    tagsChanged: false,
+                                    taggerVersion: TAGGER_VERSION,
                                     source: "supabase_cache"
                                 };
                             }
@@ -1800,47 +1777,24 @@ app.post(
                                     candidate.id
                                 );
 
-                            const reviewTexts =
-                                (place.reviews || [])
-                                    .map(
-                                        review =>
-                                            review.text
-                                                ?.text
-                                                ?.trim()
-                                            || ""
-                                    )
-                                    .filter(Boolean);
-
-                            if (reviewTexts.length === 0) {
-                                return {
-                                    status: "skipped",
-                                    reason: "no_reviews",
-                                    id: candidate.id,
-                                    name:
-                                        candidate.displayName
-                                            ?.text
-                                        || "Unknown place"
-                                };
-                            }
-
                             const taggingStart =
                                 process.hrtime.bigint();
 
                             const analysis =
-                                tagger.aggregatePlace(
-                                    reviewTexts
-                                );
+                                analyzePlace(place, tagger, GENERAL_TAGS);
 
                             let persisted = false;
+                            let tagsChanged = null;
                             try {
-                                await storeTaggedPlace(
+                                const persistence = await storeTaggedPlace(
                                     supabase,
                                     place,
                                     analysis,
                                     TAGGER_VERSION,
                                     GENERAL_TAGS
                                 );
-                                persisted = true;
+                                persisted = persistence.persisted;
+                                tagsChanged = persistence.changed;
                             } catch (cacheError) {
                                 console.warn(
                                     `Could not cache ${candidate.id}; continuing with live result:`,
@@ -2028,6 +1982,8 @@ app.post(
                                         )
                                 },
                                 persisted,
+                                tagsChanged,
+                                taggerVersion: TAGGER_VERSION,
                                 source: "live_google_places"
                             };
                         } catch (error) {
@@ -2116,12 +2072,19 @@ app.post(
                 success: true,
                 mode,
                 ranked: true,
+                taggerVersion: TAGGER_VERSION,
                 persisted:
                     taggedPlaces.some(item => item.persisted),
                 cache: {
                     hits: cacheHits,
                     liveProcessed,
                     persistedCount
+                },
+                configuration: {
+                    resultsPerSearchType: RECOMMENDATION_RESULTS_PER_TYPE,
+                    candidateLimit: RECOMMENDATION_CANDIDATE_LIMIT,
+                    detailsConcurrency: RECOMMENDATION_DETAILS_CONCURRENCY,
+                    maximumSearchTypes: RECOMMENDATION_MAXIMUM_SEARCH_TYPES
                 },
                 origin: {
                     latitude,

@@ -36,13 +36,25 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (
+    (Test-Path -LiteralPath (Join-Path $scriptRoot 'backend\package.json')) -and
+    (Test-Path -LiteralPath (Join-Path $scriptRoot 'flutter_app\pubspec.yaml'))
+) {
+    $projectRoot = $scriptRoot
+} elseif (
+    (Test-Path -LiteralPath (Join-Path $scriptRoot 'CD\backend\package.json')) -and
+    (Test-Path -LiteralPath (Join-Path $scriptRoot 'CD\flutter_app\pubspec.yaml'))
+) {
+    $projectRoot = Join-Path $scriptRoot 'CD'
+} else {
+    throw "Could not locate the OhMY project folders beside $scriptRoot."
+}
 $backendRoot = Join-Path $projectRoot 'backend'
 $flutterApp = Join-Path $projectRoot 'flutter_app'
 $chatbotRoot = Join-Path $backendRoot 'modules\ai_chatbot'
 $verifiedRoot = Join-Path $backendRoot 'modules\verified_traveller'
-$communityRoot = Join-Path (Split-Path -Parent $projectRoot) `
-    'community_discovery\server'
+$communityRoot = Join-Path $projectRoot 'community_discovery\server'
 $backendEnvFile = Join-Path $backendRoot '.env'
 $chatbotEnvFile = Join-Path $chatbotRoot '.env'
 $verifiedEnvFile = Join-Path $verifiedRoot '.env'
@@ -63,19 +75,6 @@ function Resolve-CommandPath([string]$Name) {
         throw "$Name was not found. Install it or add it to PATH."
     }
     return $command.Source
-}
-
-function Resolve-FlutterPath([hashtable]$AndroidProperties) {
-    $command = Get-Command 'flutter' -ErrorAction SilentlyContinue
-    if ($null -ne $command) { return $command.Source }
-
-    $flutterSdk = "$($AndroidProperties['flutter.sdk'])"
-    if (Test-ConfiguredValue $flutterSdk) {
-        $flutterBat = Join-Path $flutterSdk 'bin\flutter.bat'
-        if (Test-Path -LiteralPath $flutterBat) { return $flutterBat }
-    }
-
-    throw 'Flutter was not found in PATH or android\local.properties (flutter.sdk).'
 }
 
 function Read-EnvFile([string]$Path) {
@@ -137,12 +136,7 @@ function Get-AdbDeviceState([string]$TargetDevice) {
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'SilentlyContinue'
     try {
-        foreach ($line in @(& $adbExe devices)) {
-            if ($line -match "^$([regex]::Escape($TargetDevice))\s+(\S+)") {
-                return $Matches[1]
-            }
-        }
-        return ''
+        return "$(& $adbExe -s $TargetDevice get-state 2>$null)".Trim()
     } finally {
         $ErrorActionPreference = $previousPreference
     }
@@ -228,8 +222,9 @@ function Stop-StartedServices {
     }
 }
 
-$launcherLockPath = Join-Path (Split-Path -Parent $projectRoot) '.run-ohmy.lock'
+$launcherLockPath = Join-Path $projectRoot '.run-ohmy.lock'
 $launcherLockStream = $null
+$isEmulator = $Device -like 'emulator-*'
 try {
 try {
     $launcherLockStream = [IO.File]::Open(
@@ -244,8 +239,9 @@ try {
 if (-not (Test-Path -LiteralPath $adbExe)) {
     throw "adb was not found at $adbExe. Install Android SDK Platform-Tools."
 }
-$nodeExe = Resolve-CommandPath 'node'
-$npmExe = Resolve-CommandPath 'npm.cmd'
+if ($isEmulator -and -not (Test-Path -LiteralPath $emulatorExe)) {
+    throw "Android Emulator was not found at $emulatorExe."
+}
 
 if (-not (Test-Path -LiteralPath $backendEnvFile)) {
     Copy-Item (Join-Path $backendRoot '.env.example') $backendEnvFile
@@ -258,9 +254,23 @@ if (-not (Test-Path -LiteralPath $androidLocalProperties)) {
     throw "Created $androidLocalProperties. Add MAPS_API_KEY and SDK paths, then run again."
 }
 
+$flutterCommand = Get-Command 'flutter' -ErrorAction SilentlyContinue
+if ($flutterCommand) {
+    $flutterExe = $flutterCommand.Source
+} else {
+    $configuredProperties = Read-EnvFile $androidLocalProperties
+    $flutterSdk = "$($configuredProperties['flutter.sdk'])".Replace('\\', '\')
+    $configuredFlutter = Join-Path $flutterSdk 'bin\flutter.bat'
+    if (-not $flutterSdk -or -not (Test-Path -LiteralPath $configuredFlutter)) {
+        throw 'Flutter was not found on PATH or at flutter.sdk in android/local.properties.'
+    }
+    $flutterExe = $configuredFlutter
+}
+$nodeExe = Resolve-CommandPath 'node'
+$npmExe = Resolve-CommandPath 'npm.cmd'
+
 $backendEnvironment = Read-EnvFile $backendEnvFile
 $androidProperties = Read-EnvFile $androidLocalProperties
-$flutterExe = Resolve-FlutterPath $androidProperties
 Assert-ConfiguredValues $backendEnvironment @(
     'GOOGLE_PLACES_API_KEY',
     'SUPABASE_URL',
@@ -295,11 +305,7 @@ if ($InstallDependencies -or
 
 Write-Host '=== ohMY launcher ===' -ForegroundColor Magenta
 
-$isEmulator = $Device -like 'emulator-*'
 if ($isEmulator) {
-    if (-not (Test-Path -LiteralPath $emulatorExe)) {
-        throw "Android Emulator was not found at $emulatorExe."
-    }
     $deviceState = Get-AdbDeviceState $Device
     if ($ColdBoot -and $deviceState -eq 'device') {
         Write-Host "[boot] Stopping $Device for a cold boot" -ForegroundColor Cyan
@@ -320,23 +326,6 @@ if ($isEmulator) {
     } else {
         Write-Host "[ok]   $Device is already running" -ForegroundColor Green
     }
-}
-
-$deviceState = Get-AdbDeviceState $Device
-if ($deviceState -eq 'unauthorized') {
-    throw "Android phone '$Device' is unauthorized. Unlock it, accept the USB debugging prompt, then run: .\run-ohmy.ps1 -Device $Device"
-}
-if ($deviceState -eq 'offline') {
-    throw "Android device '$Device' is offline. Reconnect USB, choose File transfer, and retry."
-}
-if (-not $isEmulator -and $deviceState -ne 'device') {
-    $listedDevices = @(
-        & $adbExe devices |
-            Select-Object -Skip 1 |
-            Where-Object { $_.Trim() } |
-            ForEach-Object { ($_ -split '\s+')[0] }
-    )
-    throw "Android device '$Device' was not found. Connected devices: $($listedDevices -join ', ')."
 }
 
 Write-Host "[wait] Waiting for $Device to finish booting" -ForegroundColor Cyan
@@ -431,8 +420,7 @@ if ($true) {
             } elseif (Test-Path -LiteralPath 'C:\Program Files\Tesseract-OCR\tesseract.exe') {
                 $tesseractCommand = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
             } else {
-                $workspaceRoot = Split-Path -Parent $projectRoot
-                $localTesseract = Join-Path $workspaceRoot '.local-tools\Tesseract-OCR\tesseract.exe'
+                $localTesseract = Join-Path $projectRoot '.local-tools\Tesseract-OCR\tesseract.exe'
                 if (Test-Path -LiteralPath $localTesseract) {
                     $tesseractCommand = $localTesseract
                 }
@@ -457,21 +445,9 @@ if ($true) {
 
 foreach ($port in @(3000, 3001, 3002)) {
     & $adbExe -s $Device reverse "tcp:$port" "tcp:$port" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not forward backend port $port to Android device '$Device'."
-    }
 }
 if ($verificationStarted -or (Test-PortListening 8000)) {
     & $adbExe -s $Device reverse tcp:8000 tcp:8000 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not forward verification port 8000 to Android device '$Device'."
-    }
-}
-$reverseRules = @(& $adbExe -s $Device reverse --list)
-foreach ($port in @(3000, 3001)) {
-    if (-not ($reverseRules -match "tcp:$port\s+tcp:$port")) {
-        throw "Android reverse forwarding for port $port could not be verified."
-    }
 }
 Write-Host '[ok]   Android port forwarding configured' -ForegroundColor Green
 

@@ -32,6 +32,8 @@ class NativeNavigationMap extends StatefulWidget {
     required this.destinationLongitude,
     required this.routeToken,
     required this.trafficEnabled,
+    required this.voiceGuidanceEnabled,
+    required this.vibrationEnabled,
     required this.onArrived,
     required this.onLocation,
     required this.onProgress,
@@ -43,6 +45,8 @@ class NativeNavigationMap extends StatefulWidget {
   final double destinationLongitude;
   final String routeToken;
   final bool trafficEnabled;
+  final bool voiceGuidanceEnabled;
+  final bool vibrationEnabled;
   final VoidCallback onArrived;
   final void Function(double latitude, double longitude) onLocation;
   final void Function(
@@ -90,6 +94,10 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.trafficEnabled != widget.trafficEnabled) {
       unawaited(_controller?.settings.setTrafficEnabled(widget.trafficEnabled));
+    }
+    if (oldWidget.voiceGuidanceEnabled != widget.voiceGuidanceEnabled ||
+        oldWidget.vibrationEnabled != widget.vibrationEnabled) {
+      unawaited(_applyAudioGuidanceSettings());
     }
     if (oldWidget.destinationLatitude != widget.destinationLatitude ||
         oldWidget.destinationLongitude != widget.destinationLongitude ||
@@ -214,6 +222,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
     try {
       await controller.setMyLocationEnabled(true);
       await controller.settings.setTrafficEnabled(widget.trafficEnabled);
+      await controller.settings.setCompassEnabled(false);
       await controller.setBuildingsEnabled(false);
       await controller.setIndoorEnabled(false);
       await controller.setNavigationUIEnabled(true);
@@ -311,14 +320,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
         _fail(_routeError(status));
         return;
       }
-      await navigation.GoogleMapsNavigator.setAudioGuidance(
-        navigation.NavigationAudioGuidanceSettings(
-          isBluetoothAudioEnabled: true,
-          isVibrationEnabled: true,
-          guidanceType:
-              navigation.NavigationAudioGuidanceType.alertsAndGuidance,
-        ),
-      );
+      await _applyAudioGuidanceSettings();
       await navigation.GoogleMapsNavigator.startGuidance();
       await _controller!.setNavigationUIEnabled(true);
       // The app supplies its own cancel/ETA/routes footer. Keep Google's
@@ -355,6 +357,44 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
       await _controller?.followMyLocation(
         navigation.CameraPerspective.topDownHeadingUp,
         zoomLevel: 18,
+      );
+    } catch (error) {
+      if (!_closing) _fail(_friendlyError(error));
+    }
+  }
+
+  Future<void> showNorthUp() async {
+    try {
+      await _controller?.followMyLocation(
+        navigation.CameraPerspective.topDownNorthUp,
+        zoomLevel: 18,
+      );
+    } catch (error) {
+      if (!_closing) _fail(_friendlyError(error));
+    }
+  }
+
+  Future<void> setBottomPanelExpanded(bool expanded) async {
+    try {
+      await _controller?.setPadding(
+        EdgeInsets.only(bottom: expanded ? 246 : 118),
+      );
+    } catch (error) {
+      if (!_closing) _fail(_friendlyError(error));
+    }
+  }
+
+  Future<void> _applyAudioGuidanceSettings() async {
+    if (!_sessionInitialized || _closing) return;
+    try {
+      await navigation.GoogleMapsNavigator.setAudioGuidance(
+        navigation.NavigationAudioGuidanceSettings(
+          isBluetoothAudioEnabled: true,
+          isVibrationEnabled: widget.vibrationEnabled,
+          guidanceType: widget.voiceGuidanceEnabled
+              ? navigation.NavigationAudioGuidanceType.alertsAndGuidance
+              : navigation.NavigationAudioGuidanceType.silent,
+        ),
       );
     } catch (error) {
       if (!_closing) _fail(_friendlyError(error));

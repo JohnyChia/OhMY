@@ -70,21 +70,24 @@ function calculateRecommendationScore({
             ) / confidenceValues.length
             : 0;
 
-    const confidenceAdjustedScore =
-        baseSimilarity
-        * (0.85 + 0.15 * matchConfidence);
+    const culturalRelevance = referenceCulturalTags.length > 0
+        ? cultural.score
+        : 0;
 
-    const culturalBonus =
-        Math.min(
-            0.05,
-            cultural.matches.length * 0.02
-        );
+    // Tagger V2 intentionally has no proximity component. Distance remains
+    // only a deterministic final tie-breaker in rankTaggedPlaces().
+    const scoreBreakdown = {
+        tagCoverage: Number((baseSimilarity * 0.80).toFixed(4)),
+        evidenceConfidence: Number((matchConfidence * 0.15).toFixed(4)),
+        culturalRelevance: Number((culturalRelevance * 0.05).toFixed(4))
+    };
 
-    const finalScore =
-        Math.min(
-            1,
-            confidenceAdjustedScore + culturalBonus
-        );
+    const finalScore = Math.min(
+        1,
+        scoreBreakdown.tagCoverage
+            + scoreBreakdown.evidenceConfidence
+            + scoreBreakdown.culturalRelevance
+    );
 
     return {
         finalScore: Number(finalScore.toFixed(4)),
@@ -101,8 +104,9 @@ function calculateRecommendationScore({
         matchingTags,
         matchConfidence:
             Number(matchConfidence.toFixed(3)),
-        culturalBonus:
-            Number(culturalBonus.toFixed(3)),
+        culturalRelevance:
+            Number(culturalRelevance.toFixed(3)),
+        scoreBreakdown,
         weights: {
             general: generalWeight,
             cultural: culturalWeight

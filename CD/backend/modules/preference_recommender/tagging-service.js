@@ -1,5 +1,4 @@
 const readline = require("readline");
-const natural = require("natural");
 
 /*
 ============================================================
@@ -1202,10 +1201,6 @@ const CULTURAL_TAGS = [
 // TOKENIZER
 // ============================================================
 
-const tokenizer =
-    new natural.WordTokenizer();
-
-
 // ============================================================
 // TAGGING SERVICE
 // ============================================================
@@ -1247,10 +1242,9 @@ class TaggingService {
     // ========================================================
 
     tokenize(text) {
-
-        return tokenizer.tokenize(
-            text
-        );
+        // Preserve Unicode letters for Malay and future multilingual rules.
+        // The lexical dictionaries remain explicit and explainable.
+        return String(text).match(/[\p{L}\p{N}'-]+/gu) || [];
     }
 
 
@@ -1263,7 +1257,7 @@ class TaggingService {
         return token
             .toLowerCase()
             .replace(
-                /[^a-z0-9'-]/g,
+                /[^\p{L}\p{N}'-]/gu,
                 ""
             );
     }
@@ -2150,6 +2144,16 @@ class TaggingService {
         limit = CONFIG.MAX_RELEVANT_REVIEWS
     ) {
 
+        return this.selectRelevantReviewRecords(reviews, limit)
+            .map(review => review.text);
+    }
+
+
+    selectRelevantReviewRecords(
+        reviews,
+        limit = CONFIG.MAX_RELEVANT_REVIEWS
+    ) {
+
         const selected = [];
         const seen = new Set();
 
@@ -2181,7 +2185,19 @@ class TaggingService {
             }
 
             seen.add(text);
-            selected.push(text);
+            selected.push({
+                text,
+                weight: Number.isFinite(review?.weight)
+                    ? Math.max(0.5, Math.min(1.2, review.weight))
+                    : 1,
+                languageCode: review?.languageCode || "und",
+                originalLanguageCode:
+                    review?.originalLanguageCode
+                    || review?.languageCode
+                    || "und",
+                rating: Number.isFinite(review?.rating) ? review.rating : null,
+                publishTime: review?.publishTime || null
+            });
 
             if (selected.length >= limit) {
                 break;
@@ -2200,8 +2216,11 @@ class TaggingService {
         reviews
     ) {
 
+        const relevantReviewRecords =
+            this.selectRelevantReviewRecords(reviews);
+
         const relevantReviews =
-            this.selectRelevantReviews(reviews);
+            relevantReviewRecords.map(review => review.text);
 
         const results =
             this.classifyReviews(
@@ -2265,6 +2284,18 @@ class TaggingService {
                 totalScore:
                     0,
 
+                supportingWeight:
+                    0,
+
+                evidenceCount:
+                    0,
+
+                evidenceTypes:
+                    {},
+
+                source:
+                    "rule_based_reviews",
+
                 assigned:
                     false
             };
@@ -2275,10 +2306,10 @@ class TaggingService {
         // Aggregate
         // ----------------------------------------------------
 
-        for (
-            const result
-            of results
-        ) {
+        for (let resultIndex = 0; resultIndex < results.length; resultIndex++) {
+
+            const result = results[resultIndex];
+            const reviewWeight = relevantReviewRecords[resultIndex].weight;
 
             for (
                 const tag
@@ -2293,7 +2324,7 @@ class TaggingService {
 
                 statistics[tag]
                     .totalScore +=
-                    details.score;
+                    details.score * reviewWeight;
 
 
                 if (
@@ -2302,6 +2333,18 @@ class TaggingService {
 
                     statistics[tag]
                         .supportingReviews++;
+
+                    statistics[tag]
+                        .supportingWeight += reviewWeight;
+
+                    const positiveEvidence = details.evidence.filter(
+                        evidence => evidence.score > 0
+                    );
+                    statistics[tag].evidenceCount += positiveEvidence.length;
+                    for (const evidence of positiveEvidence) {
+                        statistics[tag].evidenceTypes[evidence.type] =
+                            (statistics[tag].evidenceTypes[evidence.type] || 0) + 1;
+                    }
                 }
             }
         }
@@ -2322,30 +2365,25 @@ class TaggingService {
                 statistics[tag];
 
 
-            stat.supportPercentage =
+            const totalReviewWeight = relevantReviewRecords.reduce(
+                (total, review) => total + review.weight,
+                0
+            );
 
-                relevantReviews.length > 0
-
-                    ?
-
-                    stat.supportingReviews
-                    /
-                    relevantReviews.length
-
-                    :
-
-                    0;
+            stat.supportPercentage = totalReviewWeight > 0
+                ? stat.supportingWeight / totalReviewWeight
+                : 0;
 
 
             stat.averageScore =
 
-                relevantReviews.length > 0
+                totalReviewWeight > 0
 
                     ?
 
                     stat.totalScore
                     /
-                    relevantReviews.length
+                    totalReviewWeight
 
                     :
 
@@ -2378,6 +2416,8 @@ class TaggingService {
                     !CULTURAL_TAGS.includes(tag)
                     || culturallyRelevantPlace
                 );
+
+            stat.supportingWeight = Number(stat.supportingWeight.toFixed(3));
         }
 
 

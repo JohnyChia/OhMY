@@ -1,4 +1,5 @@
 const DEFAULT_CACHE_DAYS = 30;
+const { createHash } = require("node:crypto");
 
 function tagType(tag, generalTags) {
     return generalTags.includes(tag) ? "general" : "cultural";
@@ -30,8 +31,10 @@ async function getCachedTaggedPlaces(client, googlePlaceIds, taggerVersion) {
             formatted_address, rating, google_maps_uri, primary_type,
             place_types, photo_references, google_data_expires_at,
             tags_updated_at, tagger_version, tag_status,
+            tag_fingerprint, tag_language_summary, tag_evidence_summary,
             place_tags (
                 confidence, evidence_count, supporting_reviews,
+                average_score, evidence_details, source,
                 tags (name, tag_type)
             )
         `)
@@ -43,7 +46,6 @@ async function getCachedTaggedPlaces(client, googlePlaceIds, taggerVersion) {
     const cache = new Map();
     for (const place of data || []) {
         const tagRows = (place.place_tags || []).filter(row => row.tags?.name);
-        if (tagRows.length === 0) continue;
         const generalTags = [];
         const culturalTags = [];
         const statistics = {};
@@ -54,7 +56,11 @@ async function getCachedTaggedPlaces(client, googlePlaceIds, taggerVersion) {
             statistics[name] = {
                 assigned: true,
                 supportPercentage: Number(row.confidence || 0),
-                supportingReviews: Number(row.supporting_reviews || 0)
+                supportingReviews: Number(row.supporting_reviews || 0),
+                averageScore: Number(row.average_score || 0),
+                evidenceCount: Number(row.evidence_count || 0),
+                evidenceTypes: row.evidence_details || {},
+                source: row.source || "rule_based_reviews"
             };
         }
         cache.set(place.google_place_id, {
@@ -63,22 +69,68 @@ async function getCachedTaggedPlaces(client, googlePlaceIds, taggerVersion) {
                 ? new Date(place.google_data_expires_at).getTime() > Date.now()
                 : false,
             place: placeSnapshot(place),
-            analysis: { generalTags, culturalTags, statistics }
+            analysis: {
+                generalTags,
+                culturalTags,
+                statistics,
+                languageSummary: place.tag_language_summary || {},
+                evidenceSummary: place.tag_evidence_summary || {}
+            },
+            fingerprint: place.tag_fingerprint || null
         });
     }
     return cache;
 }
 
+function buildTagAssignments(analysis, generalTagNames) {
+    return [
+        ...(analysis.generalTags || []),
+        ...(analysis.culturalTags || [])
+    ].map(name => {
+        const statistic = analysis.statistics?.[name] || {};
+        return {
+            name,
+            tagType: tagType(name, generalTagNames),
+            // Avoid rewriting relationships for insignificant float movement.
+            confidence: Number(Number(statistic.supportPercentage || 0).toFixed(2)),
+            evidenceCount: Number(statistic.evidenceCount || 0),
+            supportingReviews: Number(statistic.supportingReviews || 0),
+            averageScore: Number(Number(statistic.averageScore || 0).toFixed(2)),
+            evidenceDetails: statistic.evidenceTypes || {},
+            source: statistic.source || "rule_based_reviews"
+        };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function tagFingerprint(assignments) {
+    const stable = [...assignments]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(tag => [
+            tag.name,
+            tag.tagType,
+            tag.confidence.toFixed(2),
+            tag.evidenceCount,
+            tag.supportingReviews,
+            tag.averageScore.toFixed(2),
+            tag.source,
+            Object.entries(tag.evidenceDetails || {}).sort()
+        ]);
+    return createHash("sha256")
+        .update(JSON.stringify(stable))
+        .digest("hex");
+}
+
 async function storeTaggedPlace(client, place, analysis, taggerVersion, generalTagNames) {
-    if (!client) return;
+    if (!client) return { changed: false, persisted: false };
     const now = new Date();
     const expiresAt = new Date(
         now.getTime() + DEFAULT_CACHE_DAYS * 24 * 60 * 60 * 1000
     );
+    const assignments = buildTagAssignments(analysis, generalTagNames);
+    const fingerprint = tagFingerprint(assignments);
     const location = place.location || {};
-    const { data: storedPlace, error: placeError } = await client
-        .from("places")
-        .upsert({
+    const { data, error } = await client.rpc("replace_place_tags_v2", {
+        p_place: {
             google_place_id: place.id,
             name: place.displayName?.text || "Unknown place",
             description: place.editorialSummary?.text || null,
@@ -94,50 +146,26 @@ async function storeTaggedPlace(client, place, analysis, taggerVersion, generalT
                 authorAttributions: photo.authorAttributions || []
             })),
             google_data_cached_at: now.toISOString(),
-            google_data_expires_at: expiresAt.toISOString(),
-            tags_updated_at: now.toISOString(),
-            tagger_version: taggerVersion,
-            tag_status: "processed"
-        }, { onConflict: "google_place_id" })
-        .select("id")
-        .single();
-    if (placeError) throw placeError;
-
-    const assignedTags = [
-        ...(analysis.generalTags || []),
-        ...(analysis.culturalTags || [])
-    ];
-    if (assignedTags.length === 0) return;
-    const tagRecords = assignedTags.map(name => ({
-        name,
-        tag_type: tagType(name, generalTagNames)
-    }));
-    const { data: storedTags, error: tagError } = await client
-        .from("tags")
-        .upsert(tagRecords, { onConflict: "name" })
-        .select("id,name");
-    if (tagError) throw tagError;
-
-    const { error: deleteError } = await client
-        .from("place_tags")
-        .delete()
-        .eq("place_id", storedPlace.id);
-    if (deleteError) throw deleteError;
-
-    const rows = (storedTags || []).map(tag => {
-        const statistic = analysis.statistics?.[tag.name] || {};
-        return {
-            place_id: storedPlace.id,
-            tag_id: tag.id,
-            confidence: Number(statistic.supportPercentage || 0),
-            evidence_count: Number(statistic.supportingReviews || 0),
-            supporting_reviews: Number(statistic.supportingReviews || 0),
-            source: "rule_based_reviews",
-            updated_at: now.toISOString()
-        };
+            google_data_expires_at: expiresAt.toISOString()
+        },
+        p_tags: assignments,
+        p_tagger_version: taggerVersion,
+        p_fingerprint: fingerprint,
+        p_language_summary: analysis.languageSummary || {},
+        p_evidence_summary: analysis.evidenceSummary || {}
     });
-    const { error: relationError } = await client.from("place_tags").insert(rows);
-    if (relationError) throw relationError;
+    if (error) throw error;
+    return {
+        persisted: true,
+        changed: Boolean(data?.changed),
+        placeId: data?.place_id,
+        fingerprint
+    };
 }
 
-module.exports = { getCachedTaggedPlaces, storeTaggedPlace };
+module.exports = {
+    getCachedTaggedPlaces,
+    storeTaggedPlace,
+    buildTagAssignments,
+    tagFingerprint
+};

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -210,6 +211,7 @@ class _OhMyShellState extends State<OhMyShell> {
   void _returnToGroup() {
     if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
   }
+
   void _selectTab(int index) {
     _lastHomeBackPress = null;
     if (_selectedIndex == index) {
@@ -1118,39 +1120,95 @@ class StartTripHubPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
     return Scaffold(
-      appBar: AppBar(title: const Text('Start Trip')),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
+      backgroundColor: const Color(0xfff6f9fd),
+      body: Stack(
+        fit: StackFit.expand,
         children: [
-          Text(
-            'How would you like to travel?',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Solo trips use personalised recommendations with weather and live traffic. Group trips open the shared Travel Group experience.',
-          ),
-          const SizedBox(height: 24),
-          _TripModeCard(
-            icon: Icons.person_pin_circle_outlined,
-            title: 'Solo trip',
-            subtitle:
-                'Search places, receive recommendations, check weather and traffic, then build your route.',
-            onTap: () => _openSoloTrip(context),
-          ),
-          const SizedBox(height: 14),
-          _TripModeCard(
-            icon: Icons.groups_outlined,
-            title: 'Group trip',
-            subtitle:
-                'Discover or create a travel group, vote on stops and manage a shared itinerary.',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => TravelGroupModulePage(controller: controller),
-              ),
+          const _StartTripBackground(),
+          SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(22, topPadding + 22, 22, 34),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  height: 74,
+                  child: Stack(
+                    children: [
+                      const Positioned(
+                        left: 0,
+                        top: 0,
+                        child: Text(
+                          'Start Trip',
+                          style: TextStyle(
+                            color: Color(0xff121a3a),
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: IgnorePointer(
+                          child: Image.asset(
+                            'assets/images/start_trip_selection/startTripSelectionTopRight.png',
+                            width: 74,
+                            height: 74,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'How would you like\nto travel?',
+                  style: TextStyle(
+                    color: Color(0xff10183b),
+                    fontSize: 34,
+                    height: 1.06,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -1,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Explore Malaysia your way.\nChoose a travel style to get started.',
+                  style: TextStyle(
+                    color: Color(0xff6f758b),
+                    fontSize: 17,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 42),
+                _TripModeCard(
+                  imageAsset:
+                      'assets/images/start_trip_selection/startTripSelectionSolo.png',
+                  accent: const Color(0xffe7f2ff),
+                  title: 'Solo trip',
+                  subtitle:
+                      'Search places, receive recommendations, check weather and traffic, then build your route.',
+                  onTap: () => _openSoloTrip(context),
+                ),
+                const SizedBox(height: 18),
+                _TripModeCard(
+                  imageAsset:
+                      'assets/images/start_trip_selection/startTripSelectionGroup.png',
+                  accent: const Color(0xffffeee1),
+                  title: 'Group trip',
+                  subtitle:
+                      'Discover or create a travel group, vote on stops and manage a shared itinerary.',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          TravelGroupModulePage(controller: controller),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1202,32 +1260,92 @@ class StartTripHubPage extends StatelessWidget {
   }
 }
 
+class _StartTripBackground extends StatelessWidget {
+  const _StartTripBackground();
+
+  @override
+  Widget build(BuildContext context) => Positioned.fill(
+    child: Opacity(
+      opacity: .30,
+      child: ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+        child: ColorFiltered(
+          // 75% saturation: the artwork is desaturated by 25%.
+          colorFilter: const ColorFilter.matrix(<double>[
+            .803,
+            .179,
+            .018,
+            0,
+            0,
+            .053,
+            .929,
+            .018,
+            0,
+            0,
+            .053,
+            .179,
+            .768,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+          ]),
+          child: Image.asset(
+            'assets/images/start_trip_selection/startTripSelectionBg.png',
+            fit: BoxFit.cover,
+            alignment: Alignment.bottomCenter,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class _TripModeCard extends StatelessWidget {
   const _TripModeCard({
-    required this.icon,
+    required this.imageAsset,
+    required this.accent,
     required this.title,
     required this.subtitle,
     required this.onTap,
   });
 
-  final IconData icon;
+  final String imageAsset;
+  final Color accent;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Material(
+      elevation: 5,
+      shadowColor: Colors.black.withValues(alpha: .16),
+      color: Colors.white.withValues(alpha: .94),
+      borderRadius: BorderRadius.circular(24),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(16, 18, 14, 18),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              CircleAvatar(radius: 25, child: Icon(icon)),
-              const SizedBox(width: 16),
+              Container(
+                width: 112,
+                height: 112,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accent,
+                  shape: BoxShape.circle,
+                ),
+                child: Image.asset(imageAsset, fit: BoxFit.contain),
+              ),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1235,15 +1353,37 @@ class _TripModeCard extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: const Color(0xff10183b),
+                        fontSize: 25,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Text(subtitle),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xff626a83),
+                        fontSize: 14,
+                        height: 1.32,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right),
+              const SizedBox(width: 7),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: .7),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.chevron_right_rounded,
+                  color: Color(0xff10183b),
+                  size: 29,
+                ),
+              ),
             ],
           ),
         ),

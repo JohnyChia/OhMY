@@ -55,7 +55,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   Map<String, dynamic>? selected;
   Set<Marker> markers = {};
   bool loading = false, showCarousel = false, bookmarked = false;
-  bool trafficEnabled = false, showWeatherPanel = false, weatherLoading = false;
+  bool trafficEnabled = false;
+  bool showWeatherPill = false,
+      showWeatherPanel = false,
+      weatherLoading = false;
   WeatherOverview? weather;
   Position? currentPosition;
   bool locationPermissionGranted = false;
@@ -115,6 +118,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     if (!mounted || value == null) return;
     setState(() => currentPosition = value);
     await moveMapTo(value, zoom: 16);
+    unawaited(_loadWeather(value, showErrors: false));
   }
 
   Future<void> _applyInitialRecommendation() async {
@@ -123,7 +127,14 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       return;
     }
     initialRecommendationApplied = true;
-    await choose(Map<String, dynamic>.from(item), true);
+    final selectedItem = Map<String, dynamic>.from(item);
+    final place = Map<String, dynamic>.from(
+      selectedItem['place'] as Map? ?? const {},
+    );
+    selectedItem['place'] = place;
+    final origin = currentPosition ?? await position();
+    if (origin != null) await _applyDrivingMetrics(place, origin);
+    await choose(selectedItem, true);
   }
 
   String name(Map p) =>
@@ -335,11 +346,18 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       message = 'Fetching reviews and assigning tags…';
     });
     try {
-      final all = await Future.wait([
-        post('/api/places/analyze', {'placeId': id}),
-        position(),
-      ]);
-      final item = all[0] as Map<String, dynamic>, pos = all[1] as Position?;
+      final positionFuture = position();
+      Map<String, dynamic> item;
+      try {
+        item = await post('/api/places/analyze', {'placeId': id});
+      } catch (_) {
+        item = await post('/api/places/details', {'placeId': id});
+        item['analysis'] = const <String, dynamic>{
+          'generalTags': <String>[],
+          'culturalTags': <String>[],
+        };
+      }
+      final pos = await positionFuture;
       final p = item['place'] as Map<String, dynamic>;
       if (pos != null && p['location'] != null) {
         await _applyDrivingMetrics(p, pos);
@@ -408,6 +426,8 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       (l['latitude'] as num).toDouble(),
       (l['longitude'] as num).toDouble(),
     );
+    final markerIcon = create ? await recommendationMarkerIcon() : null;
+    if (!mounted) return;
     setState(() {
       selected = item;
       highlightedRecommendationId = null;
@@ -418,6 +438,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           Marker(
             markerId: MarkerId(p['id'].toString()),
             position: target,
+            icon: markerIcon!,
             onTap: () => setState(() => selected = item),
           ),
         };
@@ -614,6 +635,34 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     });
   }
 
+  void _selectCarouselPlace(int index) {
+    if (index < 0 || index >= recommendations.length) return;
+    final item = recommendations[index];
+    final place = item['place'];
+    final location = place is Map ? place['location'] : null;
+    final placeId = place is Map ? place['id']?.toString() : null;
+    if (mounted) {
+      setState(() => highlightedRecommendationId = placeId);
+    }
+    if (location is! Map ||
+        location['latitude'] is! num ||
+        location['longitude'] is! num) {
+      return;
+    }
+    unawaited(
+      controller?.animateCamera(
+            CameraUpdate.newLatLngZoom(
+              LatLng(
+                (location['latitude'] as num).toDouble(),
+                (location['longitude'] as num).toDouble(),
+              ),
+              15,
+            ),
+          ) ??
+          Future<void>.value(),
+    );
+  }
+
   void fail(Object e) {
     if (mounted) {
       setState(() => message = e.toString().replaceFirst('Exception: ', ''));
@@ -643,28 +692,55 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   }
 
   Future<void> toggleWeather() async {
-    if (showWeatherPanel) {
-      setState(() => showWeatherPanel = false);
+    if (showWeatherPill) {
+      setState(() {
+        showWeatherPill = false;
+        showWeatherPanel = false;
+      });
       return;
     }
-    setState(() {
-      showWeatherPanel = true;
-      showCarousel = false;
-      selected = null;
-      weatherLoading = true;
-      message = null;
-    });
+    setState(() => showWeatherPill = true);
+    if (weather != null || weatherLoading) return;
     try {
       final currentPosition = await position();
       if (currentPosition == null) {
         throw Exception('Location permission is required for weather.');
       }
-      final value = await WeatherService(
-        backend: backend,
-      ).getOverview(currentPosition.latitude, currentPosition.longitude);
-      if (mounted) setState(() => weather = value);
+      await _loadWeather(currentPosition, showErrors: true);
     } catch (error) {
       if (mounted) {
+        setState(() {
+          showWeatherPill = false;
+          showWeatherPanel = false;
+          message = error.toString().replaceFirst('Exception: ', '');
+        });
+        _scheduleMessageDismissal();
+      }
+    }
+  }
+
+  void openWeatherPanel() {
+    setState(() {
+      showWeatherPanel = true;
+      showCarousel = false;
+      selected = null;
+      message = null;
+    });
+  }
+
+  Future<void> _loadWeather(
+    Position location, {
+    required bool showErrors,
+  }) async {
+    if (weatherLoading) return;
+    if (mounted) setState(() => weatherLoading = true);
+    try {
+      final value = await WeatherService(
+        backend: backend,
+      ).getOverview(location.latitude, location.longitude);
+      if (mounted) setState(() => weather = value);
+    } catch (error) {
+      if (mounted && showErrors) {
         setState(() {
           showWeatherPanel = false;
           message = error.toString().replaceFirst('Exception: ', '');
@@ -731,6 +807,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
           trafficEnabled: trafficEnabled,
           myLocationEnabled: locationPermissionGranted,
           myLocationButtonEnabled: false,
+          compassEnabled: false,
           buildingsEnabled: false,
           indoorViewEnabled: false,
           tiltGesturesEnabled: false,
@@ -884,11 +961,90 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         ? 202
         : 20,
     child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         mapButton(Icons.traffic, toggleTraffic, active: trafficEnabled),
-        const SizedBox(height: 9),
-        mapButton(Icons.cloud, toggleWeather, active: showWeatherPanel),
+        const SizedBox(height: 10),
+        weatherButton(),
       ],
+    ),
+  );
+
+  Widget weatherButton() => AnimatedContainer(
+    duration: const Duration(milliseconds: 220),
+    curve: Curves.easeOutCubic,
+    width: showWeatherPill ? 184 : 52,
+    height: 52,
+    child: Material(
+      elevation: 5,
+      color: showWeatherPanel ? soft : Colors.white,
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          InkWell(
+            onTap: toggleWeather,
+            borderRadius: BorderRadius.circular(28),
+            child: SizedBox(
+              width: 52,
+              height: 52,
+              child: weatherLoading
+                  ? const Padding(
+                      padding: EdgeInsets.all(15),
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          weatherIcon(weather?.current.condition ?? ''),
+                          color: blue,
+                          size: 22,
+                        ),
+                        Text(
+                          '${weather?.current.temperatureC?.round() ?? '--'}°',
+                          style: const TextStyle(
+                            color: ink,
+                            fontSize: 12,
+                            height: 1,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+          if (showWeatherPill) ...[
+            Container(width: 1, height: 30, color: const Color(0xffdde4ef)),
+            Expanded(
+              child: InkWell(
+                onTap: openWeatherPanel,
+                child: const SizedBox.expand(
+                  child: Row(
+                    children: [
+                      SizedBox(width: 11),
+                      Expanded(
+                        child: Text(
+                          'Weather info',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: ink),
+                      SizedBox(width: 7),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     ),
   );
   Widget mapButton(IconData i, VoidCallback onPressed, {bool active = false}) =>
@@ -940,7 +1096,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       bottom: 12,
       child: Material(
         elevation: 12,
-        color: blue,
+        color: const Color(0xff252a34),
         borderRadius: BorderRadius.circular(22),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -955,7 +1111,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                     img,
                     fit: BoxFit.cover,
                     errorBuilder: (_, error, stack) =>
-                        const ColoredBox(color: blue),
+                        const ColoredBox(color: Color(0xff252a34)),
                   ),
                 const DecoratedBox(
                   decoration: BoxDecoration(
@@ -963,9 +1119,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                       colors: [
-                        Color(0xf014213d),
-                        Color(0xa33266cc),
-                        Color(0x300b1730),
+                        Color(0xe6000000),
+                        Color(0x8a000000),
+                        Color(0x1a000000),
                       ],
                       stops: [0, .6, 1],
                     ),
@@ -1073,10 +1229,11 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
-                const Text(
-                  'Swipe for more →',
-                  style: TextStyle(fontSize: 9, color: muted),
-                ),
+                if (recommendations.length > 1)
+                  const Text(
+                    'Swipe for more →',
+                    style: TextStyle(fontSize: 9, color: muted),
+                  ),
                 IconButton(
                   onPressed: () => setState(() => showCarousel = false),
                   icon: const Icon(Icons.close),
@@ -1087,10 +1244,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               child: PageView.builder(
                 controller: recommendationPage,
                 itemCount: recommendations.length,
-                onPageChanged: (index) => setState(
-                  () => highlightedRecommendationId =
-                      recommendations[index]['place']?['id']?.toString(),
-                ),
+                onPageChanged: _selectCarouselPlace,
                 itemBuilder: (_, i) => Padding(
                   padding: const EdgeInsets.only(right: 10),
                   child: recommendationCard(recommendations[i]),
@@ -1112,10 +1266,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     final placeId = p['id']?.toString() ?? '';
     final isBookmarked = bookmarkedRecommendations.contains(placeId);
     return Material(
-      color: blue,
+      color: const Color(0xff252a34),
       shape: RoundedRectangleBorder(
         side: BorderSide(
-          color: isSelected ? Colors.white : const Color(0xff9bb9ec),
+          color: isSelected ? Colors.white : Colors.white24,
           width: isSelected ? 2 : 1,
         ),
         borderRadius: BorderRadius.circular(18),
@@ -1131,7 +1285,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                 img,
                 fit: BoxFit.cover,
                 errorBuilder: (_, error, stack) =>
-                    const ColoredBox(color: blue),
+                    const ColoredBox(color: Color(0xff252a34)),
               ),
             const DecoratedBox(
               decoration: BoxDecoration(
@@ -1139,9 +1293,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                   colors: [
-                    Color(0xe614213d),
-                    Color(0x993266cc),
-                    Color(0x330b1730),
+                    Color(0xe6000000),
+                    Color(0x80000000),
+                    Color(0x1a000000),
                   ],
                   stops: [0, .56, 1],
                 ),

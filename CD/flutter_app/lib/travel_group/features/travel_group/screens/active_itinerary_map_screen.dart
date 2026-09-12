@@ -109,6 +109,8 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                   destinationLongitude: stop.longitude!,
                   routeToken: '',
                   trafficEnabled: true,
+                  voiceGuidanceEnabled: true,
+                  vibrationEnabled: true,
                   onArrived: () => unawaited(_completeStop()),
                   onLocation: (latitude, longitude) {
                     final coordinate = widget.controller.effectiveLocation(

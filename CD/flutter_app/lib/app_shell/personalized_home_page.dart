@@ -29,7 +29,8 @@ class PersonalizedHomePage extends StatefulWidget {
   State<PersonalizedHomePage> createState() => _PersonalizedHomePageState();
 }
 
-class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
+class _PersonalizedHomePageState extends State<PersonalizedHomePage>
+    with WidgetsBindingObserver {
   static const _backend = String.fromEnvironment(
     'BACKEND_URL',
     defaultValue: 'http://127.0.0.1:3000',
@@ -40,10 +41,14 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
   bool _loadingPlaces = true;
   int _loadGeneration = 0;
   String _lastPreferenceKey = '';
+  Timer? _placeRetryTimer;
+  int _placeRetryAttempt = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _lastPreferenceKey = _preferenceKey(currentTravelerPreferences.value);
     currentTravelerPreferences.addListener(_preferencesChanged);
     unawaited(_loadPlaces());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -58,8 +63,18 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _placeRetryTimer?.cancel();
     currentTravelerPreferences.removeListener(_preferencesChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _places.isEmpty) {
+      _placeRetryAttempt = 0;
+      unawaited(_loadPlaces());
+    }
   }
 
   void _preferencesChanged() {
@@ -76,27 +91,39 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
   }
 
   Future<void> _loadPlaces() async {
+    _placeRetryTimer?.cancel();
     final generation = ++_loadGeneration;
     if (mounted) setState(() => _loadingPlaces = true);
     try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('Location services are disabled.');
+      }
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        return;
+        throw Exception('Location permission is required.');
       }
 
-      final location = await Geolocator.getCurrentPosition();
-      var preferences = currentTravelerPreferences.value;
-      if (preferences.isEmpty) {
-        preferences =
-            (await TravelerProfileService().fetchCurrentProfile())
-                ?.favoriteCategories ??
-            const [];
+      Position? location;
+      try {
+        location = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 20),
+          ),
+        );
+      } catch (_) {
+        location = await Geolocator.getLastKnownPosition();
       }
-      if (preferences.isEmpty) return;
+      if (location == null) throw Exception('Current location is unavailable.');
+
+      // Use the same compulsory, freshly fetched profile preferences as the
+      // working Nearby Matches action on the Solo Trip map.
+      final preferences = await TravelerProfileService()
+          .requireCurrentPreferences();
       _lastPreferenceKey = _preferenceKey(preferences);
 
       final response = await http
@@ -108,20 +135,32 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
               'longitude': location.longitude,
               'mode': 'preferences',
               'preferences': preferences,
-              'radiusMetres': 10000,
             }),
           )
-          .timeout(const Duration(seconds: 90));
-      if (response.statusCode < 200 || response.statusCode >= 300) return;
+          .timeout(const Duration(seconds: 120));
 
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          payload['details'] ??
+              payload['error'] ??
+              'Nearby recommendations are unavailable.',
+        );
+      }
+
       final ranked = List<Map<String, dynamic>>.from(
         payload['matchedPlaces'] ?? const [],
-      ).where(_isCompleteNearbyPlace).take(10).toList(growable: false);
+      ).take(10).toList(growable: false);
       if (!mounted || generation != _loadGeneration) return;
+      _placeRetryAttempt = 0;
       setState(() => _places = ranked);
     } catch (_) {
-      // Home remains navigable if location, Supabase, or the backend is down.
+      // Home can be created while the local backend bridge, GPS, or auth
+      // session is still warming up. Retry a few times instead of leaving the
+      // page permanently empty after that first transient failure.
+      if (mounted && generation == _loadGeneration && _places.isEmpty) {
+        _schedulePlaceRetry();
+      }
     } finally {
       if (mounted && generation == _loadGeneration) {
         setState(() => _loadingPlaces = false);
@@ -129,17 +168,12 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
     }
   }
 
-  bool _isCompleteNearbyPlace(Map<String, dynamic> recommendation) {
-    final place = _place(recommendation);
-    final description = place['description']?.toString().trim() ?? '';
-    final photoName = _photoName(place);
-    // Nearby Matches uses a geographic radius. A valid nearby attraction can
-    // have a driving route longer than 10 km because of the road layout.
-    final distance = place['distanceKm'] ?? place['routeDistanceKm'];
-    return description.isNotEmpty &&
-        photoName != null &&
-        distance is num &&
-        distance <= 10;
+  void _schedulePlaceRetry() {
+    if (_placeRetryAttempt >= 3 || _placeRetryTimer?.isActive == true) return;
+    _placeRetryAttempt++;
+    _placeRetryTimer = Timer(Duration(seconds: 2 * _placeRetryAttempt), () {
+      if (mounted && _places.isEmpty) unawaited(_loadPlaces());
+    });
   }
 
   String? _photoName(Map<String, dynamic> place) {
@@ -158,8 +192,16 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
       (_place(item)['displayName'] as Map?)?['text']?.toString() ??
       'Nearby attraction';
 
-  String _description(Map<String, dynamic> item) =>
-      _place(item)['description']?.toString().trim() ?? '';
+  String _description(Map<String, dynamic> item) {
+    final place = _place(item);
+    final description = place['description']?.toString().trim() ?? '';
+    if (description.isNotEmpty) return description;
+    final type = place['primaryTypeDisplayName']?.toString().trim() ?? '';
+    final address = place['formattedAddress']?.toString().trim() ?? '';
+    if (type.isNotEmpty && address.isNotEmpty) return '$type • $address';
+    if (address.isNotEmpty) return address;
+    return 'A personalised place matching your travel preferences.';
+  }
 
   String? _photoUrl(Map<String, dynamic> item) {
     final name = _photoName(_place(item));
@@ -203,6 +245,22 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
     });
   }
 
+  Future<void> _openHomeSearch() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _HomePlaceSearchSheet(
+        backend: _backend,
+        onSelected: (item) {
+          Navigator.pop(sheetContext);
+          widget.onOpenSoloMap(item);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final featured = _places.isEmpty ? null : _places.first;
@@ -228,7 +286,7 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
                 description: featured == null ? null : _description(featured),
                 photoUrl: featured == null ? null : _photoUrl(featured),
                 tags: featured == null ? const [] : _tags(featured),
-                onSearch: () => widget.onOpenSoloMap(null),
+                onSearch: _openHomeSearch,
                 onExplore: featured == null
                     ? () => widget.onOpenSoloMap(null)
                     : () => widget.onOpenSoloMap(featured),
@@ -262,6 +320,248 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage> {
       ),
     );
   }
+}
+
+class _HomePlaceSearchSheet extends StatefulWidget {
+  const _HomePlaceSearchSheet({
+    required this.backend,
+    required this.onSelected,
+  });
+
+  final String backend;
+  final ValueChanged<Map<String, dynamic>> onSelected;
+
+  @override
+  State<_HomePlaceSearchSheet> createState() => _HomePlaceSearchSheetState();
+}
+
+class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
+  final _controller = TextEditingController();
+  final _focusNode = FocusNode();
+  Timer? _debounce;
+  List<Map<String, dynamic>> _results = const [];
+  bool _searching = false;
+  bool _selecting = false;
+  int _requestId = 0;
+  String? _message;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _changed(String value) {
+    _debounce?.cancel();
+    final query = value.trim();
+    final request = ++_requestId;
+    if (query.isEmpty) {
+      setState(() {
+        _results = const [];
+        _message = null;
+        _searching = false;
+      });
+      return;
+    }
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(_search(query, request)),
+    );
+  }
+
+  Future<void> _search(String query, int request) async {
+    setState(() {
+      _searching = true;
+      _message = null;
+    });
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${widget.backend}/api/places/search'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'query': query, 'placesOnly': true}),
+          )
+          .timeout(const Duration(seconds: 30));
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(data['error'] ?? 'Google Places search failed.');
+      }
+      if (!mounted || request != _requestId) return;
+      final results = List<Map<String, dynamic>>.from(
+        data['places'] ?? const [],
+      );
+      setState(() {
+        _results = results;
+        _message = results.isEmpty ? 'No Malaysian attractions found.' : null;
+      });
+    } catch (error) {
+      if (!mounted || request != _requestId) return;
+      setState(() {
+        _results = const [];
+        _message = error.toString().replaceFirst('Exception: ', '');
+      });
+    } finally {
+      if (mounted && request == _requestId) {
+        setState(() => _searching = false);
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http
+        .post(
+          Uri.parse('${widget.backend}$path'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 60));
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(data['error'] ?? 'Unable to load this place.');
+    }
+    return data;
+  }
+
+  Future<void> _select(Map<String, dynamic> result) async {
+    final placeId = result['id']?.toString();
+    if (placeId == null || placeId.isEmpty || _selecting) return;
+    setState(() {
+      _selecting = true;
+      _message = 'Loading place details…';
+    });
+    try {
+      Map<String, dynamic> item;
+      try {
+        item = await _post('/api/places/analyze', {'placeId': placeId});
+      } catch (_) {
+        item = await _post('/api/places/details', {'placeId': placeId});
+        item['analysis'] = const <String, dynamic>{
+          'generalTags': <String>[],
+          'culturalTags': <String>[],
+        };
+      }
+      if (mounted) widget.onSelected(item);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _message = error.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _selecting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FractionallySizedBox(
+    heightFactor: .78,
+    child: Material(
+      color: const Color(0xFFF8FAFD),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 42,
+            height: 4,
+            decoration: BoxDecoration(
+              color: const Color(0xFFBCC4D0),
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              enabled: !_selecting,
+              onChanged: _changed,
+              onSubmitted: (value) {
+                _debounce?.cancel();
+                final query = value.trim();
+                if (query.isNotEmpty) {
+                  unawaited(_search(query, ++_requestId));
+                }
+              },
+              decoration: InputDecoration(
+                hintText: 'Search attractions…',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _controller.text.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          _controller.clear();
+                          _changed('');
+                          _focusNode.requestFocus();
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          if (_searching || _selecting)
+            const LinearProgressIndicator(minHeight: 2),
+          if (_message != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 12, 22, 4),
+              child: Text(
+                _message!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF687184)),
+              ),
+            ),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+              itemCount: _results.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (_, index) {
+                final place = _results[index];
+                final name =
+                    (place['displayName'] as Map?)?['text']?.toString() ??
+                    'Attraction';
+                return ListTile(
+                  enabled: !_selecting,
+                  leading: const Icon(
+                    Icons.location_on_outlined,
+                    color: Color(0xFF3266CC),
+                  ),
+                  title: Text(name, maxLines: 1),
+                  subtitle: Text(
+                    place['formattedAddress']?.toString() ?? '',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => unawaited(_select(place)),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _FeaturedPlace extends StatelessWidget {
@@ -319,12 +619,12 @@ class _FeaturedPlace extends StatelessWidget {
               child: Row(
                 children: [
                   Container(
-                    width: 58,
-                    height: 58,
-                    padding: const EdgeInsets.all(5),
+                    width: 46,
+                    height: 46,
+                    padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(17),
+                      borderRadius: BorderRadius.circular(14),
                       boxShadow: const [
                         BoxShadow(color: Colors.black26, blurRadius: 12),
                       ],
@@ -334,7 +634,7 @@ class _FeaturedPlace extends StatelessWidget {
                       fit: BoxFit.contain,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Material(
                       color: const Color(0xFFF8F6FB),
@@ -349,8 +649,6 @@ class _FeaturedPlace extends StatelessWidget {
                             padding: EdgeInsets.symmetric(horizontal: 17),
                             child: Row(
                               children: [
-                                Icon(Icons.search_rounded, size: 24),
-                                SizedBox(width: 11),
                                 Expanded(
                                   child: Text(
                                     'Search Attractions ...',
@@ -360,7 +658,8 @@ class _FeaturedPlace extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                                Icon(Icons.tune_rounded, size: 21),
+                                SizedBox(width: 10),
+                                Icon(Icons.search_rounded, size: 24),
                               ],
                             ),
                           ),
@@ -530,11 +829,11 @@ class _PlacesNearYou extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                Expanded(
+                const Expanded(
                   child: Text(
                     'Places Near You',
                     style: TextStyle(
@@ -544,10 +843,11 @@ class _PlacesNearYou extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text(
-                  'Swipe for more  →',
-                  style: TextStyle(color: Color(0xFF687184), fontSize: 12),
-                ),
+                if (places.length > 2)
+                  const Text(
+                    'Swipe for more  →',
+                    style: TextStyle(color: Color(0xFF687184), fontSize: 12),
+                  ),
               ],
             ),
           ),
@@ -561,7 +861,7 @@ class _PlacesNearYou extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 26),
               child: Text(
-                'No complete personalised attractions were found within 10 km.',
+                'No preference-matched attractions were found nearby.',
                 style: TextStyle(color: Color(0xFF687184)),
               ),
             )

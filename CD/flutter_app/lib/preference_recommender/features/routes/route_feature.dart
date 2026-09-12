@@ -931,6 +931,9 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   double? sdkRemainingTimeSeconds;
   bool arrivalHandled = false;
   final bool useNativeNavigationFooter = false;
+  bool navigationPanelExpanded = false;
+  bool voiceGuidanceEnabled = true;
+  bool vibrationEnabled = true;
   final Set<String> bookmarkedRecommendations = {};
   DateTime? _heavyTrafficSince;
   DateTime? _normalTrafficSince;
@@ -1410,72 +1413,74 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     arrivalHandled = true;
     await showDialog<void>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       barrierColor: Colors.black54,
-      builder: (dialogContext) => PopScope(
-        canPop: false,
-        child: Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 28),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 28, 24, 22),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 68,
-                  height: 68,
-                  decoration: const BoxDecoration(
-                    color: Color(0xffe9f1ff),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.location_on_rounded,
-                    color: _routeBlue,
-                    size: 38,
+      builder: (dialogContext) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.pop(dialogContext),
+        child: Material(
+          color: Colors.transparent,
+          child: Center(
+            child: IgnorePointer(
+              child: Dialog(
+                insetPadding: const EdgeInsets.symmetric(horizontal: 28),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 68,
+                        height: 68,
+                        decoration: const BoxDecoration(
+                          color: Color(0xffe9f1ff),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.location_on_rounded,
+                          color: _routeBlue,
+                          size: 38,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'You have arrived!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: _routeInk,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        activeDestination.name,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: _routeBlue,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Enjoy your time exploring this place.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: _routeMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Tap anywhere to continue',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: _routeMuted, fontSize: 12),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 18),
-                const Text(
-                  'You have arrived!',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _routeInk,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  activeDestination.name,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: _routeBlue,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'Enjoy your time exploring this amazing place!',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: _routeMuted, height: 1.4),
-                ),
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: _routeBlue,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Finish journey'),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1641,6 +1646,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 destinationLongitude: activeDestination.longitude,
                 routeToken: route.routeToken,
                 trafficEnabled: trafficEnabled,
+                voiceGuidanceEnabled: voiceGuidanceEnabled,
+                vibrationEnabled: vibrationEnabled,
                 onArrived: finishJourney,
                 onLocation: (latitude, longitude) {
                   if (!mounted) return;
@@ -1686,9 +1693,14 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
             if (!showRecommendationCarousel)
               Positioned(
                 right: 14,
-                bottom: 132,
+                bottom: navigationPanelExpanded ? 264 : 132,
                 child: Column(
                   children: [
+                    navigationButton(Icons.explore_outlined, () {
+                      followUser = false;
+                      navigationMapKey.currentState?.showNorthUp();
+                    }),
+                    const SizedBox(height: 9),
                     navigationButton(
                       Icons.lightbulb_outline_rounded,
                       showRecommendationMode,
@@ -1766,55 +1778,137 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: Material(
-                  elevation: 14,
-                  color: Colors.white,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(24),
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onVerticalDragEnd: (details) {
+                    final velocity = details.primaryVelocity ?? 0;
+                    if (velocity < -120 && !navigationPanelExpanded) {
+                      _setNavigationPanelExpanded(true);
+                    } else if (velocity > 120 && navigationPanelExpanded) {
+                      _setNavigationPanelExpanded(false);
+                    }
+                  },
+                  child: Material(
+                    elevation: 14,
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                    child: SafeArea(
+                      top: false,
+                      child: AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOutCubic,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              navigationButton(
-                                Icons.close,
-                                cancelJourney,
-                                danger: true,
-                              ),
-                              Expanded(
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      '${sdkRemainingTimeSeconds == null ? route.minutes : math.max(1, (sdkRemainingTimeSeconds! / 60).ceil())} min',
-                                      style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w700,
-                                        color: etaColor,
+                              Semantics(
+                                button: true,
+                                label: navigationPanelExpanded
+                                    ? 'Collapse navigation settings'
+                                    : 'Expand navigation settings',
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () => _setNavigationPanelExpanded(
+                                    !navigationPanelExpanded,
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      32,
+                                      2,
+                                      32,
+                                      8,
+                                    ),
+                                    child: Container(
+                                      width: 42,
+                                      height: 4,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xffaeb7c6),
+                                        borderRadius: BorderRadius.circular(4),
                                       ),
                                     ),
-                                    Text(
-                                      '${(sdkRemainingDistanceMeters == null ? route.distanceKm : sdkRemainingDistanceMeters! / 1000).toStringAsFixed(1)} km remaining',
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: _routeMuted,
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ),
-                              navigationButton(
-                                Icons.alt_route_rounded,
-                                chooseRoute,
-                                label: 'Routes',
+                              Row(
+                                children: [
+                                  navigationButton(
+                                    Icons.close,
+                                    cancelJourney,
+                                    danger: true,
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          '${sdkRemainingTimeSeconds == null ? route.minutes : math.max(1, (sdkRemainingTimeSeconds! / 60).ceil())} min',
+                                          style: TextStyle(
+                                            fontSize: 22,
+                                            fontWeight: FontWeight.w700,
+                                            color: etaColor,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${(sdkRemainingDistanceMeters == null ? route.distanceKm : sdkRemainingDistanceMeters! / 1000).toStringAsFixed(1)} km remaining',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            color: _routeMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  navigationButton(
+                                    Icons.alt_route_rounded,
+                                    chooseRoute,
+                                    label: 'Routes',
+                                  ),
+                                ],
                               ),
+                              if (navigationPanelExpanded) ...[
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 10),
+                                  child: Divider(height: 1),
+                                ),
+                                SwitchListTile.adaptive(
+                                  contentPadding: const EdgeInsets.only(
+                                    left: 4,
+                                  ),
+                                  secondary: const Icon(
+                                    Icons.volume_up_outlined,
+                                    color: _routeBlue,
+                                  ),
+                                  title: const Text('Voice Guidance'),
+                                  subtitle: const Text(
+                                    'Spoken turn-by-turn directions',
+                                  ),
+                                  value: voiceGuidanceEnabled,
+                                  onChanged: (value) => setState(
+                                    () => voiceGuidanceEnabled = value,
+                                  ),
+                                ),
+                                SwitchListTile.adaptive(
+                                  contentPadding: const EdgeInsets.only(
+                                    left: 4,
+                                  ),
+                                  secondary: const Icon(
+                                    Icons.vibration_rounded,
+                                    color: _routeBlue,
+                                  ),
+                                  title: const Text('Vibration'),
+                                  subtitle: const Text(
+                                    'Navigation haptic feedback',
+                                  ),
+                                  value: vibrationEnabled,
+                                  onChanged: (value) =>
+                                      setState(() => vibrationEnabled = value),
+                                ),
+                              ],
                             ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -1823,6 +1917,15 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
           ],
         ),
       ),
+    );
+  }
+
+  void _setNavigationPanelExpanded(bool expanded) {
+    if (navigationPanelExpanded == expanded) return;
+    setState(() => navigationPanelExpanded = expanded);
+    unawaited(
+      navigationMapKey.currentState?.setBottomPanelExpanded(expanded) ??
+          Future<void>.value(),
     );
   }
 
@@ -1899,10 +2002,11 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                     ),
                   ),
                 ),
-                const Text(
-                  'Swipe for more →',
-                  style: TextStyle(fontSize: 9, color: _routeMuted),
-                ),
+                if (recommendations.length > 1)
+                  const Text(
+                    'Swipe for more →',
+                    style: TextStyle(fontSize: 9, color: _routeMuted),
+                  ),
                 IconButton(
                   onPressed: () =>
                       setState(() => showRecommendationCarousel = false),
@@ -1953,7 +2057,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     return SizedBox(
       width: 350,
       child: Material(
-        color: _routeBlue,
+        color: const Color(0xff252a34),
         borderRadius: BorderRadius.circular(18),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -1966,7 +2070,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                   '${widget.backend}/api/places/photo?name=${Uri.encodeQueryComponent(photoName)}',
                   fit: BoxFit.cover,
                   errorBuilder: (_, error, stack) =>
-                      const ColoredBox(color: _routeBlue),
+                      const ColoredBox(color: Color(0xff252a34)),
                 ),
               const DecoratedBox(
                 decoration: BoxDecoration(
@@ -1974,9 +2078,9 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                     colors: [
-                      Color(0xe614213d),
-                      Color(0x993266cc),
-                      Color(0x330b1730),
+                      Color(0xe6000000),
+                      Color(0x80000000),
+                      Color(0x1a000000),
                     ],
                     stops: [0, .56, 1],
                   ),

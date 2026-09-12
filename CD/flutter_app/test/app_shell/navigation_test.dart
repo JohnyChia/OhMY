@@ -44,6 +44,22 @@ void main() {
     expect(find.text('Profile setup required'), findsWidgets);
   });
 
+  testWidgets('Home search stays on Home until a result is selected', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
+    await tester.pump();
+
+    await tester.tap(find.text('Search Attractions ...'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.widgetWithText(TextField, 'Search attractions…'),
+      findsOneWidget,
+    );
+    expect(find.text('How would you like to travel?'), findsNothing);
+  });
+
   testWidgets('active native navigation hides and restores the app shell bar', (
     tester,
   ) async {
