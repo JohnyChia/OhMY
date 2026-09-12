@@ -26,7 +26,16 @@ async function createTrip(user_id, parameters, context) {
   console.log("CREATE TRIP:", parameters);
 
   const old = await tripStateService.getTripState(user_id);
-  const mappedInterests = mapToStandardTags(parameters.interest || []);
+  const requestedInterests = mapToStandardTags(parameters.interest || []);
+  const profileInterests = mapToStandardTags(
+    context?.traveler_profile?.favorite_categories || [],
+  );
+  const mappedInterests = requestedInterests.length
+    ? requestedInterests
+    : profileInterests;
+  const profileBudget = typeof context?.traveler_profile?.budget_preference === 'string'
+    ? context.traveler_profile.budget_preference
+    : '';
 
   let resolution = null;
 
@@ -43,6 +52,7 @@ async function createTrip(user_id, parameters, context) {
       };
       return { 
         success: false, 
+        code: resolution.status,
         error: errorMessages[resolution.status] || errorMessages.AMBIGUOUS
       };
     }
@@ -56,7 +66,7 @@ async function createTrip(user_id, parameters, context) {
       duration: parameters.duration || old.duration || null,
       travel_date: parameters.travel_date || old.travel_date || "",
       interest: mappedInterests,
-      budget: parameters.budget || old.budget || "",
+      budget: parameters.budget || profileBudget || "",
       language: parameters.language || "english",
       replace_trip: true,
       reset_itinerary: true,

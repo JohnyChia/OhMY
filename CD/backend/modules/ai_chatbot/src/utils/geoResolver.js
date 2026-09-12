@@ -8,6 +8,31 @@ function normalizeCountry(country) {
   return country.trim().toLowerCase();
 }
 
+function normalizeComparableName(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLocaleLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
+    .trim();
+}
+
+function exactMalaysianCandidate(candidates, rawDestination) {
+  const requested = normalizeComparableName(rawDestination);
+  if (!requested) return null;
+  const exact = candidates.filter((candidate) =>
+    ['malaysia', 'my'].includes(normalizeCountry(candidate.country)) &&
+    normalizeComparableName(candidate.name) === requested,
+  );
+  const unique = new Map(
+    exact.map((candidate) => [
+      `${normalizeComparableName(candidate.name)}|${normalizeComparableName(candidate.admin1)}`,
+      candidate,
+    ]),
+  );
+  return unique.size === 1 ? unique.values().next().value : null;
+}
+
 /**
  * Fetches geographic entities using a generalized multi-provider retrieval strategy
  */
@@ -17,7 +42,7 @@ async function fetchGeoCandidates(rawDest) {
   // Provider 1: Open-Meteo
   try {
     const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(rawDest)}&count=10`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(3500) });
     if (response.ok) {
       const data = await response.json();
       if (data && data.results && data.results.length > 0) {
@@ -37,13 +62,16 @@ async function fetchGeoCandidates(rawDest) {
       }
     }
   } catch (error) {
-    console.error(`[GEO-API_FAILURE] Open-Meteo fetch failed for '${rawDest}':`, error.message);
+    console.error("[GEO-API_FAILURE] Open-Meteo fetch failed:", error.message);
   }
 
   // Provider 2: Nominatim
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(rawDest)}&format=json&limit=5&addressdetails=1`;
-    const response = await fetch(url, { headers: { 'User-Agent': 'AI-Travel-Chatbot/1.0' } });
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'AI-Travel-Chatbot/1.0' },
+      signal: AbortSignal.timeout(3500),
+    });
     if (response.ok) {
       const data = await response.json();
       if (Array.isArray(data)) {
@@ -63,7 +91,7 @@ async function fetchGeoCandidates(rawDest) {
       }
     }
   } catch (error) {
-    console.error(`[GEO-API_FAILURE] Nominatim fetch failed for '${rawDest}':`, error.message);
+    console.error("[GEO-API_FAILURE] Nominatim fetch failed:", error.message);
   }
 
   return candidates;
@@ -89,22 +117,18 @@ This may be a phonetic misspelling of a Malaysian location.
 
 Generate up to 3 likely REAL Malaysian geographic entities it could be a phonetic misspelling of (states, cities, districts).
 If it is complete gibberish, return nothing.
-DO NOT output explanations. Output ONLY a comma-separated list of names. Do not use JSON.
-Example for "Malaga": Melaka, Malacca
-Example for "Sarawa": Sarawak
-Example for "Gibberish": `;
+DO NOT output explanations. Output ONLY a comma-separated list of names. Do not use JSON.`;
 
     const response = await openai.chat.completions.create({
       model: process.env.GROQ_MODEL,
       temperature: 0.1,
-      messages: [{ role: "user", content: prompt }]
+      messages: [{ role: "user", content: prompt }],
+      signal: AbortSignal.timeout(3500),
     });
 
     const content = response.choices[0].message.content;
-    console.log(`[PHONETIC] Raw LLM Output for '${rawDest}':\n${content}`);
-    
     const parsedResult = parsePhoneticResponse(content);
-    console.log(`[PHONETIC] Parser Result: ${parsedResult.status}`, parsedResult.error ? `(Reason: ${parsedResult.error})` : '');
+    console.log(`[PHONETIC] status=${parsedResult.status} candidates=${parsedResult.candidates.length}`);
     return parsedResult;
 
   } catch (error) {
@@ -237,17 +261,17 @@ Rules:
 1. You MUST output ONLY a valid JSON object.
 2. Output your reasoning in a "signals" field.
 3. Output a "confidence" field ("HIGH", "MEDIUM", "LOW").
-4. If a candidate perfectly matches lexically but is NOT in Malaysia (In_Malaysia: false), while a Malaysian candidate matches phonetically (e.g. 'Sarawa' vs 'Sarawak'), strongly prefer the Malaysian candidate.
-5. If the user explicitly provided a foreign country qualifier (e.g., 'Spain'), only then should you select an In_Malaysia: false candidate.
+4. If a candidate perfectly matches lexically but is NOT in Malaysia (In_Malaysia: false), while a Malaysian candidate matches phonetically, strongly prefer the Malaysian candidate.
+5. If the user explicitly provided a foreign country qualifier, only then should you select an In_Malaysia: false candidate.
 6. If the ONLY candidates available are foreign (In_Malaysia: false) and there is no phonetic Malaysian alternative, resolve as "OUT_OF_SCOPE".
 7. Trip context MUST NOT override explicit geographic evidence. A clear foreign destination must not be reinterpreted as a transcription error merely because the previous trip destination was Malaysian. Previous context may only be used for disambiguating ambiguous geographic candidates.
 8. If confidence is "LOW" or ambiguous, set "status" to "AMBIGUOUS".
 9. Otherwise, set "status" to "RESOLVED" and provide "candidate_index".
 10. DO NOT invent new places. You can ONLY select an index from the pool above.
 
-Example output:
+Output shape:
 {
-  "signals": "Melaka sounds phonetically similar to Malaga and is a major Malaysian state. The Malaga (Spain) match is foreign and no qualifier was given.",
+  "signals": "A concise comparison of the verified geographic signals.",
   "confidence": "HIGH",
   "status": "RESOLVED",
   "candidate_index": 0
@@ -258,18 +282,18 @@ JSON OUTPUT ONLY:`;
     const response = await openai.chat.completions.create({
       model: process.env.GROQ_MODEL,
       temperature: 0.1,
-      messages: [{ role: "user", content: prompt }]
+      messages: [{ role: "user", content: prompt }],
+      signal: AbortSignal.timeout(3500),
     });
 
     const content = response.choices[0].message.content.trim();
-    console.log(`[RANKING] LLM Output:`, content);
     
     const start = content.indexOf('{');
     const end = content.lastIndexOf('}');
     if (start !== -1 && end !== -1) {
       const parsed = JSON.parse(content.substring(start, end + 1));
       
-      console.log(`[CONFIDENCE] Level: ${parsed.confidence}, Signals: ${parsed.signals}`);
+      console.log(`[RANKING] status=${parsed.status} confidence=${parsed.confidence}`);
       
       if (parsed.status === "RESOLVED" && parsed.candidate_index !== undefined && parsed.candidate_index >= 0 && parsed.candidate_index < pool.length) {
         if (parsed.confidence === "LOW") {
@@ -305,11 +329,29 @@ async function resolveDestination(rawDest, context) {
   const trimmedDest = rawDest.trim();
   if (trimmedDest.length === 0) return { status: "AMBIGUOUS" };
 
-  console.log(`[STT] Raw transcript received: '${trimmedDest}'`);
+  console.log(`[GEO] destinationLength=${trimmedDest.length}`);
 
   // 1. Verbatim Stream
   const verbatimResults = await fetchGeoCandidates(trimmedDest);
   console.log(`[GEO] Provider candidates (verbatim):`, verbatimResults.length);
+
+  // A unique, exact provider result already verified as Malaysian needs no
+  // phonetic generation or LLM ranking. This is data-driven and applies to
+  // every destination equally; ambiguous and misspelled names continue
+  // through the full resolver below.
+  const exactCandidate = exactMalaysianCandidate(verbatimResults, trimmedDest);
+  if (exactCandidate) {
+    const canonicalName = exactCandidate.name;
+    console.log(`[RESOLUTION] EXACT_PROVIDER_MATCH: '${canonicalName}'`);
+    return {
+      status: 'RESOLVED',
+      canonical: canonicalName,
+      original_input: trimmedDest,
+      resolved_destination: canonicalName,
+      corrected: false,
+      confidence: 1,
+    };
+  }
   
   // 2. Phonetic Stream
   const phoneticGen = await generatePhoneticCandidates(trimmedDest, context);
@@ -382,5 +424,6 @@ async function resolveDestination(rawDest, context) {
 
 module.exports = {
   resolveDestination,
-  parsePhoneticResponse // Exported for testing
+  parsePhoneticResponse, // Exported for testing
+  exactMalaysianCandidate,
 };

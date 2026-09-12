@@ -67,3 +67,7 @@ dependencies {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation(project(":openwakeword"))
+}

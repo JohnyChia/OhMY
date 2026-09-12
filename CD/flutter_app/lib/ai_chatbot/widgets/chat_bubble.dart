@@ -1,30 +1,39 @@
+import 'dart:io' show File;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+
 import 'rich_cards.dart';
 
 class ChatBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final Map<String, dynamic>? tripState;
+  final void Function(
+    Map<String, dynamic> recommendation,
+    Map<String, dynamic> toolResult,
+  )?
+  onRecommendationSelected;
 
-  const ChatBubble({super.key, required this.message, this.tripState});
+  const ChatBubble({
+    super.key,
+    required this.message,
+    this.tripState,
+    this.onRecommendationSelected,
+  });
 
   @override
   Widget build(BuildContext context) {
     bool isUser = message['role'] == 'user';
-
-    // Attempt to parse tool_result if it exists (for rich cards)
-    Widget? richCard;
-    if (message['tool_result'] != null && !isUser) {
-      if (message['intent']?['name'] == 'create_itinerary' ||
-          message['intent']?['name'] == 'modify_trip') {
-        richCard = RichCards.buildItineraryCard(
-          message['tool_result'],
-          tripState,
-        );
-      } else if (message['intent']?['name'] == 'recommendation') {
-        richCard = RichCards.buildRecommendationCard(message['tool_result']);
-      }
-    }
+    final attachment = message['attachment'];
+    final attachmentPath = attachment is Map
+        ? attachment['path']?.toString()
+        : null;
+    final attachmentName = attachment is Map
+        ? attachment['name']?.toString()
+        : null;
+    final isImageAttachment =
+        attachment is Map && attachment['type'] == 'image';
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 12.0),
@@ -82,12 +91,54 @@ class ChatBubble extends StatelessWidget {
                     height: 1.5,
                   ),
                 ),
-
-                // Rich Card parsing (if any)
-                if (richCard != null) ...[const SizedBox(height: 16), richCard],
+                if (message['voiceTranscript'] == true) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Voice transcript',
+                    style: GoogleFonts.inter(
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (attachmentName != null) ...[
+                  const SizedBox(height: 10),
+                  if (isImageAttachment && !kIsWeb && attachmentPath != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        File(attachmentPath),
+                        height: 180,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) =>
+                            _attachmentLabel(attachmentName),
+                      ),
+                    )
+                  else
+                    _attachmentLabel(attachmentName),
+                ],
               ],
             ),
           ),
+
+          if (!isUser &&
+              message['tool_result'] is Map &&
+              (message['tool_result']['recommendations'] as List?)
+                      ?.isNotEmpty ==
+                  true) ...[
+            const SizedBox(height: 10),
+            RichCards.buildRecommendationCard(
+              message['tool_result'],
+              onSelected: onRecommendationSelected == null
+                  ? null
+                  : (recommendation) => onRecommendationSelected!(
+                      recommendation,
+                      Map<String, dynamic>.from(message['tool_result'] as Map),
+                    ),
+            ),
+          ],
 
           // Detected Language Tag
           if (!isUser && message['language'] != null) ...[
@@ -115,4 +166,20 @@ class ChatBubble extends StatelessWidget {
       ),
     );
   }
+
+  Widget _attachmentLabel(String name) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.attach_file_rounded, size: 16),
+        const SizedBox(width: 6),
+        Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
+      ],
+    ),
+  );
 }

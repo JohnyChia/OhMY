@@ -184,18 +184,8 @@ Place name, city, state
 
 
 
-Example:
-
-Cheong Fatt Tze Mansion, George Town, Penang
-
-
-Do NOT output:
-
-Penang
-
-George Town
-
-Malaysia
+Return a specific verified place name followed by its city and state. Do not
+return only a state, city, country, or other broad region as an attraction.
 
 
 ${trip.avoid_locations && trip.avoid_locations.length > 0 ? `\nCRITICAL: DO NOT recommend or include any of the following locations in the itinerary: ${trip.avoid_locations.join(", ")}.` : ""}

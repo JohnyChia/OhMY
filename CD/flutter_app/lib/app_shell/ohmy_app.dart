@@ -10,6 +10,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:community_discovery/community_discovery.dart';
 
 import '../ai_chatbot/main.dart' show ChatScreen;
+import '../ai_chatbot/services/nova_action_bridge.dart';
+import '../ai_chatbot/services/nova_owner_action_dispatcher.dart';
+import '../ai_chatbot/services/nova_voice_controller.dart';
+import '../ai_chatbot/widgets/nova_bottom_assistant.dart';
 import '../preference_recommender/features/routes/native_navigation_map.dart';
 import '../preference_recommender/pages/place_map_page.dart';
 import '../travel_group/features/travel_group/controllers/travel_group_controller.dart';
@@ -70,10 +74,16 @@ class _OhMyShellState extends State<OhMyShell> {
   late final List<WidgetBuilder> _rootBuilders;
   StreamSubscription<AuthState>? _authSubscription;
   DateTime? _lastHomeBackPress;
+  final List<NovaOwnerActionRegistration> _novaRegistrations = [];
 
   @override
   void initState() {
     super.initState();
+    for (final target in ['trip', 'map', 'community', 'profile']) {
+      _novaRegistrations.add(NovaOwnerActionDispatcher.register(
+        target: target, handler: _handleNovaAction,
+      ));
+    }
     final authUser = widget.supabaseEnabled
         ? Supabase.instance.client.auth.currentUser
         : null;
@@ -181,12 +191,48 @@ class _OhMyShellState extends State<OhMyShell> {
 
   @override
   void dispose() {
+    for (final registration in _novaRegistrations) {
+      registration.dispose();
+    }
     _authSubscription?.cancel();
     _travelGroupController
       ..removeListener(_onTravelGroupChanged)
       ..dispose();
     _communityController?.dispose();
     super.dispose();
+  }
+
+  Future<NovaOwnerActionResult> _handleNovaAction(NovaAction action) async {
+    if (!mounted) {
+      return NovaOwnerActionResult(action: action,
+        status: NovaOwnerActionStatus.unavailable, message: 'App navigation is unavailable.');
+    }
+    if (action.target == 'trip' || action.target == 'map') {
+      await _travelGroupController.restoreOngoingCreatedGroup();
+      if (_travelGroupController.ongoingMemberGroup != null) {
+        return NovaOwnerActionResult(action: action,
+          status: NovaOwnerActionStatus.rejected,
+          message: 'Return to your travel group before starting another journey.',
+          errorCode: 'ACTIVE_TRAVEL_GROUP');
+      }
+      final query = action.parameters['destination']?.toString().trim() ?? '';
+      if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
+      await Future<void>.delayed(Duration.zero);
+      if (!mounted || _navigatorKeys[2].currentState == null) {
+        return NovaOwnerActionResult(action: action,
+          status: NovaOwnerActionStatus.unavailable, message: 'Map navigation is not ready.');
+      }
+      unawaited(_navigatorKeys[2].currentState!.push<void>(MaterialPageRoute(
+        settings: const RouteSettings(name: '/start-trip/solo-map'),
+        builder: (_) => PlaceMapPage(initialSearchQuery: query),
+      )));
+      return NovaOwnerActionResult(action: action,
+        status: NovaOwnerActionStatus.executed,
+        message: 'Destination search opened. Select the place to start navigation.');
+    }
+    _selectTab(action.target == 'community' ? 3 : 4);
+    return NovaOwnerActionResult(action: action,
+      status: NovaOwnerActionStatus.executed, message: '${action.target} opened.');
   }
 
   PrototypeUser _prototypeUser(User user) {
@@ -296,6 +342,17 @@ class _OhMyShellState extends State<OhMyShell> {
                 ),
               ),
             ),
+            if (_selectedIndex != 1)
+              Positioned(left: 20, right: 20,
+                top: MediaQuery.paddingOf(context).top + 6,
+                child: ValueListenableBuilder<NovaVoiceState>(
+                  valueListenable: NovaVoiceController.state,
+                  builder: (_, state, _) => state.phase == NovaVoicePhase.idle
+                    ? const SizedBox.shrink()
+                    : NovaBottomAssistant(state: state,
+                        onDismiss: NovaVoiceController.reset, compact: true),
+                ),
+              ),
             if (_selectedIndex != 2 &&
                 _travelGroupController.activeGroup != null &&
                 _travelGroupController.isMember &&

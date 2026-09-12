@@ -13,56 +13,72 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
           alpha: 0.9,
         ), // Match the prototype's slight transparency
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             // Left Pill: Nova Intelligence
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration: const BoxDecoration(
-                      color: Colors.blueAccent,
-                      shape: BoxShape.circle,
+            Flexible(
+              fit: FlexFit.loose,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Colors.blueAccent,
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Nova Intelligence',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700,
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'Nova Intelligence',
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 8),
+            // Center Title
+            Expanded(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.star, size: 14, color: Color(0xFF1E3A8A)),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      'Travel AI Assistant',
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1E3A8A),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
 
-            // Center Title
-            Row(
-              children: [
-                const Icon(Icons.star, size: 14, color: Color(0xFF1E3A8A)),
-                const SizedBox(width: 4),
-                Text(
-                  'Travel AI Assistant',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF1E3A8A),
-                  ),
-                ),
-              ],
-            ),
-
+            const SizedBox(width: 8),
             // Right Icons
             Row(
               children: [
@@ -70,7 +86,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.grey.shade300),
+                    border: Border.all(color: const Color(0xFFD1D5DB)),
                   ),
                   child: const Icon(
                     Icons.wb_sunny_outlined,
@@ -83,7 +99,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.grey.shade300),
+                    border: Border.all(color: const Color(0xFFD1D5DB)),
                   ),
                   child: const Icon(
                     Icons.help_outline,

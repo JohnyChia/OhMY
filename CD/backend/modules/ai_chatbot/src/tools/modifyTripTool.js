@@ -41,6 +41,7 @@ if (resolution_metadata.status !== "RESOLVED") {
   };
   return { 
     success: false, 
+    code: resolution_metadata.status,
     error: errorMessages[resolution_metadata.status] || errorMessages.AMBIGUOUS
   };
 }

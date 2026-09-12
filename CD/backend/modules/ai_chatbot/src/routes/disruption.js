@@ -1,12 +1,16 @@
 const express = require('express');
 const tripStateService = require("../services/tripStateService");
 const profileService = require("../services/profileService");
+const requireNovaUser = require('../middleware/requireNovaUser');
 
 const router = express.Router();
 
-router.get('/:user_id', async (req, res) => {
+router.get('/:user_id', requireNovaUser, async (req, res) => {
   try {
-    const user_id = req.params.user_id;
+    if (req.params.user_id !== req.novaUserId) {
+      return res.status(403).json({ success: false, error: 'Authenticated user does not match request user.' });
+    }
+    const user_id = req.novaUserId;
     const session_id = req.query.session_id || "default_session";
 
     const tripState = await tripStateService.getTripState(user_id);

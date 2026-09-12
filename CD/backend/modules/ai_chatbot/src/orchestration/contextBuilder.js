@@ -8,10 +8,21 @@ tripState,
 
 profile,
 
-language
+language,
+
+interactionMode,
+
+sessionId
+,
+attachment,
+savedItems
+,
+inputLanguage
 
 })
-{
+{ 
+
+const destination = tripState?.destination;
 
 
 return {
@@ -37,7 +48,27 @@ profile || {},
 
 
 
-language
+language,
+
+input_language: inputLanguage || null,
+
+interaction_mode: interactionMode || "chat_text",
+
+session_context: {
+  session_id: sessionId || null,
+  conversation: {
+    recent_turn_count: (shortMemory || []).length
+  },
+  // Destination context comes from persisted trip state, never from a
+  // hard-coded place-name list or an unrelated previous chat turn.
+  location: destination ? { destination } : {},
+  trip: tripState || {},
+  preferences: profile || {}
+},
+
+attachment: attachment || null,
+
+saved_travel_items: Array.isArray(savedItems) ? savedItems.slice(0, 5) : []
 
 
 

@@ -1,8 +1,9 @@
 const express = require('express');
 const googleTTS = require('google-tts-api');
+const requireNovaUser = require('../middleware/requireNovaUser');
 const router = express.Router();
 
-router.post('/', async (req, res) => {
+router.post('/', requireNovaUser, async (req, res) => {
   try {
     const { text, language } = req.body;
 

@@ -16,13 +16,6 @@ req.body;
 
 
 
-console.log(
-"SESSION USER:",
-user_id
-);
-
-
-
 if(!user_id)
 {
 
@@ -45,10 +38,9 @@ user_id
 
 
 
-console.log(
-"SESSION OBJECT:",
-JSON.stringify(session,null,2)
-);
+if (process.env.NODE_ENV !== "production") {
+  console.info("[Nova session] ready=true");
+}
 
 
 

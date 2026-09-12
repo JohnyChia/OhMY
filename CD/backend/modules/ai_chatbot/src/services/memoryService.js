@@ -1,6 +1,7 @@
 const supabase = require("../config/supabase");
 
 const memoryMessages = [];
+const MAX_FALLBACK_MESSAGES = 500;
 
 async function saveMessage(user_id, session_id, role, content) {
   try {
@@ -40,6 +41,9 @@ async function saveMessage(user_id, session_id, role, content) {
     created_at: new Date().toISOString()
   };
   memoryMessages.push(msgObj);
+  if (memoryMessages.length > MAX_FALLBACK_MESSAGES) {
+    memoryMessages.splice(0, memoryMessages.length - MAX_FALLBACK_MESSAGES);
+  }
   return msgObj;
 }
 

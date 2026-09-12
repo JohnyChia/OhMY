@@ -26,41 +26,9 @@ return value;
 
 
 
-if(
-typeof value==="string"
-)
+if(typeof value==="string" && value.trim()!=="" && Number.isFinite(Number(value)))
 {
-
-const match =
-value.match(/\d+/);
-
-
-if(match)
-{
-return Number(match[0]);
-}
-
-
-const text =
-value.toLowerCase();
-
-
-if(
-text.includes("week")
-)
-{
-return 7;
-}
-
-
-if(
-text.includes("month")
-)
-{
-return 30;
-}
-
-
+return Number(value);
 }
 
 
@@ -83,17 +51,7 @@ return [];
 }
 
 
-return list.map(x=>
-
-String(x)
-.toLowerCase()
-.replace(
-/\s*(trip|tour|holiday|vacation)$/i,
-""
-)
-.trim()
-
-)
+return list.map(x=>String(x).trim())
 .filter(Boolean);
 
 }

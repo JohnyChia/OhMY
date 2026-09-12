@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Travel AI — Nova Assistant</title>
+  <meta name="description" content="Your intelligent travel companion. Plan trips, check weather, get recommendations, and reroute on the fly — powered by AI." />
+
+  <!-- Google Fonts: SF Pro styled fonts Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Remixicon icons -->
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="nova-theme">
+  <!-- Dynamic Nova Screen Glow Effect -->
+  <div id="nova-edge-glow" class="nova-edge-glow"></div>
+
+  <div class="app-viewport">
+    <!-- Nova Top Header Bar -->
+    <header class="nova-header">
+      <div class="header-left">
+        <div class="nova-badge">
+          <span class="pulse-dot"></span>
+          <span>Nova Intelligence</span>
+        </div>
+      </div>
+      <div class="header-center">
+        <h1 class="header-title">✦ Travel AI Assistant</h1>
+      </div>
+      <div class="header-right">
+        <button id="btn-tts-toggle" class="icon-button" title="Toggle Voice Output">
+          <i class="ri-eye-line"></i>
+        </button>
+        <button id="btn-reset-session" class="icon-button" title="Reset Session">
+          <i class="ri-question-line"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="nova-content">
+      <!-- Welcome Hero (shown when no messages) -->
+      <div id="nova-hero" class="nova-hero">
+        <div class="hero-orb-container">
+          <canvas id="hero-orb-canvas" width="280" height="280"></canvas>
+        </div>
+        <h2 class="hero-greeting">Where to next?</h2>
+        <p class="hero-subtitle">
+          Ask me to plan a trip, build an itinerary, check live weather,
+          discover hidden gems, reroute around traffic, or update your travel style — all by voice or text.
+        </p>
+
+
+      </div>
+
+      <!-- Live Chat Transcript Stream -->
+      <div id="chat-stream" class="chat-stream hidden">
+        <!-- Typing indicator (shown while Nova is thinking) -->
+        <div id="typing-indicator" class="chat-bubble-container assistant hidden" aria-label="Nova is typing">
+          <div class="message-label">Nova</div>
+          <div class="chat-bubble typing-bubble">
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+            <span class="typing-dot"></span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Nova Interactive Bottom Toolbar & Voice Activation -->
+    <footer class="nova-footer">
+      <!-- Status Banner / Listening Indicator -->
+      <div id="nova-status-bar" class="nova-status-bar idle">
+        <span id="status-text">Tap the orb or type your travel question</span>
+      </div>
+
+      <div class="input-panel glass-panel">
+        <!-- Floating Canvas Orb for Footer -->
+        <div class="mini-orb-wrapper" id="mini-orb-trigger" title="Activate Voice Input">
+          <canvas id="footer-orb-canvas" width="70" height="70"></canvas>
+          <div class="orb-pulse-ring"></div>
+        </div>
+
+        <!-- Text Input Form -->
+        <form id="chat-form" class="chat-form">
+          <input
+            type="text"
+            id="user-input"
+            placeholder="Ask anything about your trip..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" id="btn-mic" class="mic-button" title="Voice Input">
+            <i class="ri-mic-line"></i>
+          </button>
+          <button type="submit" id="btn-send" class="send-button" title="Send Message">
+            <i class="ri-arrow-up-line"></i>
+          </button>
+        </form>
+      </div>
+    </footer>
+  </div>
+
+  <!-- JS Dependencies -->
+  <script src="js/nova-orb.js"></script>
+  <script src="js/speech.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

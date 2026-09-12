@@ -16,12 +16,15 @@ require("../controllers/chatController");
 
 const sessionMiddleware=
 require("../middleware/sessionMiddleware");
+const requireNovaUser = require("../middleware/requireNovaUser");
 
 
 
 router.post(
 
 "/chat",
+
+requireNovaUser,
 
 sessionMiddleware,
 

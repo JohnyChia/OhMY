@@ -133,7 +133,10 @@ class RichCards {
     );
   }
 
-  static Widget buildRecommendationCard(dynamic toolResult) {
+  static Widget buildRecommendationCard(
+    dynamic toolResult, {
+    ValueChanged<Map<String, dynamic>>? onSelected,
+  }) {
     if (toolResult == null || toolResult['recommendations'] == null) {
       return const SizedBox.shrink();
     }
@@ -204,56 +207,83 @@ class RichCards {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: recs.map<Widget>((recObj) {
+                final recommendation = Map<String, dynamic>.from(recObj as Map);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              recObj['name'] ?? recObj['title'] ?? 'Place',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: const Color(0xFF1F2937),
-                              ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: onSelected == null
+                        ? null
+                        : () => onSelected(recommendation),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 6,
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  recObj['name'] ?? recObj['title'] ?? 'Place',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: const Color(0xFF1F2937),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                if ((recObj['address'] ?? recObj['description'])
+                                        ?.toString()
+                                        .trim()
+                                        .isNotEmpty ==
+                                    true)
+                                  Text(
+                                    (recObj['address'] ?? recObj['description'])
+                                        .toString(),
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              recObj['description'] ?? '',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(width: 8),
+                          if (recObj['rating'] != null)
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.star,
+                                  size: 12,
+                                  color: Colors.orange,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  recObj['rating'].toString(),
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (onSelected != null) ...[
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              color: Color(0xFF315EA8),
                             ),
                           ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.star,
-                            size: 12,
-                            color: Colors.orange,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            (recObj['rating'] ?? 4.5).toString(),
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange,
-                            ),
-                          ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
                 );
               }).toList(),
