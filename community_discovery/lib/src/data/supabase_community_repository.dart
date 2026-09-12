@@ -68,6 +68,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
     Set<int> tagIds = const {},
     bool bookmarkedOnly = false,
   }) async {
+    final normalizedQuery = query.trim().toLowerCase();
     final rows = await _client.rpc(
       'community_feed_v5',
       params: {
@@ -111,6 +112,14 @@ class SupabaseCommunityRepository implements CommunityRepository {
             publicImageUrls: publicImageUrls,
           );
         })
+        .where(
+          (post) =>
+              normalizedQuery.isEmpty ||
+              '${post.title} ${post.attractionName} ${post.locationName} '
+                      '${post.description} ${post.tags.join(' ')}'
+                  .toLowerCase()
+                  .contains(normalizedQuery),
+        )
         .toList(growable: false);
   }
 

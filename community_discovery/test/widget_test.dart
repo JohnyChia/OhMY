@@ -47,6 +47,23 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
   });
 
+  testWidgets('community search does not match an author name', (tester) async {
+    final controller = CommunityController(FakeCommunityRepository());
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityFeedScreen(controller: controller)),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    await tester.enterText(find.byType(TextField), 'Aina');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Morning light at Kwai Chai Hong'), findsNothing);
+    expect(find.text('No posts found'), findsOneWidget);
+  });
+
   testWidgets('community header offers latest and most liked sorting', (
     tester,
   ) async {
