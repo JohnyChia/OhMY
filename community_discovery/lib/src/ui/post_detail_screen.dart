@@ -41,7 +41,10 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final count = widget.controller.postById(widget.postId).commentCount;
     if (count == _lastCommentCount || !mounted) return;
     _lastCommentCount = count;
-    setState(() => _comments = widget.controller.getComments(widget.postId));
+    final refreshedComments = widget.controller.getComments(widget.postId);
+    setState(() {
+      _comments = refreshedComments;
+    });
   }
 
   @override
@@ -64,8 +67,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     });
     try {
       await widget.controller.addComment(widget.postId, content);
+      if (!mounted) return;
       _commentController.clear();
-      setState(() => _comments = widget.controller.getComments(widget.postId));
     } catch (error) {
       if (mounted) {
         final message = error
@@ -122,11 +125,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     if (!await _confirmDelete('This comment will be deleted.')) return;
     try {
       await widget.controller.deleteComment(widget.postId, comment.id);
-      if (mounted) {
-        setState(
-          () => _comments = widget.controller.getComments(widget.postId),
-        );
-      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
