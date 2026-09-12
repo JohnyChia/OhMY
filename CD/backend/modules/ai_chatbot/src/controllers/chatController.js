@@ -22,6 +22,7 @@ async function chatController(req, res) {
       interaction_mode,
       attachment,
       input_language,
+      current_location,
     } = req.body;
     console.log(`[${reqId}] Chat request received.`);
 
@@ -123,6 +124,16 @@ async function chatController(req, res) {
       inputLanguage: ['en', 'ms', 'zh-CN'].includes(input_language)
         ? input_language
         : null,
+      currentLocation: current_location &&
+        Number.isFinite(Number(current_location.latitude)) &&
+        Number.isFinite(Number(current_location.longitude)) &&
+        Math.abs(Number(current_location.latitude)) <= 90 &&
+        Math.abs(Number(current_location.longitude)) <= 180
+        ? {
+            latitude: Number(current_location.latitude),
+            longitude: Number(current_location.longitude),
+          }
+        : null,
     });
 
     console.log(`[${reqId}] Entering agentService...`);
@@ -133,8 +144,18 @@ async function chatController(req, res) {
     let intent = { intent: agentResponse.intent, parameters: {} };
     let toolResult = agentResponse.toolResult;
     const reply = agentResponse.reply;
+    const mapOnlyRecommendation = (
+      agentResponse.intent === 'recommendation' &&
+      Array.isArray(toolResult?.recommendations) &&
+      toolResult.recommendations.length > 0
+    ) || (
+      agentResponse.intent === 'show_location' &&
+      toolResult?.success === true
+    );
 
-    await memory.saveMessage(user_id, session.id, "assistant", reply);
+    if (!mapOnlyRecommendation) {
+      await memory.saveMessage(user_id, session.id, "assistant", reply);
+    }
 
     let replyLanguageCode = agentResponse.languageCode;
     let replyLanguageName = agentResponse.languageCode;
@@ -184,10 +205,47 @@ async function chatController(req, res) {
       language: replyLanguageName,
       languageCode: replyLanguageCode,
       routing: agentResponse.routing,
+      presentation: mapOnlyRecommendation ? 'map_only' : 'chat',
     });
   } catch (error) {
     console.error(`--- [CHAT ERROR] ${reqId} ---`, error);
-    return res.status(500).json({ success: false, error: error.message });
+    const providerHeaders = error?.headers;
+    const header = (name) => typeof providerHeaders?.get === 'function'
+      ? providerHeaders.get(name)
+      : providerHeaders?.[name];
+    const retryAfter = Number(header('retry-after'));
+    const tokenReset = String(header('x-ratelimit-reset-tokens') || '').trim();
+    const quotaLimited = Number(error?.status) === 429 || /rate limit|tokens per minute/i.test(String(error?.message || ''));
+    const timedOut = /timed out|timeout|aborted/i.test(String(error?.message || ''));
+    const retrySeconds = quotaLimited
+      ? Math.max(1, Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.ceil(retryAfter)
+          : Number(process.env.NOVA_QUOTA_RETRY_SECONDS) || 60)
+      : timedOut
+        ? Math.max(1, Number(process.env.NOVA_TIMEOUT_RETRY_SECONDS) || 8)
+        : null;
+    const nextRetryAt = retrySeconds
+      ? new Date(Date.now() + retrySeconds * 1000).toISOString()
+      : null;
+    return res.status(quotaLimited ? 429 : timedOut ? 503 : 500).json({
+      success: false,
+      error: quotaLimited
+        ? `Nova has reached its temporary AI usage limit. Available again at ${nextRetryAt}.`
+        : timedOut
+          ? `Nova is temporarily busy. Available again at ${nextRetryAt}.`
+        : error.message,
+      ...(Number.isFinite(retryAfter) && retryAfter > 0
+        ? { retry_after_seconds: Math.ceil(retryAfter) }
+        : {}),
+      ...(tokenReset ? { token_refresh_in: tokenReset } : {}),
+      ...(retrySeconds
+        ? {
+            retry_after_seconds: retrySeconds,
+            token_refresh_in: tokenReset || `${retrySeconds} seconds`,
+            next_retry_at: nextRetryAt,
+          }
+        : {}),
+    });
   }
 }
 

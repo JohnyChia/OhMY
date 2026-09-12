@@ -58,12 +58,17 @@ function preserveTranscriptMeaning(rawText, proposedText) {
   }
 
   const candidateWords = words(proposed);
+  const rawCompact = words(raw).join('').toLocaleLowerCase();
+  const proposedCompact = candidateWords.join('').toLocaleLowerCase();
+  const compactDistance = editDistance(rawCompact, proposedCompact);
+  const acousticallyMinorCorrection = rawCompact.length > 0 &&
+    compactDistance / Math.max(rawCompact.length, proposedCompact.length, 1) <= 0.22;
   const droppedMeaningfulWord = words(raw).some((word) => {
     if (word.length < 3 || /^\d+$/u.test(word)) return false;
     return !candidateWords.some((candidate) => candidate.toLocaleLowerCase() === word.toLocaleLowerCase()) &&
       !hasCandidateFor(word, candidateWords);
   });
-  if (droppedMeaningfulWord) {
+  if (droppedMeaningfulWord && !acousticallyMinorCorrection) {
     return { text: raw, accepted: false, reason: 'meaningful_word_changed' };
   }
 

@@ -348,16 +348,6 @@ try {
             'GROQ_API_KEY_1',
             'GROQ_API_KEY_2',
             'GROQ_MODEL',
-            'GROQ_VISION_MODEL',
-            'GEMINI_API_KEY',
-            'GEMINI_TEXT_MODEL',
-            'GEMINI_VISION_MODEL',
-            'GOOGLE_PLACES_API_KEY',
-            'GOOGLE_CLOUD_VISION_API_KEY',
-            'GOOGLE_WEATHER_API_KEY',
-            'GOOGLE_ROUTES_API_KEY',
-            'MAPS_API_KEY',
-            'NOVA_OCR_LANGS',
             'WHISPER_PROMPT',
             'SUPABASE_URL',
             'SUPABASE_SERVICE_ROLE_KEY'
@@ -371,9 +361,6 @@ try {
         foreach ($entry in (Read-EnvFile $chatbotEnvFile).GetEnumerator()) {
             $chatbotEnvironment[$entry.Key] = $entry.Value
         }
-    }
-    if (-not $chatbotEnvironment.ContainsKey('RECOMMENDATION_BACKEND_URL')) {
-        $chatbotEnvironment['RECOMMENDATION_BACKEND_URL'] = 'http://127.0.0.1:3000'
     }
     Start-BackgroundService `
         'Nova AI chatbot and voice transcription' 3001 $nodeExe @('server.js') `
@@ -457,23 +444,13 @@ try {
         }
     }
 
-    $requiredPorts = @(3000, 3001, 3002)
-
-    if ($verificationStarted -or (Test-PortListening 8000)) {
-        $requiredPorts += 8000
-    }
-
-    foreach ($port in $requiredPorts) {
-        Write-Host "[adb]  Forwarding device tcp:$port -> PC tcp:$port" -ForegroundColor Cyan
-
+    foreach ($port in @(3000, 3001, 3002)) {
         & $adbExe -s $Device reverse "tcp:$port" "tcp:$port" | Out-Null
-
-        if ($LASTEXITCODE -ne 0) {
-            throw "ADB reverse forwarding failed for port $port on $Device."
-        }
     }
-
-    Write-Host "[ok]   Android port forwarding configured: $($requiredPorts -join ', ')" -ForegroundColor Green
+    if ($verificationStarted -or (Test-PortListening 8000)) {
+        & $adbExe -s $Device reverse tcp:8000 tcp:8000 | Out-Null
+    }
+    Write-Host '[ok]   Android port forwarding configured' -ForegroundColor Green
 
     $flutterArguments = @(
         'run',
@@ -530,5 +507,4 @@ finally {
     }
     Stop-StartedServices
 }
-
 

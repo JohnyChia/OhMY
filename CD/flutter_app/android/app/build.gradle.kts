@@ -45,10 +45,22 @@ android {
         if (localPropertiesFile.exists()) {
             localProperties.load(FileInputStream(localPropertiesFile))
         }
-        manifestPlaceholders["MAPS_API_KEY"] =
-            localProperties.getProperty("MAPS_API_KEY")
-                ?: System.getenv("MAPS_API_KEY")
-                ?: ""
+        fun configuredMapsKey(value: String?): String? {
+            val candidate = value?.trim().orEmpty()
+            if (candidate.isEmpty() ||
+                Regex("^(YOUR_|REPLACE|replace-with)", RegexOption.IGNORE_CASE)
+                    .containsMatchIn(candidate)) {
+                return null
+            }
+            return candidate
+        }
+        val mapsApiKey =
+            configuredMapsKey(localProperties.getProperty("MAPS_API_KEY"))
+                ?: configuredMapsKey(System.getenv("MAPS_API_KEY"))
+                ?: throw GradleException(
+                    "A real MAPS_API_KEY is required in android/local.properties or the build environment."
+                )
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     buildTypes {
@@ -58,6 +70,13 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Reuse the audited openWakeWord preprocessing assets from the bundled
+    // Android library example. The trained Nova classifier remains an app
+    // asset so release builds cannot silently substitute another wake phrase.
+    sourceSets.getByName("main").assets.srcDir(
+        "../third_party/openwakeword-android-kt/app/src/main/assets"
+    )
 }
 
 dependencies {

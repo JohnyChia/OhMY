@@ -62,7 +62,7 @@ function buildPrimaryAction({ intent, toolResult, tripState, profile, routing })
     create_trip: ['navigation', 'trip_planning'],
     update_trip: ['trip_update'],
     generate_itinerary: ['itinerary'],
-    show_location: ['map'],
+    show_location: ['map', 'navigation'],
     show_attachment_location: ['attachment_location'],
     recommendation: ['recommendation'],
     reroute: ['reroute'],
@@ -96,11 +96,37 @@ function buildPrimaryAction({ intent, toolResult, tripState, profile, routing })
       return validatePrimaryAction({ type: "start_journey", target: "trip", parameters: journeyParameters, requires_confirmation: false });
     case "show_location":
       if (routing.allowMap !== true) return null;
-      return validatePrimaryAction({ type: "show_place_results", target: "map", parameters: journeyParameters, requires_confirmation: false });
+      return validatePrimaryAction({
+        type: "show_place_results",
+        target: "map",
+        parameters: {
+          ...journeyParameters,
+          places: Array.isArray(toolResult.places) ? toolResult.places.slice(0, 20) : [],
+          result_pipeline: 'navigation',
+        },
+        requires_confirmation: false,
+      });
     case "show_attachment_location":
       return validatePrimaryAction({ type: "show_place_results", target: "map", parameters: journeyParameters, requires_confirmation: false });
     case "recommendation":
-      return null;
+      if (!Array.isArray(toolResult.recommendations) ||
+          !toolResult.recommendations[0]?.place?.displayName?.text) return null;
+      return validatePrimaryAction({
+        type: "show_place_results",
+        target: "map",
+        parameters: {
+          destination: toolResult.destination || toolResult.recommendations[0].place.displayName.text,
+          interests: Array.isArray(toolResult.applied_preferences)
+            ? toolResult.applied_preferences
+            : [],
+          budget: "",
+          duration: null,
+          recommendations: toolResult.recommendations.slice(0, 20),
+          preference_source: String(toolResult.preference_source || ''),
+          result_pipeline: 'recommendation',
+        },
+        requires_confirmation: false,
+      });
     case "reroute":
       return validatePrimaryAction({ type: "show_place_results", target: "map", parameters: journeyParameters, requires_confirmation: true });
     case "weather":
@@ -149,7 +175,7 @@ function validatePrimaryAction(action) {
   switch (action.type) {
     case "start_journey":
     case "show_place_results":
-      if (!hasOnly(["destination", "interests", "budget", "duration", "trip_mode"]) ||
+      if (!hasOnly(["destination", "interests", "budget", "duration", "trip_mode", "recommendations", "preference_source", "places", "result_pipeline"]) ||
           !validString(parameters.destination, { required: true }) ||
           !validStringList(parameters.interests) ||
           !validString(parameters.budget, { max: 80 }) ||
@@ -161,6 +187,18 @@ function validatePrimaryAction(action) {
             parameters.trip_mode === 'solo')) {
         return null;
       }
+      if (parameters.recommendations !== undefined &&
+          (!Array.isArray(parameters.recommendations) || parameters.recommendations.length > 20)) {
+        return null;
+      }
+      if (parameters.preference_source !== undefined &&
+          !validString(parameters.preference_source, { max: 40 })) {
+        return null;
+      }
+      if (parameters.places !== undefined &&
+          (!Array.isArray(parameters.places) || parameters.places.length > 20)) return null;
+      if (parameters.result_pipeline !== undefined &&
+          !['navigation', 'recommendation'].includes(parameters.result_pipeline)) return null;
       break;
     case "weather_display":
       if (!hasOnly(["location", "date", "weather", "observed_at"]) ||

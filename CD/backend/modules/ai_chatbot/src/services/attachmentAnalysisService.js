@@ -237,7 +237,6 @@ async function analyzeVision(imageBuffer, mimeType, ocrText) {
       max_tokens: 500,
       reasoning_effort: 'none',
       reasoning_format: 'hidden',
-      response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: `Return JSON only: {"travelRelated":false,"visibleText":"","visualContext":"","travelTags":[],"locationHint":"","locationConfidence":"none","uncertainInferences":[]}. Semantically decide whether the visible evidence is Malaysian travel content without keyword matching. Describe only what is visibly shown in visualContext. travelTags may contain only these exact travel categories: ${ATTRACTION_TAGS.join(', ')}. Identify a Malaysian location when signage, a distinctive landmark, or distinctive architecture provides strong visual evidence. Set locationConfidence to "high" only when you can name the exact place reliably; otherwise leave locationHint empty and use "none". Never use conversation history or a generic visual resemblance as evidence. VisibleText must copy only legible text. Do not change or invent prices, dates, URLs, phone numbers, or reference numbers. Put uncertain candidates only in uncertainInferences.` }, {
         role: 'user', content: [{ type: 'text', text: `Local OCR result (may be incomplete):\n${ocrText || '(none)'}` }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBuffer.toString('base64')}` } }],
       }],

@@ -106,6 +106,10 @@ class NovaAction {
                 'budget',
                 'duration',
                 'trip_mode',
+                'recommendations',
+                'preference_source',
+                'places',
+                'result_pipeline',
               },
             ) ||
             requiredString('destination') == null ||
@@ -156,7 +160,7 @@ class NovaAction {
   }
 
   static bool _isSafeJsonValue(Object? value, {required int depth}) {
-    if (depth > 4 || value == null || value is bool) return depth <= 4;
+    if (depth > 6 || value == null || value is bool) return depth <= 6;
     if (value is num) return value.isFinite;
     if (value is String) return value.length <= 2000;
     if (value is List) {
