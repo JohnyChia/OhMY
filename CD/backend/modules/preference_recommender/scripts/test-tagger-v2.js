@@ -11,6 +11,18 @@ const { splitSupportedPreferences } = require("../preference-reference");
 
 const tagger = new TaggingService();
 
+const singleStrongReview = tagger.aggregatePlace([
+    { text: "This museum preserves Malaysian cultural heritage and explains important local history.", weight: 1 },
+    { text: "Clean place with friendly staff and convenient parking.", weight: 1 },
+    { text: "Nice facilities and comfortable seating for visitors.", weight: 1 },
+    { text: "The staff were helpful and the building was clean.", weight: 1 },
+    { text: "Easy parking and good service throughout the visit.", weight: 1 }
+]);
+assert.ok(
+    singleStrongReview.culturalTags.includes("Heritage"),
+    "One review passing the NLP and support thresholds must establish a cultural tag."
+);
+
 const malay = normalizeGoogleReviews([{
     text: {
         text: "Muzium ini mempunyai warisan budaya dan seni bina tradisional.",
@@ -37,13 +49,57 @@ assert.equal(unsupported.reviews.length, 0);
 assert.equal(unsupported.languageSummary.unsupported, 1);
 
 const metadataOnly = analyzePlace({
+    displayName: { text: "Reviewless History Museum" },
     types: ["history_museum"],
     reviews: [],
     editorialSummary: null
 }, tagger, GENERAL_TAGS);
 assert.ok(metadataOnly.generalTags.includes("Museum"));
-assert.ok(metadataOnly.culturalTags.includes("Heritage"));
+assert.deepEqual(metadataOnly.culturalTags, []);
 assert.equal(metadataOnly.statistics.Museum.source, "google_place_type");
+
+for (const displayName of [
+    "Kuala Lumpur-Selangor Boundary Stone 8/21",
+    "TYD Signature"
+]) {
+    const categoryOnly = analyzePlace({
+        displayName: { text: displayName },
+        types: ["cultural_landmark"],
+        reviews: [],
+        editorialSummary: null
+    }, tagger, GENERAL_TAGS);
+    assert.deepEqual(categoryOnly.culturalTags, []);
+    assert.ok(categoryOnly.validation.rejectedCulturalTags.includes("Heritage"));
+}
+
+const residence = analyzePlace({
+    displayName: { text: "Cemara Damai Residence" },
+    primaryType: "condominium_complex",
+    types: ["condominium_complex", "historical_landmark"],
+    reviews: [{
+        text: {
+            text: "This heritage site has traditional architecture and important cultural history for local visitors.",
+            languageCode: "en"
+        }
+    }]
+}, tagger, GENERAL_TAGS);
+assert.equal(residence.validation.eligible, false);
+assert.ok(residence.validation.reasons.includes("residential_place_type"));
+assert.deepEqual(residence.generalTags, []);
+assert.deepEqual(residence.culturalTags, []);
+
+const textSupportedLandmark = analyzePlace({
+    displayName: { text: "Documented Heritage Site" },
+    types: ["cultural_landmark"],
+    reviews: [{
+        text: {
+            text: "This protected heritage site preserves an important historic legacy and traditional local culture.",
+            languageCode: "en"
+        }
+    }]
+}, tagger, GENERAL_TAGS);
+assert.ok(textSupportedLandmark.culturalTags.includes("Heritage"));
+assert.equal(textSupportedLandmark.statistics.Heritage.source, "hybrid");
 
 const assignments = buildTagAssignments(metadataOnly, GENERAL_TAGS);
 const reversed = [...assignments].reverse();

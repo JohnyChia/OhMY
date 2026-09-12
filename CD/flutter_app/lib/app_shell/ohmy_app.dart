@@ -30,6 +30,7 @@ import '../user_management/screens/profile_screen.dart';
 import '../user_management/services/traveler_profile_service.dart';
 import '../shared/widgets/wau_loading_indicator.dart';
 import '../shared/widgets/ohmy_snack_bar.dart';
+import '../shared/utils/place_description.dart';
 import 'ohmy_bottom_navigation_bar.dart';
 import 'personalized_home_page.dart';
 
@@ -623,7 +624,7 @@ class _HomeDiscoveryContentState extends State<_HomeDiscoveryContent> {
       item['place']?['displayName']?['text']?.toString() ?? 'Local heritage';
 
   String _description(Map<String, dynamic> item) =>
-      item['place']?['description']?.toString() ?? '';
+      usablePlaceDescription(item['place']?['description']) ?? '';
 
   String? _photo(Map<String, dynamic> item) {
     final name = item['place']?['photo']?['name']?.toString();

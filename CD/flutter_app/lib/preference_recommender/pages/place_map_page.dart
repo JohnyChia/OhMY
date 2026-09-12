@@ -17,6 +17,7 @@ import '../../user_management/services/traveler_profile_service.dart';
 import 'package:community_discovery/community_discovery.dart'
     show SupabaseConfig;
 import '../../shared/services/recommendation_sound.dart';
+import '../../shared/utils/place_description.dart';
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -58,9 +59,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   Set<Marker> markers = {};
   bool loading = false, showCarousel = false, bookmarked = false;
   bool trafficEnabled = false;
-  bool showWeatherPill = false,
-      showWeatherPanel = false,
-      weatherLoading = false;
+  bool showWeatherPill = false, weatherLoading = false;
   WeatherOverview? weather;
   Position? currentPosition;
   bool locationPermissionGranted = false;
@@ -150,12 +149,15 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
 
   String name(Map p) =>
       p['displayName']?['text']?.toString() ?? 'Selected place';
-  String description(Map p) =>
-      p['description']?.toString().trim().isNotEmpty == true
-      ? p['description'].toString()
-      : p['primaryTypeDisplayName'] != null
-      ? '${p['primaryTypeDisplayName']} at ${p['formattedAddress'] ?? 'this location'}.'
-      : 'Description unavailable.';
+  String? description(Map p) {
+    final value = usablePlaceDescription(p['description']);
+    if (value != null) return value;
+    final type = p['primaryTypeDisplayName']?.toString().trim() ?? '';
+    final address = p['formattedAddress']?.toString().trim() ?? '';
+    if (type.isNotEmpty && address.isNotEmpty) return '$type at $address.';
+    return null;
+  }
+
   List<String> tags(Map item) => [
     ...List<String>.from(item['analysis']?['generalTags'] ?? []),
     ...List<String>.from(item['analysis']?['culturalTags'] ?? []),
@@ -325,7 +327,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       loading = true;
       results = [];
       showCarousel = false;
-      showWeatherPanel = false;
+      showWeatherPill = false;
       message = 'Searching places…';
     });
     try {
@@ -353,7 +355,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       loading = true;
       results = [];
       showCarousel = false;
-      showWeatherPanel = false;
+      showWeatherPill = false;
       message = 'Fetching reviews and assigning tags…';
     });
     try {
@@ -462,7 +464,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     setState(() {
       loading = true;
       selected = null;
-      showWeatherPanel = false;
+      showWeatherPill = false;
       message = 'Discovering and tagging nearby places…';
     });
     try {
@@ -533,7 +535,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
 
     setState(() {
       loading = true;
-      showWeatherPanel = false;
+      showWeatherPill = false;
       message = 'Finding similar places within 10 kmâ€¦';
     });
     try {
@@ -704,10 +706,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
 
   Future<void> toggleWeather() async {
     if (showWeatherPill) {
-      setState(() {
-        showWeatherPill = false;
-        showWeatherPanel = false;
-      });
+      setState(() => showWeatherPill = false);
       return;
     }
     setState(() => showWeatherPill = true);
@@ -722,7 +721,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       if (mounted) {
         setState(() {
           showWeatherPill = false;
-          showWeatherPanel = false;
           message = error.toString().replaceFirst('Exception: ', '');
         });
         _scheduleMessageDismissal();
@@ -730,13 +728,14 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     }
   }
 
-  void openWeatherPanel() {
-    setState(() {
-      showWeatherPanel = true;
-      showCarousel = false;
-      selected = null;
-      message = null;
-    });
+  Future<void> openWeatherPage() async {
+    final overview = weather;
+    if (overview == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => WeatherDetailPage(weather: overview),
+      ),
+    );
   }
 
   Future<void> _loadWeather(
@@ -753,7 +752,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     } catch (error) {
       if (mounted && showErrors) {
         setState(() {
-          showWeatherPanel = false;
+          showWeatherPill = false;
           message = error.toString().replaceFirst('Exception: ', '');
         });
         _scheduleMessageDismissal();
@@ -878,35 +877,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         currentLocationButton(),
         if (selected != null && !showCarousel) selectionPanel(),
         if (showCarousel) carousel(),
-        if (showWeatherPanel)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: weatherLoading
-                ? const Material(
-                    elevation: 14,
-                    child: SizedBox(
-                      height: 140,
-                      child: Center(child: WauLoadingIndicator(size: 46)),
-                    ),
-                  )
-                : weather == null
-                ? const SizedBox.shrink()
-                : WeatherBottomPanel(
-                    weather: weather!,
-                    onClose: () => setState(() => showWeatherPanel = false),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => WeatherDetailPage(weather: weather!),
-                      ),
-                    ),
-                  ),
-          ),
         if (loading)
           const Center(
-            child: WauLoadingIndicator(size: 68, label: 'Finding places…'),
+            child: WauLoadingIndicator(size: 68, label: 'Loading...'),
           ),
         if (message != null && !loading)
           Positioned(
@@ -966,11 +939,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   );
   Widget controls() => Positioned(
     left: 16,
-    bottom: showCarousel
-        ? recommendationPanelHeight + 12
-        : showWeatherPanel
-        ? 202
-        : 20,
+    bottom: showCarousel ? recommendationPanelHeight + 12 : 20,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -988,7 +957,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     height: 52,
     child: Material(
       elevation: 5,
-      color: showWeatherPanel ? soft : Colors.white,
+      color: showWeatherPill ? soft : Colors.white,
       borderRadius: BorderRadius.circular(28),
       clipBehavior: Clip.antiAlias,
       child: Row(
@@ -1029,25 +998,41 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
             Container(width: 1, height: 30, color: const Color(0xffdde4ef)),
             Expanded(
               child: InkWell(
-                onTap: openWeatherPanel,
-                child: const SizedBox.expand(
+                onTap: weather == null ? null : openWeatherPage,
+                child: SizedBox.expand(
                   child: Row(
                     children: [
-                      SizedBox(width: 11),
+                      const SizedBox(width: 11),
                       Expanded(
-                        child: Text(
-                          'Weather info',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: ink,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              weatherDescription(
+                                weather?.current.description ?? '',
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: ink,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              'Rain ${weather?.current.rainProbability ?? 0}%',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      Icon(Icons.chevron_right_rounded, color: ink),
-                      SizedBox(width: 7),
+                      const Icon(Icons.chevron_right_rounded, color: ink),
+                      const SizedBox(width: 7),
                     ],
                   ),
                 ),
@@ -1072,35 +1057,32 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   Widget nearbyButton() => Positioned(
     right: 16,
     bottom: showCarousel ? recommendationPanelHeight + 12 : 20,
-    child: showWeatherPanel
-        ? const SizedBox.shrink()
-        : FloatingActionButton.extended(
-            heroTag: 'nearby',
-            backgroundColor: blue,
-            foregroundColor: Colors.white,
-            onPressed: nearby,
-            icon: const Icon(Icons.lightbulb_outline_rounded),
-            label: const Text('Nearby matches'),
-          ),
+    child: FloatingActionButton.extended(
+      heroTag: 'nearby',
+      backgroundColor: blue,
+      foregroundColor: Colors.white,
+      onPressed: nearby,
+      icon: const Icon(Icons.lightbulb_outline_rounded),
+      label: const Text('Nearby For You'),
+    ),
   );
 
   Widget currentLocationButton() => Positioned(
     right: 16,
     bottom: showCarousel ? recommendationPanelHeight + 76 : 84,
-    child: showWeatherPanel
-        ? const SizedBox.shrink()
-        : FloatingActionButton.small(
-            heroTag: 'current-location',
-            backgroundColor: Colors.white,
-            foregroundColor: blue,
-            onPressed: moveToCurrentLocation,
-            child: const Icon(Icons.my_location_rounded),
-          ),
+    child: FloatingActionButton.small(
+      heroTag: 'current-location',
+      backgroundColor: Colors.white,
+      foregroundColor: blue,
+      onPressed: moveToCurrentLocation,
+      child: const Icon(Icons.my_location_rounded),
+    ),
   );
 
   Widget selectionPanel() {
     final item = selected!, p = item['place'] as Map<String, dynamic>;
     final img = photo(p);
+    final placeDescription = description(p);
     return Positioned(
       left: 12,
       right: 12,
@@ -1167,15 +1149,16 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      Text(
-                        description(p),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
+                      if (placeDescription != null)
+                        Text(
+                          placeDescription,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 5),
                       Text(
                         '${eta(p)}  ·  ${distance(p)}',
@@ -1276,6 +1259,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     );
     final placeId = p['id']?.toString() ?? '';
     final isBookmarked = bookmarkedRecommendations.contains(placeId);
+    final placeDescription = description(p);
     return Material(
       color: const Color(0xff252a34),
       shape: RoundedRectangleBorder(
@@ -1337,12 +1321,16 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  Text(
-                    description(p),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 10),
-                  ),
+                  if (placeDescription != null)
+                    Text(
+                      placeDescription,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 10,
+                      ),
+                    ),
                   const SizedBox(height: 3),
                   Text(
                     '${eta(p)}  ·  ${distance(p)}',
@@ -1524,6 +1512,9 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
         ],
         photos = List<Map<String, dynamic>>.from(p['photos'] ?? []),
         n = p['displayName']?['text'] ?? 'Place details';
+    final placeDescription =
+        usablePlaceDescription(p['description']) ??
+        usablePlaceDescription(p['primaryTypeDisplayName']);
     return Scaffold(
       appBar: AppBar(
         title: Text(n, overflow: TextOverflow.ellipsis),
@@ -1614,13 +1605,13 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
               color: ink,
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            p['description'] ??
-                p['primaryTypeDisplayName'] ??
-                'Description unavailable.',
-            style: const TextStyle(color: muted, height: 1.5),
-          ),
+          if (placeDescription != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              placeDescription,
+              style: const TextStyle(color: muted, height: 1.5),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             p['formattedAddress'] ?? 'Address unavailable',

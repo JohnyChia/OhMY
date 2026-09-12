@@ -204,7 +204,15 @@ function Install-NodeDependencies(
     [string]$NpmExecutable
 ) {
     $modules = Join-Path $Directory 'node_modules'
-    if (-not $InstallDependencies -and (Test-Path -LiteralPath $modules)) {
+    $packageLock = Join-Path $Directory 'package-lock.json'
+    $installedLock = Join-Path $modules '.package-lock.json'
+    $dependenciesAreCurrent =
+        (Test-Path -LiteralPath $modules) -and
+        (Test-Path -LiteralPath $packageLock) -and
+        (Test-Path -LiteralPath $installedLock) -and
+        ((Get-Item -LiteralPath $installedLock).LastWriteTimeUtc -ge
+            (Get-Item -LiteralPath $packageLock).LastWriteTimeUtc)
+    if (-not $InstallDependencies -and $dependenciesAreCurrent) {
         return
     }
     Write-Host "[setup] Installing $Name dependencies" -ForegroundColor Cyan

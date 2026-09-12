@@ -22,6 +22,35 @@ const TYPE_TAGS = {
     buddhist_temple: ["Religious Heritage"]
 };
 
+const RESIDENTIAL_PLACE_TYPES = new Set([
+    "apartment_building",
+    "apartment_complex",
+    "condominium_complex",
+    "housing_complex",
+    "housing_development",
+    "private_guest_room",
+    "residential_building"
+]);
+
+const TOURISM_PROTECTIVE_TYPES = new Set([
+    "art_gallery",
+    "art_museum",
+    "botanical_garden",
+    "cultural_center",
+    "historical_place",
+    "history_museum",
+    "museum",
+    "national_park",
+    "park",
+    "performing_arts_theater",
+    "tourist_attraction",
+    "visitor_center",
+    "wildlife_park"
+]);
+
+const RESIDENTIAL_NAME_PATTERN =
+    /\b(apartments?|condominiums?|condos?|pangsapuri|private\s+(?:property|residence)|residences?|residency|residential|serviced\s+(?:apartment|residence)s?)\b/i;
+
 const { normalizeGoogleReviews } = require("./review-normalizer");
 
 function mergeEvidence(reviewAnalysis, metadataEntries) {
@@ -31,6 +60,15 @@ function mergeEvidence(reviewAnalysis, metadataEntries) {
 
     for (const entry of metadataEntries) {
         const existing = statistics[entry.tag];
+        if (
+            entry.group === "cultural"
+            && entry.source === "google_place_type"
+            && !existing?.assigned
+        ) {
+            // Google categories are discovery/supporting metadata, never
+            // sufficient evidence for cultural significance on their own.
+            continue;
+        }
         if (existing?.assigned) {
             existing.source = existing.source === entry.source
                 ? existing.source
@@ -43,6 +81,12 @@ function mergeEvidence(reviewAnalysis, metadataEntries) {
                 existing.metadataConfidence || 0,
                 entry.confidence
             );
+            existing.evidenceCount = Number(existing.evidenceCount || 0) + 1;
+            existing.evidenceTypes = {
+                ...(existing.evidenceTypes || {}),
+                [entry.source]:
+                    Number(existing.evidenceTypes?.[entry.source] || 0) + 1
+            };
         } else {
             statistics[entry.tag] = {
                 assigned: true,
@@ -70,9 +114,10 @@ function mergeEvidence(reviewAnalysis, metadataEntries) {
 function metadataEntries(place, tagger, generalTags) {
     const entries = new Map();
     const add = (tag, confidence, source) => {
-        const current = entries.get(tag);
+        const key = `${tag}:${source}`;
+        const current = entries.get(key);
         if (!current || confidence > current.confidence) {
-            entries.set(tag, {
+            entries.set(key, {
                 tag,
                 confidence,
                 source,
@@ -80,10 +125,6 @@ function metadataEntries(place, tagger, generalTags) {
             });
         }
     };
-
-    for (const type of place.types || []) {
-        for (const tag of TYPE_TAGS[type] || []) add(tag, 0.6, "google_place_type");
-    }
 
     const summary = String(place.editorialSummary?.text || "").trim();
     if (summary) {
@@ -96,19 +137,123 @@ function metadataEntries(place, tagger, generalTags) {
             ...summaryAnalysis.generalTags,
             ...summaryAnalysis.culturalTags
         ]) {
+            if (
+                !generalTags.includes(tag)
+                && !hasMeaningfulCulturalTextEvidence(
+                    summaryAnalysis.statistics[tag]
+                )
+            ) {
+                continue;
+            }
             add(tag, 0.8, "editorial_summary");
         }
+    }
+
+    // Process Google types after textual metadata so a matching category can
+    // strengthen existing evidence, but cannot originate a cultural tag.
+    for (const type of place.types || []) {
+        for (const tag of TYPE_TAGS[type] || []) add(tag, 0.6, "google_place_type");
     }
     return [...entries.values()];
 }
 
+function hasMeaningfulCulturalTextEvidence(statistic) {
+    if (!statistic?.assigned) return false;
+    if (Number(statistic.supportingReviews || 0) >= 2) return true;
+    const evidence = statistic.evidenceTypes || {};
+    return ["strong", "medium", "synonym", "ngram"].some(
+        type => Number(evidence[type] || 0) > 0
+    );
+}
+
+function removeInsufficientCulturalTags(analysis, generalTags) {
+    const rejected = [];
+    const culturalTags = (analysis.culturalTags || []).filter(tag => {
+        const sufficient = hasMeaningfulCulturalTextEvidence(
+            analysis.statistics?.[tag]
+        );
+        if (!sufficient) {
+            rejected.push(tag);
+            if (analysis.statistics?.[tag]) {
+                analysis.statistics[tag].assigned = false;
+            }
+        }
+        return sufficient;
+    });
+    return {
+        ...analysis,
+        generalTags: (analysis.generalTags || []).filter(
+            tag => generalTags.includes(tag)
+        ),
+        culturalTags,
+        rejected
+    };
+}
+
+function validatePlaceCandidate(place) {
+    const placeTypes = new Set([
+        place.primaryType,
+        ...(place.types || [])
+    ].filter(Boolean));
+    const displayName = String(
+        place.displayName?.text || place.displayName || ""
+    ).trim();
+    const reasons = [];
+
+    if ([...placeTypes].some(type => RESIDENTIAL_PLACE_TYPES.has(type))) {
+        reasons.push("residential_place_type");
+    }
+    if (
+        RESIDENTIAL_NAME_PATTERN.test(displayName)
+        && ![...placeTypes].some(type => TOURISM_PROTECTIVE_TYPES.has(type))
+    ) {
+        reasons.push("residential_place_name");
+    }
+
+    return {
+        eligible: reasons.length === 0,
+        reasons,
+        displayName,
+        placeTypes: [...placeTypes]
+    };
+}
+
 function analyzePlace(place, tagger, generalTags) {
     const normalized = normalizeGoogleReviews(place.reviews || []);
-    const reviewAnalysis = tagger.aggregatePlace(normalized.reviews);
+    const validation = validatePlaceCandidate(place);
+    if (!validation.eligible) {
+        const emptyAnalysis = tagger.aggregatePlace([]);
+        return {
+            ...emptyAnalysis,
+            inputReviewCount: (place.reviews || []).length,
+            languageSummary: normalized.languageSummary,
+            evidenceSummary: {
+                reviewTagCount: 0,
+                metadataTagCount: 0,
+                excluded: true
+            },
+            validation: {
+                ...validation,
+                rejectedCulturalTags: []
+            }
+        };
+    }
+    const reviewAnalysis = removeInsufficientCulturalTags(
+        tagger.aggregatePlace(normalized.reviews),
+        generalTags
+    );
+    const entries = metadataEntries(place, tagger, generalTags);
     const analysis = mergeEvidence(
         reviewAnalysis,
-        metadataEntries(place, tagger, generalTags)
+        entries
     );
+    const unsupportedCategoryTags = entries
+        .filter(entry =>
+            entry.group === "cultural"
+            && entry.source === "google_place_type"
+            && !analysis.culturalTags.includes(entry.tag)
+        )
+        .map(entry => entry.tag);
     return {
         ...analysis,
         languageSummary: normalized.languageSummary,
@@ -121,9 +266,28 @@ function analyzePlace(place, tagger, generalTags) {
                     "google_place_type",
                     "editorial_summary",
                     "hybrid"
-                ].includes(stat.source)).length
+                ].includes(stat.source)).length,
+            excluded: false
+        },
+        validation: {
+            ...validation,
+            rejectedCulturalTags: [
+                ...new Set([
+                    ...reviewAnalysis.rejected,
+                    ...unsupportedCategoryTags
+                ])
+            ]
         }
     };
 }
 
-module.exports = { TYPE_TAGS, metadataEntries, mergeEvidence, analyzePlace };
+module.exports = {
+    TYPE_TAGS,
+    RESIDENTIAL_PLACE_TYPES,
+    RESIDENTIAL_NAME_PATTERN,
+    hasMeaningfulCulturalTextEvidence,
+    validatePlaceCandidate,
+    metadataEntries,
+    mergeEvidence,
+    analyzePlace
+};

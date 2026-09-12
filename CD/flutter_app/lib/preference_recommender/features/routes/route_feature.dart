@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_navigation_flutter/google_navigation_flutter.dart'
@@ -18,6 +19,7 @@ import '../../../user_management/services/traveler_profile_service.dart';
 import 'package:community_discovery/community_discovery.dart'
     show SupabaseConfig;
 import '../../../shared/services/recommendation_sound.dart';
+import '../../../shared/utils/place_description.dart';
 import '../../widgets/wau_loading_indicator.dart';
 import '../../../user_management/models/travel_history_entry.dart';
 import '../../../user_management/services/travel_history_service.dart';
@@ -471,10 +473,12 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   bool loading = true;
   String? error;
   Map<int, BitmapDescriptor> routeIndicatorIcons = {};
+  BitmapDescriptor? destinationMarkerIcon;
 
   @override
   void initState() {
     super.initState();
+    unawaited(buildDestinationMarkerIcon());
     loadRoutes();
   }
 
@@ -541,14 +545,6 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       )
       .toSet();
 
-  String routeCaption(int index) {
-    final fastest = routes.map((route) => route.minutes).reduce(math.min);
-    final shortest = routes.map((route) => route.distanceKm).reduce(math.min);
-    if (routes[index].minutes == fastest) return 'Best';
-    if (routes[index].distanceKm == shortest) return 'Shortest distance';
-    return 'Alternative route';
-  }
-
   String tollDescription(DrivingRoute route) {
     if (route.tollPrices.isEmpty) return 'No toll estimate';
     final price = route.tollPrices.first;
@@ -561,9 +557,10 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
 
   Future<BitmapDescriptor> routeIndicatorIcon(int index) async {
     const scale = 3.0;
-    const width = 142.0;
-    const bodyHeight = 50.0;
-    const height = 58.0;
+    const width = 190.0;
+    const bodyLeft = 24.0;
+    const bodyHeight = 56.0;
+    const height = 67.0;
     final selectedRoute = selected == index;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
@@ -571,21 +568,32 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       ..color = selectedRoute ? _routeBlue : const Color(0xfff7f9ff);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(0, 0, width * scale, bodyHeight * scale),
+        const Rect.fromLTWH(
+          bodyLeft * scale,
+          0,
+          (width - bodyLeft) * scale,
+          bodyHeight * scale,
+        ),
         const Radius.circular(14 * scale),
       ),
       background,
     );
     final pointer = Path()
-      ..moveTo((width / 2 - 7) * scale, (bodyHeight - 1) * scale)
-      ..lineTo((width / 2) * scale, height * scale)
-      ..lineTo((width / 2 + 7) * scale, (bodyHeight - 1) * scale)
+      ..moveTo((bodyLeft + 18) * scale, (bodyHeight - 1) * scale)
+      ..lineTo(3 * scale, height * scale)
+      ..lineTo((bodyLeft + 5) * scale, (bodyHeight - 20) * scale)
       ..close();
+    canvas.drawShadow(pointer, Colors.black.withValues(alpha: .25), 3, true);
     canvas.drawPath(pointer, background);
     if (!selectedRoute) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          const Rect.fromLTWH(1, 1, width * scale - 2, bodyHeight * scale - 2),
+          const Rect.fromLTWH(
+            (bodyLeft + 1) * scale,
+            1,
+            (width - bodyLeft) * scale - 2,
+            bodyHeight * scale - 2,
+          ),
           const Radius.circular(14 * scale),
         ),
         Paint()
@@ -607,8 +615,8 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '…',
-      )..layout(maxWidth: (width - 18) * scale);
-      painter.paint(canvas, Offset(9 * scale, top * scale));
+      )..layout(maxWidth: (width - bodyLeft - 22) * scale);
+      painter.paint(canvas, Offset((bodyLeft + 11) * scale, top * scale));
     }
 
     final route = routes[index];
@@ -618,7 +626,12 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       11,
       FontWeight.w700,
     );
-    paintText(routeCaption(index), 27, 9, FontWeight.w500);
+    paintText(
+      '${route.traffic} - ${tollDescription(route)}',
+      29,
+      9,
+      FontWeight.w500,
+    );
     final image = await recorder.endRecording().toImage(
       (width * scale).round(),
       (height * scale).round(),
@@ -636,6 +649,63 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       icons[index] = await routeIndicatorIcon(index);
     }
     if (mounted) setState(() => routeIndicatorIcons = icons);
+  }
+
+  Future<void> buildDestinationMarkerIcon() async {
+    const scale = 3.0;
+    const width = 46.0;
+    const height = 56.0;
+    final flowerData = await rootBundle.load(
+      'assets/images/preference_recommender/location_mark.png',
+    );
+    final flowerCodec = await ui.instantiateImageCodec(
+      flowerData.buffer.asUint8List(),
+      targetWidth: (42 * scale).round(),
+      targetHeight: (42 * scale).round(),
+    );
+    final flowerFrame = await flowerCodec.getNextFrame();
+    final flowerImage = flowerFrame.image;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(scale);
+    final pointer = Path()
+      ..moveTo(15.5, 33)
+      ..quadraticBezierTo(18, 45, width / 2, height)
+      ..quadraticBezierTo(28, 45, 30.5, 33)
+      ..close();
+    canvas.drawPath(
+      pointer,
+      Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round
+        ..strokeWidth = 3.2,
+    );
+    canvas.drawPath(pointer, Paint()..color = const Color(0xffff5a7d));
+    canvas.drawImageRect(
+      flowerImage,
+      Rect.fromLTWH(
+        0,
+        0,
+        flowerImage.width.toDouble(),
+        flowerImage.height.toDouble(),
+      ),
+      const Rect.fromLTWH(2, 0, 42, 42),
+      Paint()..filterQuality = FilterQuality.high,
+    );
+    final image = await recorder.endRecording().toImage(
+      (width * scale).round(),
+      (height * scale).round(),
+    );
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    flowerImage.dispose();
+    flowerCodec.dispose();
+    if (!mounted) return;
+    setState(() {
+      destinationMarkerIcon = BitmapDescriptor.bytes(
+        bytes!.buffer.asUint8List(),
+        imagePixelRatio: scale * 1.5,
+      );
+    });
   }
 
   void selectRoute(int index) {
@@ -657,7 +727,9 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           widget.destination.latitude,
           widget.destination.longitude,
         ),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+        icon:
+            destinationMarkerIcon ??
+            BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRose),
       ),
     };
     for (var index = 0; index < routes.length; index++) {
@@ -674,7 +746,9 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           markerId: MarkerId('route-indicator-$index'),
           position: route.points[indicatorIndex],
           icon: icon,
-          anchor: const Offset(.5, 1),
+          // Keep the pointer attached to the route while placing the callout
+          // body beside it so the route remains visible and tappable.
+          anchor: const Offset(3 / 190, 1),
           zIndexInt: selected == index ? 4 : 3,
           onTap: () => selectRoute(index),
         ),
@@ -836,14 +910,6 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                         runSpacing: 3,
                         children: [
                           Text(
-                            routeCaption(selected),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: _routeBlue,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          Text(
                             routes[selected].traffic,
                             style: const TextStyle(
                               fontSize: 12,
@@ -934,6 +1000,10 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   bool navigationPanelExpanded = false;
   bool voiceGuidanceEnabled = true;
   bool vibrationEnabled = true;
+  bool navigationWeatherPillExpanded = false;
+  bool navigationWeatherLoading = false;
+  WeatherOverview? navigationWeather;
+  final ValueNotifier<double> navigationCameraBearing = ValueNotifier(0);
   final Set<String> bookmarkedRecommendations = {};
   DateTime? _heavyTrafficSince;
   DateTime? _normalTrafficSince;
@@ -962,6 +1032,12 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     activeRoutes = List<DrivingRoute>.from(widget.routes);
     selectedRoute = widget.initialRoute;
     journeyStartedAt = DateTime.now();
+  }
+
+  @override
+  void dispose() {
+    navigationCameraBearing.dispose();
+    super.dispose();
   }
 
   Color get etaColor => switch (trafficSeverity) {
@@ -1069,24 +1145,36 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     if (current == null || !mounted) return;
     setState(() => recommendationLoading = true);
     try {
-      var preferences = navigationPreferences;
-      if (SupabaseConfig.isConfigured) {
-        preferences =
-            (await TravelerProfileService().fetchCurrentProfile())
-                ?.favoriteCategories ??
-            preferences;
+      final destinationPlaceId = activeDestination.id?.trim();
+      final requestBody = <String, dynamic>{
+        'latitude': current.latitude,
+        'longitude': current.longitude,
+      };
+
+      if (destinationPlaceId != null && destinationPlaceId.isNotEmpty) {
+        requestBody.addAll({
+          'mode': 'destination',
+          'destinationPlaceId': destinationPlaceId,
+        });
+      } else {
+        // Legacy coordinate-only destinations do not have a Google Place ID.
+        // Keep traffic suggestions available by falling back to the user's
+        // saved preferences, while destination similarity remains the default.
+        var preferences = navigationPreferences;
+        if (SupabaseConfig.isConfigured) {
+          preferences =
+              (await TravelerProfileService().fetchCurrentProfile())
+                  ?.favoriteCategories ??
+              preferences;
+        }
+        if (preferences.isEmpty) return;
+        requestBody.addAll({'mode': 'preferences', 'preferences': preferences});
       }
-      if (preferences.isEmpty) return;
       final response = await http
           .post(
             Uri.parse('${widget.backend}/api/recommendations/nearby-tagged'),
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'latitude': current.latitude,
-              'longitude': current.longitude,
-              'mode': 'preferences',
-              'preferences': preferences,
-            }),
+            body: jsonEncode(requestBody),
           )
           .timeout(const Duration(seconds: 90));
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -1099,12 +1187,12 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       if (matches.isEmpty) return;
       setState(() {
         recommendations = matches;
-        recommendationTitle =
-            'Traffic adds ~$delayMinutes min — explore nearby';
+        recommendationTitle = 'Avoid ~$delayMinutes min traffic delay';
         showRecommendationCarousel = true;
         _trafficPromptedForEpisode = true;
         _lastTrafficPromptAt = DateTime.now();
       });
+      unawaited(_syncRecommendationViewport(true));
       unawaited(RecommendationSound.play());
     } finally {
       if (mounted) setState(() => recommendationLoading = false);
@@ -1181,33 +1269,66 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     ),
   );
 
-  Future<void> showWeather() async {
+  Future<void> toggleNavigationWeather() async {
+    if (navigationWeatherPillExpanded) {
+      setState(() => navigationWeatherPillExpanded = false);
+      return;
+    }
+    setState(() => navigationWeatherPillExpanded = true);
+    if (navigationWeather != null || navigationWeatherLoading) return;
     final current = position;
-    if (current == null) return;
+    if (current == null) {
+      setState(() => navigationWeatherPillExpanded = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const OhMySnackBar(
+          content: Text('Waiting for your navigation location.'),
+        ),
+      );
+      return;
+    }
+    setState(() => navigationWeatherLoading = true);
     try {
       final weather = await WeatherService(
         backend: widget.backend,
       ).getOverview(current.latitude, current.longitude);
       if (!mounted) return;
-      showModalBottomSheet<void>(
-        context: context,
-        builder: (_) => SafeArea(
-          child: WeatherBottomPanel(
-            weather: weather,
-            onTap: () {},
-            onClose: () => Navigator.pop(context),
-          ),
-        ),
-      );
+      setState(() => navigationWeather = weather);
     } catch (error) {
       if (mounted) {
+        setState(() => navigationWeatherPillExpanded = false);
         ScaffoldMessenger.of(context).showSnackBar(
           OhMySnackBar(
             content: Text(error.toString().replaceFirst('Exception: ', '')),
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => navigationWeatherLoading = false);
     }
+  }
+
+  Future<void> openNavigationWeatherPage() async {
+    final overview = navigationWeather;
+    if (overview == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => WeatherDetailPage(weather: overview),
+      ),
+    );
+  }
+
+  Future<void> resetCompassNorthUp() async {
+    setState(() {
+      followUser = false;
+    });
+    await navigationMapKey.currentState?.showNorthUp();
+  }
+
+  Future<void> recenterNavigation() async {
+    setState(() {
+      followUser = true;
+    });
+    await navigationMapKey.currentState?.recenter();
   }
 
   void showRecommendationMode() => showModalBottomSheet<void>(
@@ -1372,6 +1493,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         showRecommendationCarousel = recommendations.isNotEmpty;
       });
       if (recommendations.isNotEmpty) {
+        unawaited(_syncRecommendationViewport(true));
         unawaited(RecommendationSound.play());
       }
       if (recommendations.isEmpty) {
@@ -1600,6 +1722,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         recommendations = [];
         followUser = true;
       });
+      await navigationMapKey.currentState?.setRecommendationPanelVisible(false);
       await navigationMapKey.currentState?.recenter();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1678,38 +1801,38 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 onStatus: (message) {
                   if (mounted) setState(() => locationError = message);
                 },
+                onCameraBearingChanged: (bearing) {
+                  if ((navigationCameraBearing.value - bearing).abs() >= 1) {
+                    navigationCameraBearing.value = bearing;
+                  }
+                },
               ),
             ),
             if (!showRecommendationCarousel)
-              Positioned(
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
                 left: 14,
-                bottom: 132,
-                child: Column(
-                  children: [
-                    navigationButton(Icons.cloud_outlined, showWeather),
-                  ],
-                ),
+                bottom: navigationPanelExpanded ? 296 : 154,
+                child: navigationWeatherButton(),
               ),
             if (!showRecommendationCarousel)
               Positioned(
                 right: 14,
-                bottom: navigationPanelExpanded ? 264 : 132,
+                bottom: navigationPanelExpanded ? 296 : 154,
                 child: Column(
                   children: [
-                    navigationButton(Icons.explore_outlined, () {
-                      followUser = false;
-                      navigationMapKey.currentState?.showNorthUp();
-                    }),
+                    navigationCompassButton(),
                     const SizedBox(height: 9),
                     navigationButton(
                       Icons.lightbulb_outline_rounded,
                       showRecommendationMode,
                     ),
                     const SizedBox(height: 9),
-                    navigationButton(Icons.my_location_rounded, () {
-                      followUser = true;
-                      navigationMapKey.currentState?.recenter();
-                    }),
+                    navigationButton(
+                      Icons.my_location_rounded,
+                      recenterNavigation,
+                    ),
                   ],
                 ),
               ),
@@ -1800,7 +1923,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                         duration: const Duration(milliseconds: 220),
                         curve: Curves.easeOutCubic,
                         child: Padding(
-                          padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+                          padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -1845,7 +1968,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                                         Text(
                                           '${sdkRemainingTimeSeconds == null ? route.minutes : math.max(1, (sdkRemainingTimeSeconds! / 60).ceil())} min',
                                           style: TextStyle(
-                                            fontSize: 22,
+                                            fontSize: 26,
                                             fontWeight: FontWeight.w700,
                                             color: etaColor,
                                           ),
@@ -1853,7 +1976,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                                         Text(
                                           '${(sdkRemainingDistanceMeters == null ? route.distanceKm : sdkRemainingDistanceMeters! / 1000).toStringAsFixed(1)} km remaining',
                                           style: const TextStyle(
-                                            fontSize: 11,
+                                            fontSize: 13,
                                             color: _routeMuted,
                                           ),
                                         ),
@@ -1929,6 +2052,145 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     );
   }
 
+  Future<void> _syncRecommendationViewport(bool visible) async {
+    if (!mounted) return;
+    setState(() => followUser = true);
+    await navigationMapKey.currentState?.setRecommendationPanelVisible(visible);
+  }
+
+  Future<void> _closeRecommendationCarousel() async {
+    if (!mounted) return;
+    setState(() => showRecommendationCarousel = false);
+    await _syncRecommendationViewport(false);
+  }
+
+  Widget navigationWeatherButton() => AnimatedContainer(
+    duration: const Duration(milliseconds: 220),
+    curve: Curves.easeOutCubic,
+    width: navigationWeatherPillExpanded ? 194 : 54,
+    height: 54,
+    child: Material(
+      elevation: 4,
+      color: navigationWeatherPillExpanded
+          ? const Color(0xffedf4ff)
+          : Colors.white,
+      borderRadius: BorderRadius.circular(29),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        children: [
+          InkWell(
+            customBorder: const CircleBorder(),
+            onTap: toggleNavigationWeather,
+            child: SizedBox(
+              width: 54,
+              height: 54,
+              child: navigationWeatherLoading
+                  ? const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          weatherIcon(
+                            navigationWeather?.current.condition ?? '',
+                          ),
+                          color: _routeBlue,
+                          size: 22,
+                        ),
+                        Text(
+                          '${navigationWeather?.current.temperatureC?.round() ?? '--'}°',
+                          style: const TextStyle(
+                            color: _routeInk,
+                            fontSize: 12,
+                            height: 1,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+          if (navigationWeatherPillExpanded) ...[
+            Container(width: 1, height: 30, color: const Color(0xffd7e1f1)),
+            Expanded(
+              child: InkWell(
+                onTap: navigationWeather == null
+                    ? null
+                    : openNavigationWeatherPage,
+                child: SizedBox.expand(
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 11),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              weatherDescription(
+                                navigationWeather?.current.description ?? '',
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _routeInk,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              'Rain ${navigationWeather?.current.rainProbability ?? 0}%',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                color: _routeMuted,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: _routeInk),
+                      const SizedBox(width: 7),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+
+  Widget navigationCompassButton() => ValueListenableBuilder<double>(
+    valueListenable: navigationCameraBearing,
+    builder: (context, bearing, child) => Material(
+      elevation: 4,
+      color: const Color(0xffedf4ff),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: resetCompassNorthUp,
+        child: SizedBox(
+          width: 54,
+          height: 54,
+          child: Center(
+            child: Transform.rotate(
+              angle: -bearing * math.pi / 180,
+              child: const Icon(
+                Icons.navigation_rounded,
+                color: _routeBlue,
+                size: 27,
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
   Widget navigationButton(
     IconData icon,
     VoidCallback onPressed, {
@@ -1978,8 +2240,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   Widget navigationRecommendationCarousel() => Positioned(
     left: 0,
     right: 0,
-    bottom: 112,
-    height: 260,
+    bottom: 138,
+    height: 276,
     child: Material(
       elevation: 14,
       color: Colors.white,
@@ -2008,8 +2270,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                     style: TextStyle(fontSize: 9, color: _routeMuted),
                   ),
                 IconButton(
-                  onPressed: () =>
-                      setState(() => showRecommendationCarousel = false),
+                  onPressed: _closeRecommendationCarousel,
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -2045,9 +2306,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     final title =
         place['displayName']?['text']?.toString() ?? 'Recommended stop';
     final description =
-        place['description']?.toString() ??
-        place['formattedAddress']?.toString() ??
-        'Description unavailable.';
+        usablePlaceDescription(place['description']) ??
+        usablePlaceDescription(place['formattedAddress']);
     final eta = (place['etaMinutes'] as num?)?.round();
     final distanceKm =
         (place['routeDistanceKm'] ?? place['distanceKm']) as num?;
@@ -2111,15 +2371,16 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    Text(
-                      description,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
+                    if (description != null)
+                      Text(
+                        description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10,
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 3),
                     Text(
                       '${eta == null ? 'ETA unavailable' : '$eta min'}  ·  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
@@ -2236,6 +2497,9 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     final photoName = place['photo']?['name']?.toString();
     final title =
         place['displayName']?['text']?.toString() ?? 'Recommended stop';
+    final description =
+        usablePlaceDescription(place['description']) ??
+        usablePlaceDescription(place['formattedAddress']);
     final eta = (place['etaMinutes'] as num?)?.round();
     final distanceKm =
         (place['routeDistanceKm'] ?? place['distanceKm']) as num?;
@@ -2311,17 +2575,16 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        place['description']?.toString() ??
-                            place['formattedAddress']?.toString() ??
-                            'Description unavailable.',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: _routeMuted,
+                      if (description != null)
+                        Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: _routeMuted,
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 6),
                       Text(
                         '${eta == null ? 'ETA unavailable' : '$eta min'}  •  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
@@ -2463,6 +2726,9 @@ class _NavigationPlaceDetailPageState
     final eta = (place['etaMinutes'] as num?)?.round();
     final distanceKm =
         (place['routeDistanceKm'] ?? place['distanceKm']) as num?;
+    final description =
+        usablePlaceDescription(place['description']) ??
+        usablePlaceDescription(place['primaryTypeDisplayName']);
 
     return Scaffold(
       appBar: AppBar(
@@ -2540,13 +2806,13 @@ class _NavigationPlaceDetailPageState
               color: _routeInk,
             ),
           ),
-          const SizedBox(height: 10),
-          Text(
-            place['description']?.toString() ??
-                place['primaryTypeDisplayName']?.toString() ??
-                'Description unavailable.',
-            style: const TextStyle(color: _routeMuted, height: 1.5),
-          ),
+          if (description != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              description,
+              style: const TextStyle(color: _routeMuted, height: 1.5),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             place['formattedAddress']?.toString() ?? 'Address unavailable',

@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:community_discovery/community_discovery.dart';
 
 import '../shared/widgets/wau_loading_indicator.dart';
+import '../shared/utils/place_description.dart';
 import '../user_management/services/traveler_profile_service.dart';
 
 typedef OpenSoloPlace = void Function(Map<String, dynamic>? recommendation);
@@ -194,8 +195,8 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
 
   String _description(Map<String, dynamic> item) {
     final place = _place(item);
-    final description = place['description']?.toString().trim() ?? '';
-    if (description.isNotEmpty) return description;
+    final description = usablePlaceDescription(place['description']);
+    if (description != null) return description;
     final type = place['primaryTypeDisplayName']?.toString().trim() ?? '';
     final address = place['formattedAddress']?.toString().trim() ?? '';
     if (type.isNotEmpty && address.isNotEmpty) return '$type • $address';
@@ -264,7 +265,9 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
   @override
   Widget build(BuildContext context) {
     final featured = _places.isEmpty ? null : _places.first;
-    final nearby = _places.length <= 1 ? _places : _places.skip(1).toList();
+    // The featured recommendation can also remain discoverable in the nearby
+    // carousel, especially when strict cultural evidence yields few matches.
+    final nearby = _places;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFD),
       body: RefreshIndicator(

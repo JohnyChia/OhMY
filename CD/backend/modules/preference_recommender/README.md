@@ -29,6 +29,21 @@ or source changes do. An unchanged result only advances its version and audit
 timestamps. A changed result, including an empty result, atomically replaces
 all `place_tags` relationships.
 
+## Tagger V4 cultural validation
+
+Google cultural and historical place types are candidate-discovery metadata,
+not a final cultural verdict. They may strengthen a cultural tag that already
+has meaningful review evidence, but cannot create a cultural tag alone. One
+review is sufficient only when it passes the existing NLP evidence score,
+specificity, negation and 10% place-support rules. Residential/private-property
+types and unprotected residential names remain excluded even when Google
+supplies a cultural or historical category.
+
+This policy is versioned as
+`rule-nlp-v4-adaptive-cultural-evidence-2026-09-13`, causing older cache rows to
+be re-evaluated. Places whose new result is empty have their stale relationships
+removed by the atomic replacement RPC.
+
 Apply these migrations before expecting V2 results to persist:
 
 ```text
@@ -39,11 +54,13 @@ supabase/migrations/20260912_preference_recommender_tagger_v2.sql
 The discovery limits can be tuned with:
 
 ```dotenv
-TAGGER_VERSION=rule-nlp-v2-2026-09-12
-RECOMMENDATION_RESULTS_PER_TYPE=10
-RECOMMENDATION_CANDIDATE_LIMIT=40
+TAGGER_VERSION=rule-nlp-v4-adaptive-cultural-evidence-2026-09-13
+RECOMMENDATION_RESULTS_PER_TYPE=15
+RECOMMENDATION_CANDIDATE_LIMIT=70
+RECOMMENDATION_DISCOVERY_LIMIT=130
 RECOMMENDATION_DETAILS_CONCURRENCY=4
-RECOMMENDATION_MAXIMUM_SEARCH_TYPES=6
+RECOMMENDATION_MAXIMUM_SEARCH_TYPES=10
+RECOMMENDATION_DISPLAY_LIMIT=30
 ```
 
 Retagging is incremental and resumable:
