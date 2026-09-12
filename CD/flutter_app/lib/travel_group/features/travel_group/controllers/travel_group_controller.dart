@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,9 @@ import 'package:flutter/foundation.dart';
 import '../models/travel_group_models.dart';
 import '../repositories/travel_group_repository.dart';
 import '../services/live_trip_location_service.dart';
+import '../services/meetup_arrival_simulation.dart';
+import '../../../../preference_recommender/features/routes/native_navigation_map.dart'
+    show navigationSimulationEnabled;
 import '../utils/profanity_filter.dart';
 
 class TravelGroupController extends ChangeNotifier {
@@ -34,6 +38,7 @@ class TravelGroupController extends ChangeNotifier {
   List<TravelGroup> groups = [];
   TravelGroup? activeGroup;
   TravelGroup? ownedOngoingGroup;
+  TravelGroup? joinedOngoingGroup;
   List<GroupMemberProfile> members = [];
   List<JoinRequest> joinRequests = [];
   List<GroupSuggestion> suggestions = [];
@@ -48,12 +53,135 @@ class TravelGroupController extends ChangeNotifier {
   bool openOnly = false;
   bool isLoading = false;
   int _localIdSequence = 0;
+  Future<void>? _workspaceRefresh;
+  MeetupArrivalSimulation? meetupSimulation;
+  LiveTripLocationService? _simulationPublisher;
+  String? meetupSimulationError;
+
+  Future<void> simulateToMeetup(GeoCoordinate start) async {
+    final group = activeGroup;
+    if (!kDebugMode ||
+        !isMember ||
+        group == null ||
+        activeSession == null ||
+        group.tripPhase != GroupTripPhase.gathering ||
+        group.meetupLatitude == null ||
+        group.meetupLongitude == null) {
+      throw const TravelGroupException(
+        'Confirm the group and save a meetup point first.',
+        'simulation_unavailable',
+      );
+    }
+    stopMeetupSimulation();
+    final publisher = liveTripLocationServiceFactory(
+      group: group,
+      currentUser: currentUser,
+      sessionId: activeSession!.id,
+    );
+    _simulationPublisher = publisher;
+    final simulation = MeetupArrivalSimulation(
+      start: start,
+      target: GeoCoordinate(group.meetupLatitude!, group.meetupLongitude!),
+      publish: (coordinate) => publisher.publishOwnLocation(
+        latitude: coordinate.latitude,
+        longitude: coordinate.longitude,
+      ),
+      onUpdate: notifyListeners,
+      onError: (error) {
+        meetupSimulationError = error.toString();
+        notifyListeners();
+      },
+    );
+    meetupSimulation = simulation;
+    notifyListeners();
+    try {
+      await simulation.begin();
+    } catch (_) {
+      stopMeetupSimulation();
+      rethrow;
+    }
+  }
+
+  void stopMeetupSimulation() {
+    meetupSimulation?.stop();
+    meetupSimulation = null;
+    meetupSimulationError = null;
+    final publisher = _simulationPublisher;
+    _simulationPublisher = null;
+    if (publisher != null) unawaited(publisher.dispose());
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    meetupSimulation?.stop();
+    final publisher = _simulationPublisher;
+    if (publisher != null) unawaited(publisher.dispose());
+    super.dispose();
+  }
 
   bool get isCreator => activeGroup?.creatorId == currentUser.id;
   bool get isMember => activeGroup?.memberIds.contains(currentUser.id) ?? false;
   bool get hasOngoingCreatedGroup => ownedOngoingGroup != null;
-  GeoCoordinate effectiveLocation(double latitude, double longitude) =>
-      GeoCoordinate(latitude, longitude);
+  TravelGroup? get ongoingMemberGroup {
+    final group = activeGroup;
+    if (isMember &&
+        group != null &&
+        group.status != GroupStatus.completed &&
+        group.status != GroupStatus.cancelled) {
+      return group;
+    }
+    for (final candidate in [joinedOngoingGroup, ownedOngoingGroup]) {
+      if (candidate != null &&
+          candidate.memberIds.contains(currentUser.id) &&
+          candidate.status != GroupStatus.completed &&
+          candidate.status != GroupStatus.cancelled) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  void validateCreatorLocation(
+    TravelGroupPlace destination,
+    GeoCoordinate location,
+  ) {
+    final distanceKm =
+        _distanceBetween(
+          location.latitude,
+          location.longitude,
+          destination.latitude,
+          destination.longitude,
+        ) /
+        1000;
+    if (distanceKm > maximumJoinDistanceKm) {
+      throw TravelGroupException(
+        'You are ${distanceKm.toStringAsFixed(1)} km from ${destination.name}. Move within 10 km to create a group.',
+        'outside_destination_radius',
+      );
+    }
+  }
+
+  GeoCoordinate effectiveLocation(double latitude, double longitude) {
+    if (navigationSimulationEnabled &&
+        activeGroup?.tripPhase == GroupTripPhase.choosingNext) {
+      final stops = itinerary
+          .where(
+            (s) =>
+                s.status == StopStatus.completed &&
+                s.latitude != null &&
+                s.longitude != null,
+          )
+          .toList();
+      if (stops.isNotEmpty) {
+        return GeoCoordinate(stops.last.latitude!, stops.last.longitude!);
+      }
+    }
+    return GeoCoordinate(latitude, longitude);
+  }
+
+  ItineraryStop? get nextItineraryStop =>
+      itinerary.where((s) => s.status == StopStatus.upcoming).firstOrNull;
 
   LiveTripLocationService createLiveTripLocationService() {
     final group = activeGroup;
@@ -63,14 +191,18 @@ class TravelGroupController extends ChangeNotifier {
         'no_active_group',
       );
     }
-    return liveTripLocationServiceFactory(
-      group: group,
-      currentUser: currentUser,
-      sessionId: activeSession?.id,
+    return SimulationAwareLocationService(
+      liveTripLocationServiceFactory(
+        group: group,
+        currentUser: currentUser,
+        sessionId: activeSession?.id,
+      ),
+      () => meetupSimulation != null,
     );
   }
 
   void switchUser(PrototypeUser user) {
+    stopMeetupSimulation();
     currentUser = user;
     notifyListeners();
   }
@@ -120,8 +252,11 @@ class TravelGroupController extends ChangeNotifier {
   Future<void> restoreOngoingCreatedGroup() async {
     final owned = await repository.getOngoingGroupCreatedByCurrentUser();
     ownedOngoingGroup = owned;
-    if (owned != null) {
-      await openGroup(owned.id);
+    final joined =
+        owned ?? await repository.getOngoingGroupForMember(currentUser.id);
+    joinedOngoingGroup = joined;
+    if (joined != null) {
+      await openGroup(joined.id);
     } else {
       notifyListeners();
     }
@@ -158,6 +293,7 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   Future<void> openGroup(String groupId) async {
+    if (activeGroup?.id != groupId) stopMeetupSimulation();
     activeGroup = await repository.getGroup(groupId);
     if (activeGroup == null) {
       throw const TravelGroupException('Travel group not found.', 'not_found');
@@ -166,15 +302,56 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   Future<void> refreshWorkspace() async {
+    if (_workspaceRefresh != null) return _workspaceRefresh;
+    final refresh = _refreshWorkspace();
+    _workspaceRefresh = refresh;
+    try {
+      await refresh;
+    } finally {
+      _workspaceRefresh = null;
+    }
+  }
+
+  Future<void> _refreshWorkspace() async {
     final group = activeGroup;
     if (group == null) return;
-    members = await repository.getMembers(group.id);
-    joinRequests = await repository.getJoinRequests(group.id);
-    suggestions = await repository.getSuggestions(group.id);
-    itinerary = await repository.getItinerary(group.id);
-    activeSession = await repository.getActiveTripSession(group.id);
+    final newMembers = await repository.getMembers(group.id);
+    final newRequests = await repository.getJoinRequests(group.id);
+    final newSuggestions = await repository.getSuggestions(group.id);
+    final newItinerary = await repository.getItinerary(group.id);
+    final newSession = await repository.getActiveTripSession(group.id);
     final refreshedGroup = await repository.getGroup(group.id);
+    if (activeGroup?.id != group.id) return;
+    newItinerary.sort((a, b) {
+      bool initial(ItineraryStop stop) => group.destinationPlaceId != null
+          ? stop.placeId == group.destinationPlaceId
+          : stop.placeName == group.destination;
+      if (initial(a) != initial(b)) return initial(a) ? -1 : 1;
+      return a.position.compareTo(b.position);
+    });
+    members = newMembers;
+    joinRequests = newRequests;
+    suggestions = newSuggestions;
+    itinerary = newItinerary;
+    activeSession = newSession;
     if (refreshedGroup != null) activeGroup = refreshedGroup;
+    final simulation = meetupSimulation;
+    if (simulation != null &&
+        (!isMember ||
+            activeGroup?.tripPhase != GroupTripPhase.gathering ||
+            activeGroup?.meetupLatitude != simulation.target.latitude ||
+            activeGroup?.meetupLongitude != simulation.target.longitude)) {
+      stopMeetupSimulation();
+    }
+    final current = activeGroup;
+    if (current != null &&
+        current.memberIds.contains(currentUser.id) &&
+        current.status != GroupStatus.completed &&
+        current.status != GroupStatus.cancelled) {
+      joinedOngoingGroup = current;
+    } else if (joinedOngoingGroup?.id == group.id) {
+      joinedOngoingGroup = null;
+    }
     notifyListeners();
   }
 
@@ -230,6 +407,7 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   Future<TravelGroup> createGroup({
+    GeoCoordinate? creatorLocation,
     required String name,
     required TravelGroupPlace destination,
     required String description,
@@ -238,7 +416,7 @@ class TravelGroupController extends ChangeNotifier {
     required JoinMode joinMode,
   }) async {
     _requireVerified();
-    if (ownedOngoingGroup != null) {
+    if (ongoingMemberGroup != null) {
       throw const TravelGroupException(
         'End your current Travel Group before creating another one.',
         'ongoing_group_exists',
@@ -289,7 +467,14 @@ class TravelGroupController extends ChangeNotifier {
       destinationLongitude: destination.longitude,
       destinationPhotoName: destination.photoName,
     );
-    final created = await repository.createGroup(group);
+    if (creatorLocation != null) {
+      validateCreatorLocation(destination, creatorLocation);
+    }
+    final created = await repository.createGroup(
+      group,
+      creatorLatitude: creatorLocation?.latitude,
+      creatorLongitude: creatorLocation?.longitude,
+    );
     ownedOngoingGroup = created;
     await loadGroups();
     await openGroup(created.id);
@@ -300,8 +485,10 @@ class TravelGroupController extends ChangeNotifier {
     _requireCreator();
     final groupId = activeGroup!.id;
     await repository.deleteGroup(groupId);
+    stopMeetupSimulation();
     groups.removeWhere((group) => group.id == groupId);
     activeGroup = null;
+    if (joinedOngoingGroup?.id == groupId) joinedOngoingGroup = null;
     members = [];
     joinRequests = [];
     suggestions = [];
@@ -568,7 +755,8 @@ class TravelGroupController extends ChangeNotifier {
 
   Future<void> removeStop(ItineraryStop stop) async {
     _requireCreator();
-    if (stop.status == StopStatus.current) {
+    if (stop.status != StopStatus.upcoming ||
+        stop.id == itinerary.firstOrNull?.id) {
       throw const TravelGroupException(
         'The active destination cannot be removed during navigation.',
         'active_stop',
@@ -584,6 +772,12 @@ class TravelGroupController extends ChangeNotifier {
 
   Future<void> reorderStops(int oldIndex, int newIndex) async {
     _requireCreator();
+    if (!canReorderStop(oldIndex) || !canReorderStop(newIndex)) {
+      throw const TravelGroupException(
+        'Only future destinations can be reordered. The first destination stays first.',
+        'fixed_stop',
+      );
+    }
     final reordered = [...itinerary];
     final item = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, item);
@@ -591,6 +785,13 @@ class TravelGroupController extends ChangeNotifier {
     await repository.reorderItinerary(activeGroup!.id, reordered);
     await refreshWorkspace();
   }
+
+  bool canReorderStop(int index) =>
+      index > 0 &&
+      index < itinerary.length &&
+      itinerary[index].status == StopStatus.upcoming &&
+      activeGroup?.status != GroupStatus.completed &&
+      activeGroup?.status != GroupStatus.cancelled;
 
   void _recalculateLegs(List<ItineraryStop> stops) {
     double? previousLatitude = activeGroup?.meetupLatitude;
@@ -630,13 +831,17 @@ class TravelGroupController extends ChangeNotifier {
   }
 
   Future<void> _persistRecalculatedItinerary() async {
-    if (itinerary.isEmpty || activeGroup!.status != GroupStatus.waiting) return;
+    if (itinerary.isEmpty ||
+        activeGroup!.status == GroupStatus.completed ||
+        activeGroup!.status == GroupStatus.cancelled) {
+      return;
+    }
     _recalculateLegs(itinerary);
     await repository.reorderItinerary(activeGroup!.id, itinerary);
     await refreshWorkspace();
   }
 
-  Future<void> startItinerary() async {
+  Future<void> startItinerary({String? expectedStopId}) async {
     _requireCreator();
     if (activeGroup!.memberCount < minTravellersPerGroup) {
       throw const TravelGroupException(
@@ -644,7 +849,10 @@ class TravelGroupController extends ChangeNotifier {
         'not_enough_members',
       );
     }
-    await repository.startItinerary(activeGroup!.id);
+    await repository.startItinerary(
+      activeGroup!.id,
+      expectedStopId: expectedStopId ?? nextItineraryStop?.id,
+    );
     activeTripStartedAt = DateTime.now();
     await refreshWorkspace();
   }

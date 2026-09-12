@@ -14,136 +14,207 @@ class ItineraryBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final group = controller.activeGroup!;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      children: [
-        if (controller.itinerary.length > 1)
-          Container(
-            height: 39,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: AppColors.successSurface,
-              borderRadius: BorderRadius.circular(11),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.sync_rounded, color: AppColors.success, size: 19),
-                SizedBox(width: 8),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    final nextStop = controller.nextItineraryStop;
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          sliver: SliverMainAxisGroup(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      'Time and distance recalculated',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    Text(
-                      'Live traffic is applied when navigation starts',
-                      style: TextStyle(fontSize: 9, color: AppColors.success),
-                    ),
+                    if (controller.itinerary.length > 1)
+                      Container(
+                        height: 39,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: AppColors.successSurface,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.sync_rounded,
+                              color: AppColors.success,
+                              size: 19,
+                            ),
+                            SizedBox(width: 8),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Time and distance recalculated',
+                                  style: TextStyle(fontSize: 11),
+                                ),
+                                Text(
+                                  'Live traffic is applied when navigation starts',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: AppColors.success,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (controller.itinerary.length > 1)
+                      const SizedBox(height: 10),
+                    if (controller.isCreator &&
+                        group.status != GroupStatus.completed &&
+                        group.status != GroupStatus.cancelled)
+                      const Text(
+                        '⋮⋮  Drag cards to reorder the itinerary',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
+                    const SizedBox(height: 10),
+                    if (controller.itinerary.isEmpty)
+                      const AppPanel(
+                        color: AppColors.paleBlue,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 28),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.route_outlined,
+                                size: 38,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                'No confirmed stops yet',
+                                style: TextStyle(fontSize: 16),
+                              ),
+                              Text(
+                                'Confirm a suggestion before starting the group trip.',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                   ],
                 ),
-              ],
-            ),
-          ),
-        if (controller.itinerary.length > 1) const SizedBox(height: 10),
-        if (controller.isCreator && group.status == GroupStatus.waiting)
-          const Text(
-            '⋮⋮  Drag cards to reorder the itinerary',
-            style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
-          ),
-        const SizedBox(height: 10),
-        if (controller.itinerary.isEmpty)
-          const AppPanel(
-            color: AppColors.paleBlue,
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.route_outlined,
-                    size: 38,
-                    color: AppColors.primary,
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'No confirmed stops yet',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  Text('Confirm a suggestion before starting the group trip.'),
-                ],
               ),
-            ),
-          )
-        else
-          ReorderableListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            buildDefaultDragHandles: false,
-            itemCount: controller.itinerary.length,
-            onReorder:
-                group.status == GroupStatus.waiting && controller.isCreator
-                ? (oldIndex, newIndex) => controller.reorderStops(
-                    oldIndex,
-                    newIndex == 0 ? 1 : newIndex,
-                  )
-                : (_, _) {},
-            itemBuilder: (context, index) {
-              final stop = controller.itinerary[index];
-              return Padding(
-                key: ValueKey(stop.id),
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ItineraryStopCard(
-                  stop: stop,
-                  index: index,
-                  canReorder:
-                      group.status == GroupStatus.waiting &&
-                      controller.isCreator &&
-                      index > 0,
-                  onRemove:
-                      controller.isCreator &&
-                          stop.suggestionId.isNotEmpty &&
-                          stop.status != StopStatus.current
-                      ? () => _removeStop(context, stop)
-                      : null,
-                  onComplete:
-                      stop.status == StopStatus.current && controller.isCreator
-                      ? () => controller.completeStop(stop)
-                      : null,
+              if (controller.itinerary.isNotEmpty)
+                SliverReorderableList(
+                  itemCount: controller.itinerary.length,
+                  onReorderItem: controller.isCreator
+                      ? (oldIndex, newIndex) async {
+                          if (!controller.canReorderStop(oldIndex) ||
+                              !controller.canReorderStop(newIndex)) {
+                            return;
+                          }
+                          try {
+                            await controller.reorderStops(oldIndex, newIndex);
+                          } on TravelGroupException catch (error) {
+                            if (context.mounted) {
+                              showTravelGroupMessage(
+                                context,
+                                error.message,
+                                error: true,
+                              );
+                            }
+                          }
+                        }
+                      : (_, _) {},
+                  itemBuilder: (context, index) {
+                    final stop = controller.itinerary[index];
+                    return Padding(
+                      key: ValueKey(stop.id),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _ItineraryStopCard(
+                        stop: stop,
+                        index: index,
+                        canReorder:
+                            controller.isCreator &&
+                            controller.canReorderStop(index),
+                        onRemove:
+                            controller.isCreator &&
+                                index > 0 &&
+                                stop.status == StopStatus.upcoming
+                            ? () => _removeStop(context, stop)
+                            : null,
+                        onComplete:
+                            stop.status == StopStatus.current &&
+                                controller.isCreator
+                            ? () => controller.completeStop(stop)
+                            : null,
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (controller.itinerary.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      if (group.tripPhase == GroupTripPhase.navigating)
+                        FilledButton.icon(
+                          onPressed: () => _openMap(context),
+                          icon: const Icon(Icons.navigation_rounded),
+                          label: const Text('Open active route map'),
+                        )
+                      else if (group.tripPhase == GroupTripPhase.choosingNext &&
+                          controller.isCreator &&
+                          nextStop != null)
+                        FilledButton.icon(
+                          key: const Key('start_next_itinerary_leg'),
+                          icon: const Icon(Icons.navigation_rounded),
+                          label: Text(
+                            'Start navigation to ${nextStop.placeName}',
+                          ),
+                          onPressed: () async {
+                            try {
+                              await controller.startItinerary(
+                                expectedStopId: nextStop.id,
+                              );
+                              if (context.mounted) await _openMap(context);
+                            } on TravelGroupException catch (error) {
+                              if (context.mounted) {
+                                showTravelGroupMessage(
+                                  context,
+                                  error.message,
+                                  error: true,
+                                );
+                              }
+                            }
+                          },
+                        )
+                      else if (group.tripPhase == GroupTripPhase.choosingNext)
+                        const AppPanel(
+                          color: AppColors.paleBlue,
+                          child: Center(
+                            child: Text(
+                              'Choose and confirm the next destination in Suggestions.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        )
+                      else if (group.status == GroupStatus.completed)
+                        const AppPanel(
+                          color: AppColors.successSurface,
+                          borderColor: Color(0xFFA8DEB8),
+                          child: Center(
+                            child: Text(
+                              '✓ Group itinerary completed',
+                              style: TextStyle(color: AppColors.success),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
-        if (controller.itinerary.isNotEmpty) ...[
-          const SizedBox(height: 4),
-          if (group.tripPhase == GroupTripPhase.navigating)
-            FilledButton.icon(
-              onPressed: () => _openMap(context),
-              icon: const Icon(Icons.navigation_rounded),
-              label: const Text('Open active route map'),
-            )
-          else if (group.tripPhase == GroupTripPhase.choosingNext)
-            const AppPanel(
-              color: AppColors.paleBlue,
-              child: Center(
-                child: Text(
-                  'Choose and confirm the next destination in Suggestions.',
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          else if (group.status == GroupStatus.completed)
-            const AppPanel(
-              color: AppColors.successSurface,
-              borderColor: Color(0xFFA8DEB8),
-              child: Center(
-                child: Text(
-                  '✓ Group itinerary completed',
-                  style: TextStyle(color: AppColors.success),
-                ),
-              ),
-            ),
-        ],
+        ),
       ],
     );
   }
@@ -208,7 +279,7 @@ class _ItineraryStopCard extends StatelessWidget {
         : current
         ? 'NEXT STOP'
         : 'CONFIRMED';
-    return AppPanel(
+    final card = AppPanel(
       color: color,
       borderColor: border,
       padding: const EdgeInsets.fromLTRB(11, 9, 13, 10),
@@ -221,15 +292,12 @@ class _ItineraryStopCard extends StatelessWidget {
               child: Icon(Icons.check, color: AppColors.success, size: 22),
             )
           else if (canReorder)
-            ReorderableDragStartListener(
-              index: index,
-              child: const SizedBox(
-                width: 26,
-                child: Icon(
-                  Icons.drag_indicator,
-                  color: AppColors.secondaryText,
-                  size: 21,
-                ),
+            const SizedBox(
+              width: 26,
+              child: Icon(
+                Icons.drag_indicator,
+                color: AppColors.secondaryText,
+                size: 21,
               ),
             )
           else
@@ -289,7 +357,7 @@ class _ItineraryStopCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '${stop.estimatedDurationMinutes} min visit  •  ${stop.travelTimeFromPreviousMinutes} min travel  •  ${stop.travelDistanceFromPreviousKm.toStringAsFixed(1)} km',
+                  '${stop.travelTimeFromPreviousMinutes} min travel  •  ${stop.travelDistanceFromPreviousKm.toStringAsFixed(1)} km',
                   style: const TextStyle(fontSize: 11),
                 ),
                 const SizedBox(height: 6),
@@ -310,7 +378,7 @@ class _ItineraryStopCard extends StatelessWidget {
                     completed
                         ? 'Travel time recalculated for the next stop'
                         : index == 0
-                        ? 'Starting point'
+                        ? 'Initial destination · stays first'
                         : 'Confirmed by the group creator',
                     style: const TextStyle(
                       fontSize: 10,
@@ -323,5 +391,8 @@ class _ItineraryStopCard extends StatelessWidget {
         ],
       ),
     );
+    return canReorder
+        ? ReorderableDelayedDragStartListener(index: index, child: card)
+        : card;
   }
 }

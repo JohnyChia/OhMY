@@ -27,6 +27,8 @@ Uses a USB-debuggable Android phone and configures adb reverse forwarding.
 [CmdletBinding()]
 param(
     [string]$Device = 'emulator-5554',
+    [string]$AdditionalDevice = '',
+    [switch]$UseExistingServices,
     [string]$Emulator = 'Pixel_9_API_34',
     [double]$EmulatorLatitude = 3.1094685,
     [double]$EmulatorLongitude = 101.4602178,
@@ -42,6 +44,9 @@ $flutterApp = Join-Path $projectRoot 'CD\flutter_app'
 $chatbotRoot = Join-Path $backendRoot 'modules\ai_chatbot'
 $verifiedRoot = Join-Path $backendRoot 'modules\verified_traveller'
 $communityRoot = Join-Path $projectRoot 'community_discovery\server'
+if (-not (Test-Path -LiteralPath (Join-Path $communityRoot 'package.json'))) {
+    $communityRoot = Join-Path (Split-Path -Parent $projectRoot) 'community_discovery\server'
+}
 $backendEnvFile = Join-Path $backendRoot '.env'
 $chatbotEnvFile = Join-Path $chatbotRoot '.env'
 $verifiedEnvFile = Join-Path $verifiedRoot '.env'
@@ -53,7 +58,7 @@ $emulatorExe = Join-Path $androidSdk 'emulator\emulator.exe'
 $script:startedProcesses = @()
 
 if ($SkipVerification) {
-    Write-Warning '-SkipVerification is deprecated and ignored; traveller verification is enforced.'
+    Write-Warning 'Development mode: traveller verification is bypassed for this app run. Email login is still required.'
 }
 
 function Resolve-CommandPath([string]$Name) {
@@ -137,6 +142,13 @@ function Start-BackgroundService(
     [string]$WorkingDirectory,
     [hashtable]$Environment = @{}
 ) {
+    if ($UseExistingServices) {
+        if (-not (Wait-Port $Port)) {
+            throw "$Name is not running on port $Port. Start the first launcher before this device."
+        }
+        Write-Host "[shared] Reusing $Name on port $Port" -ForegroundColor Green
+        return
+    }
     if (Test-PortListening $Port) {
         Write-Host "[skip] $Name is already listening on port $Port" `
             -ForegroundColor Yellow
@@ -212,6 +224,7 @@ function Stop-StartedServices {
 $launcherLockPath = Join-Path $projectRoot '.run-ohmy.lock'
 $launcherLockStream = $null
 try {
+if (-not $UseExistingServices) {
 try {
     $launcherLockStream = [IO.File]::Open(
         $launcherLockPath,
@@ -221,6 +234,9 @@ try {
     )
 } catch [IO.IOException] {
     throw 'Another OhMY launcher is already running. Stop it with q before launching a second device.'
+}
+} else {
+    Write-Host '[shared] Keep the first launcher running; it owns the backend services.' -ForegroundColor Yellow
 }
 if (-not (Test-Path -LiteralPath $adbExe)) {
     throw "adb was not found at $adbExe. Install Android SDK Platform-Tools."
@@ -436,7 +452,8 @@ $flutterArguments = @(
     '--dart-define=AI_CHATBOT_URL=http://127.0.0.1:3001',
     '--dart-define=COMMUNITY_API_URL=http://127.0.0.1:3002',
     '--dart-define=VERIFICATION_API_URL=http://127.0.0.1:8000',
-    '--dart-define=NAVIGATION_SIMULATION=true'
+    '--dart-define=NAVIGATION_SIMULATION=true',
+    "--dart-define=BYPASS_TRAVEL_GROUP_VERIFICATION=$($SkipVerification.IsPresent.ToString().ToLowerInvariant())"
 )
 
 Write-Host '[go]   Launching Flutter. Press q to stop the app and launcher-owned services.' `
@@ -445,6 +462,29 @@ $previousMapsApiKey = [Environment]::GetEnvironmentVariable('MAPS_API_KEY')
 [Environment]::SetEnvironmentVariable('MAPS_API_KEY', $androidMapsKey)
 Push-Location $flutterApp
 try {
+    if ($AdditionalDevice) {
+        if ($AdditionalDevice -eq $Device) {
+            throw '-AdditionalDevice must be different from -Device.'
+        }
+        if ((Get-AdbDeviceState $AdditionalDevice) -ne 'device') {
+            throw "Additional device $AdditionalDevice is not connected/authorized. Check adb devices."
+        }
+        foreach ($port in @(3000, 3001, 3002, 8000)) {
+            & $adbExe -s $AdditionalDevice reverse "tcp:$port" "tcp:$port" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Port forwarding failed for $AdditionalDevice." }
+        }
+        $buildArguments = @('build', 'apk', '--debug') + @(
+            $flutterArguments | Where-Object { $_ -like '--dart-define=*' }
+        )
+        & $flutterExe @buildArguments
+        if ($LASTEXITCODE -ne 0) { throw 'Building the additional-device APK failed.' }
+        $debugApk = Join-Path $flutterApp 'build/app/outputs/flutter-apk/app-debug.apk'
+        & $adbExe -s $AdditionalDevice install -r $debugApk
+        if ($LASTEXITCODE -ne 0) { throw "Installing OhMY on $AdditionalDevice failed." }
+        & $adbExe -s $AdditionalDevice shell am start -n 'com.example.flutter_app/.MainActivity'
+        if ($LASTEXITCODE -ne 0) { throw "Starting OhMY on $AdditionalDevice failed." }
+        Write-Host "[ok] OhMY running on $AdditionalDevice; shared services stay alive while this launcher runs." -ForegroundColor Green
+    }
     & $flutterExe @flutterArguments
 } finally {
     Pop-Location

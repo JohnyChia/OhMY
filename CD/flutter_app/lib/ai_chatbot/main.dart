@@ -155,7 +155,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     final index = _messages.indexWhere((message) => message['id'] == messageId);
     final replacement = <String, dynamic>{
-      if (metadata != null) ...metadata,
+      ...?metadata,
       'id': messageId,
       'role': 'assistant',
       'text': text,

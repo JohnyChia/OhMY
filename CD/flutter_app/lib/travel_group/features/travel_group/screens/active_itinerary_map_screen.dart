@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/live_trip_location_service.dart';
+import '../services/member_location_clusters.dart';
 import '../widgets/travel_group_widgets.dart';
 
 class ActiveItineraryMapScreen extends StatefulWidget {
@@ -28,8 +29,48 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   String? _statusMessage;
   bool _completing = false;
   bool _mountNavigationMap = false;
+  final _navigationKey = GlobalKey<NativeNavigationMapState>();
+  Timer? _workspaceTimer;
+  bool _refreshing = false;
+
+  void _sharedStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshSharedState() async {
+    if (_refreshing || !mounted) return;
+    _refreshing = true;
+    try {
+      await widget.controller.refreshWorkspace();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _statusMessage = 'Could not sync the group: $error');
+      }
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  List<NavigationMemberPin> get _memberPins {
+    final clusters = clusterMemberLocations(_members);
+    return clusters
+        .map(
+          (c) => NavigationMemberPin(
+            latitude: c.first.coordinate.latitude,
+            longitude: c.first.coordinate.longitude,
+            names: c.map((m) => m.displayName).toList(),
+          ),
+        )
+        .toList();
+  }
 
   ItineraryStop? get _currentStop {
+    final sharedStopId = widget.controller.activeSession?.currentStopId;
+    if (sharedStopId != null) {
+      return widget.controller.itinerary
+          .where((s) => s.id == sharedStopId && s.status == StopStatus.current)
+          .firstOrNull;
+    }
     for (final stop in widget.controller.itinerary) {
       if (stop.status == StopStatus.current) return stop;
     }
@@ -39,6 +80,11 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_sharedStateChanged);
+    _workspaceTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => unawaited(_refreshSharedState()),
+    );
     _locationService = widget.controller.createLiveTripLocationService();
     _memberSubscription = _locationService.watchLocations().listen(
       (members) {
@@ -58,6 +104,8 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
 
   @override
   void dispose() {
+    _workspaceTimer?.cancel();
+    widget.controller.removeListener(_sharedStateChanged);
     _memberSubscription?.cancel();
     unawaited(_locationService.dispose());
     super.dispose();
@@ -66,6 +114,39 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   @override
   Widget build(BuildContext context) {
     final stop = _currentStop;
+    final group = widget.controller.activeGroup;
+    final visited = widget.controller.itinerary
+        .where((s) => s.status == StopStatus.completed)
+        .lastOrNull;
+    if (group?.status == GroupStatus.completed) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Travel Group ended')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle_outline, size: 56),
+                const SizedBox(height: 16),
+                Text(
+                  widget.controller.isCreator
+                      ? 'Your Travel Group session has ended.'
+                      : '${group!.creatorName} ended the Travel Group session.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text('Your trip history has been saved.'),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Return to group'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (stop == null || stop.latitude == null || stop.longitude == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Travel Group')),
@@ -78,7 +159,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                 const Icon(Icons.route_rounded, size: 56),
                 const SizedBox(height: 12),
                 const Text(
-                  'There is no active destination yet.',
+                  'The group is spending time at this stop. The creator will start navigation to the next itinerary destination when everyone is ready.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -104,6 +185,12 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
               SafeArea(
                 bottom: false,
                 child: NativeNavigationMap(
+                  key: _navigationKey,
+                  memberPins: _memberPins,
+                  simulationOriginLatitude:
+                      visited?.latitude ?? group?.meetupLatitude,
+                  simulationOriginLongitude:
+                      visited?.longitude ?? group?.meetupLongitude,
                   destinationName: stop.placeName,
                   destinationLatitude: stop.latitude!,
                   destinationLongitude: stop.longitude!,
@@ -111,7 +198,14 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                   trafficEnabled: true,
                   voiceGuidanceEnabled: true,
                   vibrationEnabled: true,
-                  onArrived: () => unawaited(_completeStop()),
+                  onArrived: () {
+                    if (mounted) {
+                      setState(
+                        () => _statusMessage =
+                            'Destination reached. The creator can confirm arrival when everyone is ready.',
+                      );
+                    }
+                  },
                   onLocation: (latitude, longitude) {
                     final coordinate = widget.controller.effectiveLocation(
                       latitude,
@@ -199,6 +293,17 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                   ),
                 ),
               ),
+            Positioned(
+              right: 16,
+              bottom: MediaQuery.paddingOf(context).bottom + 220,
+              child: FloatingActionButton.small(
+                heroTag: 'group-navigation-recenter',
+                tooltip: 'Recenter on my location',
+                onPressed: () =>
+                    unawaited(_navigationKey.currentState?.recenter()),
+                child: const Icon(Icons.my_location),
+              ),
+            ),
             Positioned(
               left: 0,
               right: 0,

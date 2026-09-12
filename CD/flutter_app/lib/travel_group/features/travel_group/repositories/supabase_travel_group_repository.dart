@@ -102,6 +102,27 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<TravelGroup?> getOngoingGroupForMember(String userId) async {
+    try {
+      final memberships = await _client
+          .from('travel_group_members')
+          .select('group_id')
+          .eq('user_id', _user.id);
+      if (memberships.isEmpty) return null;
+      final rows = await _client
+          .from('travel_groups')
+          .select('id')
+          .inFilter('id', memberships.map((row) => row['group_id']).toList())
+          .inFilter('status', const ['waiting', 'active'])
+          .order('created_at', ascending: false)
+          .limit(1);
+      return rows.isEmpty ? null : getGroup(rows.first['id'].toString());
+    } catch (error) {
+      throw _failure(error);
+    }
+  }
+
+  @override
   Future<List<GroupMemberProfile>> getMembers(String groupId) async {
     try {
       final memberRows = await _client
@@ -153,10 +174,14 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
-  Future<TravelGroup> createGroup(TravelGroup group) async {
+  Future<TravelGroup> createGroup(
+    TravelGroup group, {
+    double? creatorLatitude,
+    double? creatorLongitude,
+  }) async {
     try {
       final groupId = await _client.rpc(
-        'create_travel_group_with_destination',
+        'create_nearby_travel_group',
         params: {
           'group_name': group.name,
           'destination_name': group.destination,
@@ -170,6 +195,8 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
           'destination_lat': group.destinationLatitude,
           'destination_lng': group.destinationLongitude,
           'destination_photo': group.destinationPhotoName,
+          'creator_lat': creatorLatitude,
+          'creator_lng': creatorLongitude,
         },
       );
       return (await getGroup(groupId.toString()))!;
@@ -524,8 +551,19 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
-  Future<void> startItinerary(String groupId) async {
+  Future<void> startItinerary(String groupId, {String? expectedStopId}) async {
     try {
+      final group = await getGroup(groupId);
+      if (group?.tripPhase == GroupTripPhase.choosingNext) {
+        await _client.rpc(
+          'start_travel_group_leg_to',
+          params: {
+            'target_group_id': groupId,
+            'target_stop_id': expectedStopId,
+          },
+        );
+        return;
+      }
       await _client.rpc(
         'begin_travel_group_journey',
         params: {'target_group_id': groupId},

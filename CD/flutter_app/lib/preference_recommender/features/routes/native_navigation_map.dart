@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -19,6 +20,17 @@ const double navigationSimulationSpeed = 5;
 /// with the native turn-by-turn controls while this view is mounted.
 final ValueNotifier<bool> navigationExperienceActive = ValueNotifier(false);
 
+class NavigationMemberPin {
+  const NavigationMemberPin({
+    required this.latitude,
+    required this.longitude,
+    required this.names,
+  });
+  final double latitude;
+  final double longitude;
+  final List<String> names;
+}
+
 /// Owns the short-lived Google Navigation SDK session used during a journey.
 ///
 /// The normal discovery map remains a `google_maps_flutter` map. This widget is
@@ -38,6 +50,9 @@ class NativeNavigationMap extends StatefulWidget {
     required this.onLocation,
     required this.onProgress,
     required this.onStatus,
+    this.memberPins = const [],
+    this.simulationOriginLatitude,
+    this.simulationOriginLongitude,
   });
 
   final String destinationName;
@@ -56,6 +71,9 @@ class NativeNavigationMap extends StatefulWidget {
   )
   onProgress;
   final ValueChanged<String?> onStatus;
+  final List<NavigationMemberPin> memberPins;
+  final double? simulationOriginLatitude;
+  final double? simulationOriginLongitude;
 
   @override
   State<NativeNavigationMap> createState() => NativeNavigationMapState();
@@ -75,10 +93,104 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   bool _gpsValidForNavigation = false;
   int _locationSamples = 0;
   bool _routeStarted = false;
+  bool _settingDestination = false;
+  bool _destinationPending = false;
   bool _simulationRunning = false;
   bool _closing = false;
   int _routeAttempt = 0;
   String? _startupMessage;
+  List<navigation.Marker> _memberMarkers = [];
+  final Map<int, navigation.ImageDescriptor> _memberIcons = {};
+  bool _updatingMembers = false;
+  String _memberSignature = '';
+
+  Future<navigation.ImageDescriptor> _countIcon(int count) async {
+    if (_memberIcons[count] != null) return _memberIcons[count]!;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    if (count > 1) {
+      canvas.drawCircle(
+        const Offset(34, 24),
+        21,
+        Paint()..color = const Color(0xffa8c4ff),
+      );
+    }
+    canvas.drawCircle(const Offset(26, 32), 23, Paint()..color = Colors.white);
+    canvas.drawCircle(
+      const Offset(26, 32),
+      20,
+      Paint()..color = const Color(0xff3266cc),
+    );
+    final text = TextPainter(
+      text: TextSpan(
+        text: '$count',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 22,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    text.paint(canvas, Offset(26 - text.width / 2, 32 - text.height / 2));
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(60, 60);
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    picture.dispose();
+    final icon = await navigation.registerBitmapImage(
+      bitmap: bytes!,
+      width: 40,
+      height: 40,
+    );
+    _memberIcons[count] = icon;
+    return icon;
+  }
+
+  Future<void> _updateMemberPins() async {
+    if (_controller == null || _closing || _updatingMembers) return;
+    _updatingMembers = true;
+    try {
+      final pins = widget.memberPins;
+      final signature = pins
+          .map(
+            (p) =>
+                '${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)},${p.names.join(',')}',
+          )
+          .join(';');
+      if (signature == _memberSignature) return;
+      final options = <navigation.MarkerOptions>[];
+      for (final pin in pins) {
+        options.add(
+          navigation.MarkerOptions(
+            position: navigation.LatLng(
+              latitude: pin.latitude,
+              longitude: pin.longitude,
+            ),
+            icon: await _countIcon(pin.names.length),
+            zIndex: 10,
+            infoWindow: navigation.InfoWindow(
+              title:
+                  '${pin.names.length} traveller${pin.names.length == 1 ? '' : 's'}',
+              snippet: pin.names.join(', '),
+            ),
+          ),
+        );
+      }
+      if (_closing) return;
+      if (_memberMarkers.isNotEmpty) {
+        await _controller!.removeMarkers(_memberMarkers);
+      }
+      _memberMarkers = (await _controller!.addMarkers(
+        options,
+      )).whereType<navigation.Marker>().toList();
+      _memberSignature = signature;
+    } catch (error) {
+      if (!_closing) widget.onStatus('Could not update traveller pins: $error');
+    } finally {
+      _updatingMembers = false;
+    }
+  }
 
   @override
   void initState() {
@@ -92,6 +204,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   @override
   void didUpdateWidget(covariant NativeNavigationMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    unawaited(_updateMemberPins());
     if (oldWidget.trafficEnabled != widget.trafficEnabled) {
       unawaited(_controller?.settings.setTrafficEnabled(widget.trafficEnabled));
     }
@@ -208,6 +321,19 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
             }
           });
       if (mounted) setState(() {});
+      if (navigationSimulationEnabled &&
+          widget.simulationOriginLatitude != null &&
+          widget.simulationOriginLongitude != null) {
+        await navigation.GoogleMapsNavigator.simulator.setUserLocation(
+          navigation.LatLng(
+            latitude: widget.simulationOriginLatitude!,
+            longitude: widget.simulationOriginLongitude!,
+          ),
+        );
+        _hasLocation = true;
+        _gpsValidForNavigation = true;
+        if (_controller != null) await _setDestinationAndStart();
+      }
     } on navigation.SessionInitializationException catch (error) {
       _fail('Navigation could not start: ${error.code.name}.');
     } catch (error) {
@@ -219,6 +345,7 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
     navigation.GoogleNavigationViewController controller,
   ) async {
     _controller = controller;
+    unawaited(_updateMemberPins());
     try {
       await controller.setMyLocationEnabled(true);
       await controller.settings.setTrafficEnabled(widget.trafficEnabled);
@@ -246,12 +373,27 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
 
   Future<void> _setDestinationAndStart() async {
     if (_closing || !_sessionInitialized || _controller == null) return;
+    if (_settingDestination) {
+      _destinationPending = true;
+      return;
+    }
+    _settingDestination = true;
     _routeStarted = true;
     if (mounted) setState(() => _startupMessage = 'Calculating route…');
     try {
       if (_simulationRunning) {
         await navigation.GoogleMapsNavigator.simulator.removeUserLocation();
         _simulationRunning = false;
+      }
+      if (navigationSimulationEnabled &&
+          widget.simulationOriginLatitude != null &&
+          widget.simulationOriginLongitude != null) {
+        await navigation.GoogleMapsNavigator.simulator.setUserLocation(
+          navigation.LatLng(
+            latitude: widget.simulationOriginLatitude!,
+            longitude: widget.simulationOriginLongitude!,
+          ),
+        );
       }
       final status = await navigation.GoogleMapsNavigator.setDestinations(
         navigation.Destinations(
@@ -349,6 +491,12 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
     } catch (error) {
       _routeStarted = false;
       _fail(_friendlyError(error));
+    } finally {
+      _settingDestination = false;
+      if (_destinationPending && !_closing) {
+        _destinationPending = false;
+        unawaited(_setDestinationAndStart());
+      }
     }
   }
 
@@ -442,6 +590,9 @@ class NativeNavigationMapState extends State<NativeNavigationMap> {
   Future<void> _cleanup() async {
     if (_closing) return;
     _closing = true;
+    for (final icon in _memberIcons.values) {
+      unawaited(navigation.unregisterImage(icon));
+    }
     _routeRetryTimer?.cancel();
     await _arrivalSubscription?.cancel();
     await _progressSubscription?.cancel();

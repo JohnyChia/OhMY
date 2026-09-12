@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
@@ -31,6 +32,14 @@ import '../shared/widgets/wau_loading_indicator.dart';
 import '../shared/widgets/ohmy_snack_bar.dart';
 import 'ohmy_bottom_navigation_bar.dart';
 import 'personalized_home_page.dart';
+
+// Explicit testing switch only; never grants verified status in Supabase.
+const _skipTravellerVerification =
+    kDebugMode &&
+    bool.fromEnvironment(
+      'BYPASS_TRAVEL_GROUP_VERIFICATION',
+      defaultValue: false,
+    );
 
 class OhMyApp extends StatelessWidget {
   const OhMyApp({super.key, required this.supabaseEnabled});
@@ -80,9 +89,12 @@ class _OhMyShellState extends State<OhMyShell> {
   void initState() {
     super.initState();
     for (final target in ['trip', 'map', 'community', 'profile']) {
-      _novaRegistrations.add(NovaOwnerActionDispatcher.register(
-        target: target, handler: _handleNovaAction,
-      ));
+      _novaRegistrations.add(
+        NovaOwnerActionDispatcher.register(
+          target: target,
+          handler: _handleNovaAction,
+        ),
+      );
     }
     final authUser = widget.supabaseEnabled
         ? Supabase.instance.client.auth.currentUser
@@ -158,6 +170,17 @@ class _OhMyShellState extends State<OhMyShell> {
   }
 
   void _openSoloMap(Map<String, dynamic>? recommendation) {
+    if (_travelGroupController.ongoingMemberGroup != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const OhMySnackBar(
+          content: Text(
+            'Leave or finish your Travel Group before starting a solo trip.',
+          ),
+        ),
+      );
+      _returnToGroup();
+      return;
+    }
     if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _navigatorKeys[2].currentState?.push(
@@ -204,35 +227,54 @@ class _OhMyShellState extends State<OhMyShell> {
 
   Future<NovaOwnerActionResult> _handleNovaAction(NovaAction action) async {
     if (!mounted) {
-      return NovaOwnerActionResult(action: action,
-        status: NovaOwnerActionStatus.unavailable, message: 'App navigation is unavailable.');
+      return NovaOwnerActionResult(
+        action: action,
+        status: NovaOwnerActionStatus.unavailable,
+        message: 'App navigation is unavailable.',
+      );
     }
     if (action.target == 'trip' || action.target == 'map') {
       await _travelGroupController.restoreOngoingCreatedGroup();
       if (_travelGroupController.ongoingMemberGroup != null) {
-        return NovaOwnerActionResult(action: action,
+        return NovaOwnerActionResult(
+          action: action,
           status: NovaOwnerActionStatus.rejected,
-          message: 'Return to your travel group before starting another journey.',
-          errorCode: 'ACTIVE_TRAVEL_GROUP');
+          message:
+              'Return to your travel group before starting another journey.',
+          errorCode: 'ACTIVE_TRAVEL_GROUP',
+        );
       }
       final query = action.parameters['destination']?.toString().trim() ?? '';
       if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
       await Future<void>.delayed(Duration.zero);
       if (!mounted || _navigatorKeys[2].currentState == null) {
-        return NovaOwnerActionResult(action: action,
-          status: NovaOwnerActionStatus.unavailable, message: 'Map navigation is not ready.');
+        return NovaOwnerActionResult(
+          action: action,
+          status: NovaOwnerActionStatus.unavailable,
+          message: 'Map navigation is not ready.',
+        );
       }
-      unawaited(_navigatorKeys[2].currentState!.push<void>(MaterialPageRoute(
-        settings: const RouteSettings(name: '/start-trip/solo-map'),
-        builder: (_) => PlaceMapPage(initialSearchQuery: query),
-      )));
-      return NovaOwnerActionResult(action: action,
+      unawaited(
+        _navigatorKeys[2].currentState!.push<void>(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: '/start-trip/solo-map'),
+            builder: (_) => PlaceMapPage(initialSearchQuery: query),
+          ),
+        ),
+      );
+      return NovaOwnerActionResult(
+        action: action,
         status: NovaOwnerActionStatus.executed,
-        message: 'Destination search opened. Select the place to start navigation.');
+        message:
+            'Destination search opened. Select the place to start navigation.',
+      );
     }
     _selectTab(action.target == 'community' ? 3 : 4);
-    return NovaOwnerActionResult(action: action,
-      status: NovaOwnerActionStatus.executed, message: '${action.target} opened.');
+    return NovaOwnerActionResult(
+      action: action,
+      status: NovaOwnerActionStatus.executed,
+      message: '${action.target} opened.',
+    );
   }
 
   PrototypeUser _prototypeUser(User user) {
@@ -246,7 +288,8 @@ class _OhMyShellState extends State<OhMyShell> {
                   user.email ??
                   'Traveller')
               .toString(),
-      isVerified: appMetadata['is_verified'] == true,
+      isVerified:
+          _skipTravellerVerification || appMetadata['is_verified'] == true,
     );
   }
 
@@ -257,8 +300,21 @@ class _OhMyShellState extends State<OhMyShell> {
     });
   }
 
-  void _returnToGroup() {
+  void _returnToGroup() async {
+    final group = _travelGroupController.ongoingMemberGroup;
+    if (group == null) return;
     if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
+    await _travelGroupController.openGroup(group.id);
+    if (!mounted) return;
+    final navigator = _navigatorKeys[2].currentState;
+    navigator?.popUntil((route) => route.isFirst);
+    unawaited(
+      navigator?.push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => GroupLobbyScreen(controller: _travelGroupController),
+        ),
+      ),
+    );
   }
 
   void _selectTab(int index) {
@@ -343,28 +399,28 @@ class _OhMyShellState extends State<OhMyShell> {
               ),
             ),
             if (_selectedIndex != 1)
-              Positioned(left: 20, right: 20,
+              Positioned(
+                left: 20,
+                right: 20,
                 top: MediaQuery.paddingOf(context).top + 6,
                 child: ValueListenableBuilder<NovaVoiceState>(
                   valueListenable: NovaVoiceController.state,
                   builder: (_, state, _) => state.phase == NovaVoicePhase.idle
-                    ? const SizedBox.shrink()
-                    : NovaBottomAssistant(state: state,
-                        onDismiss: NovaVoiceController.reset, compact: true),
+                      ? const SizedBox.shrink()
+                      : NovaBottomAssistant(
+                          state: state,
+                          onDismiss: NovaVoiceController.reset,
+                          compact: true,
+                        ),
                 ),
               ),
             if (_selectedIndex != 2 &&
-                _travelGroupController.activeGroup != null &&
-                _travelGroupController.isMember &&
-                _travelGroupController.activeGroup!.status !=
-                    GroupStatus.completed &&
-                _travelGroupController.activeGroup!.status !=
-                    GroupStatus.cancelled)
+                _travelGroupController.ongoingMemberGroup != null)
               Positioned(
                 right: 14,
                 bottom: 12,
                 child: _ReturnToGroupButton(
-                  group: _travelGroupController.activeGroup!,
+                  group: _travelGroupController.ongoingMemberGroup!,
                   onPressed: _returnToGroup,
                 ),
               ),
@@ -1301,14 +1357,14 @@ class StartTripHubPage extends StatelessWidget {
   }
 
   Future<void> _openSoloTrip(BuildContext context) async {
-    final ownedGroup = controller.ownedOngoingGroup;
+    final ownedGroup = controller.ongoingMemberGroup;
     if (ownedGroup != null) {
       final openGroup = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Travel Group already active'),
           content: Text(
-            'You created ${ownedGroup.name}. End that Travel Group before starting a solo trip.',
+            'You are in ${ownedGroup.name}. Leave or finish that Travel Group before starting a solo trip.',
           ),
           actions: [
             TextButton(

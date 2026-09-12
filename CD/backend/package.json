@@ -10,6 +10,7 @@
     "test:recommendation": "node modules/preference_recommender/scripts/test-recommendation.js",
     "test:tagger-v2": "node modules/preference_recommender/scripts/test-tagger-v2.js",
     "retag:places": "node modules/preference_recommender/scripts/retag-cached-places.js",
+    "test:place-search": "node modules/preference_recommender/scripts/test-place-search.js",
     "start": "node server.js",
     "tagging": "node modules/preference_recommender/tagging-service.js"
   },

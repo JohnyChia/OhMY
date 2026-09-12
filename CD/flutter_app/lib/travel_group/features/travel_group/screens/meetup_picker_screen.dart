@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/live_trip_location_service.dart';
+import '../services/member_location_clusters.dart';
 import '../widgets/travel_group_widgets.dart';
 import 'group_member_profile_screen.dart';
 
@@ -33,6 +35,88 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
   GoogleMapController? _mapController;
   MethodChannel? _poiChannel;
   bool _saving = false;
+  final Map<int, BitmapDescriptor> _stackIcons = {};
+  bool _buildingStackIcons = false;
+
+  Future<void> _prepareStackIcons() async {
+    if (_buildingStackIcons) return;
+    _buildingStackIcons = true;
+    try {
+      for (var count = 2; count <= _members.length; count++) {
+        if (_stackIcons.containsKey(count)) continue;
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder);
+        canvas.drawCircle(
+          const Offset(34, 24),
+          21,
+          Paint()..color = const Color(0xffa8c4ff),
+        );
+        canvas.drawCircle(
+          const Offset(26, 32),
+          23,
+          Paint()..color = Colors.white,
+        );
+        canvas.drawCircle(
+          const Offset(26, 32),
+          20,
+          Paint()..color = const Color(0xff3266cc),
+        );
+        final text = TextPainter(
+          text: TextSpan(
+            text: '$count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        text.paint(canvas, Offset(26 - text.width / 2, 32 - text.height / 2));
+        final picture = recorder.endRecording();
+        final image = await picture.toImage(60, 60);
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        image.dispose();
+        picture.dispose();
+        _stackIcons[count] = BitmapDescriptor.bytes(
+          bytes!.buffer.asUint8List(),
+          width: 40,
+          height: 40,
+        );
+      }
+      if (mounted) setState(() {});
+    } finally {
+      _buildingStackIcons = false;
+    }
+  }
+
+  void _openStack(List<LiveMemberLocation> members) {
+    if (members.length == 1) {
+      _openMemberProfile(members.first);
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text('${members.length} travellers here')),
+            for (final member in members)
+              ListTile(
+                title: Text(member.displayName),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openMemberProfile(member);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   bool _hasFocusedLiveLocations = false;
   String? _locationError;
 
@@ -55,6 +139,7 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
           _members = members;
           _candidate ??= _centroid(members);
         });
+        unawaited(_prepareStackIcons());
         if (!_hasFocusedLiveLocations && members.isNotEmpty) {
           _hasFocusedLiveLocations = true;
           unawaited(_focusLiveLocations());
@@ -131,7 +216,13 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
         farthest != null &&
         farthest <= maximumMemberDistanceMeters;
     return Scaffold(
-      appBar: AppBar(title: const Text('Set meetup point')),
+      appBar: AppBar(
+        title: Text(
+          widget.controller.isCreator
+              ? 'Set meetup point'
+              : 'Live group locations',
+        ),
+      ),
       body: Column(
         children: [
           Expanded(
@@ -153,29 +244,38 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
               indoorViewEnabled: false,
               tiltGesturesEnabled: false,
               mapToolbarEnabled: false,
-              onTap: (value) => setState(() {
-                _candidate = value;
-                _label.text = 'Dropped pin';
-              }),
+              onTap: widget.controller.isCreator
+                  ? (value) => setState(() {
+                      _candidate = value;
+                      _label.text = 'Dropped pin';
+                    })
+                  : null,
               markers: {
-                for (var index = 0; index < _members.length; index++)
+                for (final cluster in clusterMemberLocations(_members))
                   Marker(
-                    markerId: MarkerId('member_${_members[index].userId}'),
+                    markerId: MarkerId('member_${cluster.first.userId}'),
                     position: LatLng(
-                      _members[index].coordinate.latitude,
-                      _members[index].coordinate.longitude,
+                      cluster.first.coordinate.latitude,
+                      cluster.first.coordinate.longitude,
                     ),
-                    infoWindow: InfoWindow(title: _members[index].displayName),
-                    onTap: () => _openMemberProfile(_members[index]),
-                    icon: BitmapDescriptor.defaultMarkerWithHue(
-                      _markerHue(_members[index], index),
+                    infoWindow: InfoWindow(
+                      title: cluster.map((m) => m.displayName).join(', '),
                     ),
+                    onTap: () => _openStack(cluster),
+                    icon:
+                        _stackIcons[cluster.length] ??
+                        BitmapDescriptor.defaultMarkerWithHue(
+                          _markerHue(
+                            cluster.first,
+                            _members.indexOf(cluster.first),
+                          ),
+                        ),
                   ),
                 if (candidate != null)
                   Marker(
                     markerId: const MarkerId('meetup_candidate'),
                     position: candidate,
-                    draggable: true,
+                    draggable: widget.controller.isCreator,
                     onDragEnd: (value) => setState(() => _candidate = value),
                     infoWindow: const InfoWindow(title: 'Proposed meetup'),
                     icon: BitmapDescriptor.defaultMarkerWithHue(
@@ -268,6 +368,7 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
                   const SizedBox(height: 10),
                   TextField(
                     controller: _label,
+                    readOnly: !widget.controller.isCreator,
                     decoration: const InputDecoration(
                       labelText: 'Meetup point name',
                       hintText: 'e.g. Main entrance',
@@ -277,8 +378,17 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
-                      onPressed: inRange && !_saving ? _save : null,
-                      child: Text(_saving ? 'Saving...' : 'Save meetup point'),
+                      onPressed:
+                          widget.controller.isCreator && inRange && !_saving
+                          ? _save
+                          : null,
+                      child: Text(
+                        !widget.controller.isCreator
+                            ? 'Only the creator can change meetup'
+                            : _saving
+                            ? 'Saving...'
+                            : 'Save meetup point',
+                      ),
                     ),
                   ),
                 ],
@@ -304,7 +414,11 @@ class _MeetupPickerScreenState extends State<MeetupPickerScreen> {
     _mapController = controller;
     _poiChannel = MethodChannel('ohmy/google_map_poi/${controller.mapId}');
     _poiChannel!.setMethodCallHandler((call) async {
-      if (call.method != 'onPoiTap' || !mounted) return;
+      if (call.method != 'onPoiTap' ||
+          !mounted ||
+          !widget.controller.isCreator) {
+        return;
+      }
       final poi = Map<String, dynamic>.from(call.arguments as Map);
       final latitude = (poi['latitude'] as num?)?.toDouble();
       final longitude = (poi['longitude'] as num?)?.toDouble();

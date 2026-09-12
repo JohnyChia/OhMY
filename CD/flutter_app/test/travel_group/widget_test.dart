@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_app/travel_group/features/travel_group/controllers/travel_group_controller.dart';
 import 'package:flutter_app/travel_group/features/travel_group/models/travel_group_models.dart';
 import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/group_lobby_screen.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/itinerary_board.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/live_trip_location_service.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/travel_place_search_service.dart';
 
@@ -14,9 +16,42 @@ void main() {
   late _FakePlaceSearchService placeSearch;
 
   setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter.baseflow.com/geolocator'),
+          (call) async {
+            switch (call.method) {
+              case 'isLocationServiceEnabled':
+                return true;
+              case 'checkPermission':
+              case 'requestPermission':
+                return 2;
+              case 'getCurrentPosition':
+                return {
+                  'latitude': 3.1579,
+                  'longitude': 101.7123,
+                  'accuracy': 5.0,
+                  'altitude': 0.0,
+                  'heading': 0.0,
+                  'speed': 0.0,
+                  'speed_accuracy': 0.0,
+                  'timestamp': DateTime.now().millisecondsSinceEpoch,
+                };
+              default:
+                return null;
+            }
+          },
+        );
     repository = MockTravelGroupRepository.seeded();
     controller = TravelGroupController(repository: repository);
     placeSearch = _FakePlaceSearchService();
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('flutter.baseflow.com/geolocator'),
+          null,
+        );
   });
 
   Widget app() => MaterialApp(
@@ -25,6 +60,79 @@ void main() {
       placeSearchService: placeSearch,
     ),
   );
+
+  testWidgets(
+    'long pressing the whole future card reorders it and visit placeholder is absent',
+    (tester) async {
+      await controller.openGroup('GROUP_001');
+      await controller.confirmSuggestion(
+        controller.suggestions.firstWhere((s) => s.id == 'SUGGESTION_002'),
+      );
+      await controller.confirmSuggestion(
+        controller.suggestions.firstWhere((s) => s.id == 'SUGGESTION_003'),
+      );
+      await controller.startItinerary();
+      await controller.completeStop(controller.itinerary.first);
+      final initialId = controller.itinerary.first.id;
+      final moving = controller.itinerary[1];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AnimatedBuilder(
+              animation: controller,
+              builder: (_, _) => ItineraryBoard(controller: controller),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('min visit'), findsNothing);
+      expect(
+        find.byType(ReorderableDelayedDragStartListener),
+        findsNWidgets(2),
+      );
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(ValueKey(moving.id))),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.moveBy(const Offset(0, 230));
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(controller.itinerary.first.id, initialId);
+      expect(controller.itinerary[2].id, moving.id);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('traveller sees that the creator ended the shared session', (
+    tester,
+  ) async {
+    await controller.openGroup('GROUP_001');
+    final creator = controller.activeGroup!.creatorName;
+    controller.switchUser(
+      PrototypeUser(id: 'USER_101', name: 'Traveller', isVerified: true),
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await repository.endTrip('GROUP_001');
+    await controller.refreshWorkspace();
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        '$creator ended this Travel Group session. Your trip history has been saved.',
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('discovery is destination-led and uses a right-side create FAB', (
     tester,

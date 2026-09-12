@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../../../preference_recommender/features/routes/navigation_sensor.dart';
@@ -36,9 +37,43 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<List<LiveMemberLocation>>? _memberLocationSubscription;
   bool _startingLocationSharing = false;
-  Position? _lastPosition;
   String? _locationSharingError;
   List<LiveMemberLocation> _liveMembers = const [];
+  Timer? _workspaceTimer;
+  Timer? _locationHeartbeat;
+  bool _refreshingWorkspace = false;
+  String? _openedSharedStopId;
+  bool _sharedNavigationOpen = false;
+
+  void _followCreatorNavigation() {
+    final session = controller.activeSession;
+    if (_sharedNavigationOpen) {
+      _openedSharedStopId = session?.currentStopId;
+      return;
+    }
+    if (controller.isCreator ||
+        !controller.isMember ||
+        _sharedNavigationOpen ||
+        controller.activeGroup?.tripPhase != GroupTripPhase.navigating ||
+        session?.currentStopId == null ||
+        session!.currentStopId == _openedSharedStopId) {
+      return;
+    }
+    _openedSharedStopId = session.currentStopId;
+    _sharedNavigationOpen = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await Navigator.of(context, rootNavigator: true).push<void>(
+        PageRouteBuilder<void>(
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+          pageBuilder: (_, _, _) =>
+              ActiveItineraryMapScreen(controller: controller),
+        ),
+      );
+      _sharedNavigationOpen = false;
+    });
+  }
 
   TravelGroupController get controller => widget.controller;
 
@@ -47,6 +82,15 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     super.initState();
     controller.addListener(_handleControllerUpdate);
     unawaited(_refresh());
+    _workspaceTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) unawaited(_refresh());
+    });
+    _locationHeartbeat = Timer.periodic(const Duration(seconds: 20), (_) {
+      final service = _locationService;
+      if (mounted && service != null) {
+        unawaited(_refreshOwnPosition(service));
+      }
+    });
     final message = widget.initialMessage;
     if (message != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -57,6 +101,8 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
 
   @override
   void dispose() {
+    _workspaceTimer?.cancel();
+    _locationHeartbeat?.cancel();
     controller.removeListener(_handleControllerUpdate);
     _positionSubscription?.cancel();
     _memberLocationSubscription?.cancel();
@@ -66,28 +112,70 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   }
 
   void _handleControllerUpdate() {
+    _followCreatorNavigation();
+    final group = controller.activeGroup;
+    if (!controller.isMember ||
+        group == null ||
+        group.status == GroupStatus.completed ||
+        group.status == GroupStatus.cancelled) {
+      unawaited(_stopLocationSharing());
+      return;
+    }
     if (controller.isMember &&
         controller.activeSession != null &&
         _locationService == null &&
         !_startingLocationSharing) {
       unawaited(_startLocationSharing());
-    } else if (_locationService != null && _lastPosition != null) {
-      unawaited(_publishLocation(_locationService!, _lastPosition!));
+    }
+  }
+
+  Future<void> _stopLocationSharing() async {
+    final service = _locationService;
+    _locationService = null;
+    final positions = _positionSubscription;
+    _positionSubscription = null;
+    final members = _memberLocationSubscription;
+    _memberLocationSubscription = null;
+    await positions?.cancel();
+    await members?.cancel();
+    await service?.dispose();
+  }
+
+  Future<void> _refreshOwnPosition(LiveTripLocationService service) async {
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+      if (mounted) await _publishLocation(service, position);
+    } catch (error) {
+      _setLocationSharingError(error);
     }
   }
 
   Future<void> _refresh() async {
-    await controller.refreshWorkspace();
-    if (mounted &&
-        controller.isMember &&
-        controller.activeSession != null &&
-        _locationService == null) {
-      await _startLocationSharing();
+    if (_refreshingWorkspace || !mounted) return;
+    _refreshingWorkspace = true;
+    try {
+      await controller.refreshWorkspace();
+      if (mounted &&
+          controller.isMember &&
+          controller.activeSession != null &&
+          _locationService == null) {
+        await _startLocationSharing();
+      }
+    } catch (error) {
+      _setLocationSharingError(error);
+    } finally {
+      _refreshingWorkspace = false;
     }
   }
 
   Future<void> _startLocationSharing() async {
     if (_locationService != null || _startingLocationSharing) return;
+    if (controller.ongoingMemberGroup?.id != controller.activeGroup?.id) return;
     _startingLocationSharing = true;
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return;
@@ -99,6 +187,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
           permission == LocationPermission.deniedForever) {
         return;
       }
+      if (!mounted || !controller.isMember) return;
       final service = controller.createLiveTripLocationService();
       _locationService = service;
       _memberLocationSubscription = service.watchLocations().listen((
@@ -132,7 +221,6 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     LiveTripLocationService service,
     Position position,
   ) async {
-    _lastPosition = position;
     final coordinate = controller.effectiveLocation(
       position.latitude,
       position.longitude,
@@ -392,6 +480,7 @@ class _LobbyTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final group = controller.activeGroup!;
+    final nextStop = controller.nextItineraryStop;
     final pending = controller.joinRequests
         .where((request) => request.status == JoinRequestStatus.pending)
         .toList();
@@ -399,6 +488,15 @@ class _LobbyTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
+        if (group.status == GroupStatus.completed)
+          AppPanel(
+            color: AppColors.successSurface,
+            child: Text(
+              controller.isCreator
+                  ? 'Travel Group ended. Your trip history has been saved.'
+                  : '${group.creatorName} ended this Travel Group session. Your trip history has been saved.',
+            ),
+          ),
         if (locationSharingError != null) ...[
           AppPanel(
             color: const Color(0xFFFFECEA),
@@ -489,7 +587,9 @@ class _LobbyTab extends StatelessWidget {
                       style: TextStyle(fontSize: 10, color: AppColors.primary),
                     ),
                   ),
-                  if (controller.isCreator && group.isConfirmed)
+                  if (group.isConfirmed &&
+                      group.status != GroupStatus.completed &&
+                      group.status != GroupStatus.cancelled)
                     OutlinedButton(
                       onPressed: () => Navigator.of(context).push<void>(
                         MaterialPageRoute(
@@ -498,7 +598,11 @@ class _LobbyTab extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        group.meetupPoint.isEmpty ? 'Set on map' : 'Change',
+                        !controller.isCreator
+                            ? 'View everyone'
+                            : group.meetupPoint.isEmpty
+                            ? 'Set on map'
+                            : 'Change',
                       ),
                     ),
                 ],
@@ -615,6 +719,52 @@ class _LobbyTab extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
+        if (kDebugMode &&
+            group.tripPhase == GroupTripPhase.gathering &&
+            group.meetupLatitude != null) ...[
+          AppPanel(
+            color: const Color(0xFFFFF6E8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'DEMO SIMULATION · not actual GPS',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  controller.meetupSimulation == null
+                      ? 'Each member must tap this on their own device. Your pin travels to the meetup in about 10 seconds.'
+                      : controller.meetupSimulation!.arrived
+                      ? 'Simulated arrival. Keeping your meetup location fresh until the creator begins the trip.'
+                      : 'Your simulated pin is on its way to the meetup.',
+                ),
+                if (controller.meetupSimulationError != null)
+                  Text(
+                    'Could not share simulation: ${controller.meetupSimulationError}',
+                  ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  key: const Key('simulate_to_meetup_button'),
+                  onPressed: controller.meetupSimulation == null
+                      ? () => _simulateMeetup(context)
+                      : controller.stopMeetupSimulation,
+                  icon: Icon(
+                    controller.meetupSimulation == null
+                        ? Icons.directions_walk
+                        : Icons.gps_fixed,
+                  ),
+                  label: Text(
+                    controller.meetupSimulation == null
+                        ? 'Simulate to meetup'
+                        : 'Stop simulation · use real GPS',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (controller.isCreator &&
             group.tripPhase == GroupTripPhase.gathering &&
             group.meetupPoint.isNotEmpty) ...[
@@ -669,11 +819,25 @@ class _LobbyTab extends StatelessWidget {
             ),
           )
         else if (group.tripPhase == GroupTripPhase.choosingNext)
-          FilledButton.icon(
-            key: const Key('choose_next_stop_button'),
-            onPressed: onSuggest,
-            icon: const Icon(Icons.add_location_alt_rounded),
-            label: const Text('Choose where to go next'),
+          Column(
+            children: [
+              const Text(
+                'Enjoy the current stop. The creator starts the next leg when everyone is ready.',
+              ),
+              if (controller.isCreator && nextStop != null)
+                FilledButton.icon(
+                  onPressed: () =>
+                      _beginTrip(context, expectedStopId: nextStop.id),
+                  icon: const Icon(Icons.navigation),
+                  label: Text('Start next: ${nextStop.placeName}'),
+                ),
+              FilledButton.icon(
+                key: const Key('choose_next_stop_button'),
+                onPressed: onSuggest,
+                icon: const Icon(Icons.add_location_alt_rounded),
+                label: const Text('Choose where to go next'),
+              ),
+            ],
           )
         else if (group.tripPhase == GroupTripPhase.navigating)
           FilledButton.icon(
@@ -681,6 +845,9 @@ class _LobbyTab extends StatelessWidget {
             icon: const Icon(Icons.navigation_rounded),
             label: const Text('Return to navigation'),
           )
+        else if (group.status == GroupStatus.completed ||
+            group.status == GroupStatus.cancelled)
+          const SizedBox.shrink()
         else
           FilledButton(
             onPressed: onSuggest,
@@ -759,13 +926,47 @@ class _LobbyTab extends StatelessWidget {
     }
   }
 
-  Future<void> _beginTrip(BuildContext context) async {
+  Future<void> _beginTrip(
+    BuildContext context, {
+    String? expectedStopId,
+  }) async {
     try {
-      await controller.startItinerary();
+      await controller.startItinerary(expectedStopId: expectedStopId);
       if (context.mounted) await _openNavigation(context);
     } on TravelGroupException catch (error) {
       if (context.mounted) {
         showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
+
+  Future<void> _simulateMeetup(BuildContext context) async {
+    try {
+      final own = liveMembers
+          .where(
+            (member) =>
+                member.userId == controller.currentUser.id && member.isFresh,
+          )
+          .firstOrNull;
+      final position = own == null
+          ? await Geolocator.getCurrentPosition(
+              locationSettings: const LocationSettings(
+                accuracy: LocationAccuracy.high,
+                timeLimit: Duration(seconds: 15),
+              ),
+            )
+          : null;
+      await controller.simulateToMeetup(
+        own?.coordinate ??
+            GeoCoordinate(position!.latitude, position.longitude),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        showTravelGroupMessage(
+          context,
+          'Could not start simulation: $error',
+          error: true,
+        );
       }
     }
   }

@@ -548,7 +548,11 @@ class _RemoteIdRepository extends MockTravelGroupRepository {
     : super(groups: [], requests: [], suggestions: [], itinerary: []);
 
   @override
-  Future<TravelGroup> createGroup(TravelGroup group) {
+  Future<TravelGroup> createGroup(
+    TravelGroup group, {
+    double? creatorLatitude,
+    double? creatorLongitude,
+  }) {
     return super.createGroup(
       TravelGroup(
         id: 'REMOTE_GROUP_ID',

@@ -28,10 +28,10 @@ void main() {
     expect(find.text('Search Attractions ...'), findsOneWidget);
 
     await _openTab(tester, 'AI Chat');
-    expect(find.text('Where to next?'), findsOneWidget);
+    expect(find.text('Your travel agent, ready.'), findsOneWidget);
 
     await _openTab(tester, 'Start Trip');
-    expect(find.text('How would you like to travel?'), findsOneWidget);
+    expect(find.text('How would you like\nto travel?'), findsOneWidget);
     expect(find.text('Solo trip'), findsOneWidget);
     expect(find.text('Group trip'), findsOneWidget);
 
@@ -44,20 +44,23 @@ void main() {
     expect(find.text('Profile setup required'), findsWidgets);
   });
 
-  testWidgets('Home search stays on Home until a result is selected', (
+  testWidgets('Home search opens destination search before selecting a result', (
     tester,
   ) async {
     await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
     await tester.pump();
 
     await tester.tap(find.text('Search Attractions ...'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    // Nova's orb animates continuously even while the chat tab is offstage.
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(
       find.widgetWithText(TextField, 'Search attractions…'),
       findsOneWidget,
     );
-    expect(find.text('How would you like to travel?'), findsNothing);
+    expect(find.text('How would you like\nto travel?').hitTestable(), findsNothing);
   });
 
   testWidgets('active native navigation hides and restores the app shell bar', (

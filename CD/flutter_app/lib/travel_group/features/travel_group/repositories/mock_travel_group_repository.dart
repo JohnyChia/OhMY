@@ -101,6 +101,18 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<TravelGroup?> getOngoingGroupForMember(String userId) async {
+    for (final group in _groups) {
+      if (group.memberIds.contains(userId) &&
+          group.status != GroupStatus.completed &&
+          group.status != GroupStatus.cancelled) {
+        return group;
+      }
+    }
+    return null;
+  }
+
+  @override
   Future<List<GroupMemberProfile>> getMembers(String groupId) async {
     final group = _requireGroup(groupId);
     const names = {
@@ -135,7 +147,11 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
-  Future<TravelGroup> createGroup(TravelGroup group) async {
+  Future<TravelGroup> createGroup(
+    TravelGroup group, {
+    double? creatorLatitude,
+    double? creatorLongitude,
+  }) async {
     _groups.add(group);
     _itinerary.add(
       ItineraryStop(
@@ -341,15 +357,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   Future<void> removeSuggestion(String suggestionId) async {
     final index = _suggestions.indexWhere((item) => item.id == suggestionId);
     if (index < 0) return;
-    final suggestion = _suggestions[index];
-    _itinerary.removeWhere(
-      (stop) =>
-          stop.groupId == suggestion.groupId &&
-          stop.suggestionId == suggestionId &&
-          stop.status != StopStatus.current,
-    );
     _suggestions.removeAt(index);
-    _resequence(suggestion.groupId);
   }
 
   @override
@@ -397,21 +405,6 @@ class MockTravelGroupRepository implements TravelGroupRepository {
       longitude: suggestion.longitude,
     );
     _itinerary.add(stop);
-    final group = _requireGroup(suggestion.groupId);
-    if (group.tripPhase == GroupTripPhase.choosingNext) {
-      stop.status = StopStatus.current;
-      group.tripPhase = GroupTripPhase.navigating;
-      final session = _sessions[group.id];
-      if (session != null) {
-        _sessions[group.id] = TravelGroupTripSession(
-          id: session.id,
-          groupId: group.id,
-          phase: GroupTripPhase.navigating,
-          currentStopId: stop.id,
-          currentStopIndex: stop.position,
-        );
-      }
-    }
     return stop;
   }
 
@@ -447,7 +440,8 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     List<ItineraryStop> stops,
   ) async {
     final group = _requireGroup(groupId);
-    if (group.status != GroupStatus.waiting) {
+    if (group.status == GroupStatus.completed ||
+        group.status == GroupStatus.cancelled) {
       throw const TravelGroupException(
         'The itinerary is already active.',
         'itinerary_active',
@@ -473,9 +467,17 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
-  Future<void> startItinerary(String groupId) async {
+  Future<void> startItinerary(String groupId, {String? expectedStopId}) async {
     final group = _requireGroup(groupId);
     final stops = await getItinerary(groupId);
+    if (expectedStopId != null &&
+        stops.firstWhere((s) => s.status == StopStatus.upcoming).id !=
+            expectedStopId) {
+      throw const TravelGroupException(
+        'The next destination changed. Review the itinerary and try again.',
+        'next_stop_changed',
+      );
+    }
     if (stops.isEmpty) {
       throw const TravelGroupException(
         'Confirm at least one stop first.',

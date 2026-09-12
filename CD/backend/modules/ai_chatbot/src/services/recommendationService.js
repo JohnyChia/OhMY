@@ -1,6 +1,6 @@
 // Reuse the Google Places implementation already used by the Map owner. Nova
 // only adapts its verified output; it never manufactures venues or ratings.
-const { searchPlaces } = require('../../../../googlePlacesService');
+const { searchPlaces } = require('../../../preference_recommender/googlePlacesService');
 
 function cleanList(values) {
   return [...new Set((Array.isArray(values) ? values : [])

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import '../services/live_trip_location_service.dart';
 import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -365,7 +367,35 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw const TravelGroupException(
+          'Enable device location to create a group.',
+          'location_required',
+        );
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw const TravelGroupException(
+          'Allow precise location to create a nearby group.',
+          'location_required',
+        );
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      widget.controller.validateCreatorLocation(
+        _destination!,
+        GeoCoordinate(position.latitude, position.longitude),
+      );
       final group = await widget.controller.createGroup(
+        creatorLocation: GeoCoordinate(position.latitude, position.longitude),
         name: _name.text,
         destination: _destination!,
         description: _description.text,
@@ -376,6 +406,14 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
       if (mounted) Navigator.pop(context, group);
     } on TravelGroupException catch (error) {
       if (mounted) showTravelGroupMessage(context, error.message, error: true);
+    } catch (_) {
+      if (mounted) {
+        showTravelGroupMessage(
+          context,
+          'Could not obtain your current location. Enable precise location and try again.',
+          error: true,
+        );
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
