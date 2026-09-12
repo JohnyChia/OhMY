@@ -36,7 +36,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   late Future<List<CompletedTrip>> _trips;
   CompletedTrip? _selectedTrip;
   final List<PostImageUpload> _images = [];
-  bool _replacingImages = false;
+  final List<_ExistingImage> _existingImages = [];
+  final List<String> _originalImagePaths = [];
+  bool _galleryChanged = false;
   bool _publishing = false;
   bool _deleting = false;
   final Map<String, _SubmissionFeedback> _fieldFeedback = {};
@@ -70,6 +72,22 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     _descriptionController = TextEditingController(
       text: widget.post?.description,
     );
+    final post = widget.post;
+    if (post != null) {
+      final paths = post.imagePaths.isNotEmpty
+          ? post.imagePaths
+          : [?post.imagePath];
+      _originalImagePaths.addAll(paths);
+      final urls = post.allImageUrls;
+      for (var index = 0; index < urls.length; index++) {
+        _existingImages.add(
+          _ExistingImage(
+            path: index < paths.length ? paths[index] : '',
+            url: urls[index],
+          ),
+        );
+      }
+    }
     _trips = Future.value(
       widget.completedTrip == null
           ? const <CompletedTrip>[]
@@ -85,7 +103,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _pickImages() async {
-    final remaining = _isEditing && !_replacingImages ? 6 : 6 - _images.length;
+    final remaining = 6 - _existingImages.length - _images.length;
     if (remaining <= 0) {
       _showLocalError('images', 'A post can contain up to 6 pictures.');
       return;
@@ -117,14 +135,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         }
         return;
       }
+      if (_images.any((upload) => _sameBytes(upload.bytes, bytes)) ||
+          uploads.any((upload) => _sameBytes(upload.bytes, bytes))) {
+        if (mounted) {
+          _showLocalError(
+            'images',
+            'The same picture cannot be added more than once.',
+          );
+        }
+        return;
+      }
       uploads.add(PostImageUpload(bytes: bytes, extension: extension));
     }
     setState(() {
-      if (_isEditing && !_replacingImages) {
-        _images.clear();
-        _replacingImages = true;
-      }
-      _images.addAll(uploads.take(6 - _images.length));
+      _images.addAll(uploads.take(6 - _existingImages.length - _images.length));
+      if (_isEditing) _galleryChanged = true;
       _fieldFeedback.remove('images');
       _submissionFeedback = null;
     });
@@ -138,10 +163,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     if (!_isEditing && trip == null) {
       localErrors['trip'] = 'Choose a completed trip.';
     }
-    if (!_isEditing && _images.isEmpty) {
+    final imageCount = _existingImages.length + _images.length;
+    if (!_isEditing && imageCount == 0) {
       localErrors['images'] = 'Select at least one picture.';
-    } else if (_isEditing && _replacingImages && _images.isEmpty) {
-      localErrors['images'] = 'Select at least one replacement picture.';
+    } else if (_isEditing && imageCount == 0) {
+      localErrors['images'] = 'Keep or add at least one picture.';
     }
     if (title.length < 3 || title.length > 120) {
       localErrors['title'] = 'Title must be between 3 and 120 characters.';
@@ -182,8 +208,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             postId: widget.post!.id,
             title: title,
             description: description,
-            images: _replacingImages ? List.unmodifiable(_images) : null,
-            existingImagePaths: widget.post!.imagePaths,
+            images: _galleryChanged ? List.unmodifiable(_images) : null,
+            existingImagePaths: List.unmodifiable(_originalImagePaths),
+            retainedImagePaths: _galleryChanged
+                ? _existingImages
+                      .map((image) => image.path)
+                      .where((path) => path.isNotEmpty)
+                      .toList(growable: false)
+                : null,
           ),
         );
       } else {
@@ -291,7 +323,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(_isEditing ? 'Edit post' : 'Share a completed trip'),
+      title: Text(_isEditing ? 'Edit post' : 'Create post'),
       actions: [
         if (_isEditing)
           IconButton(
@@ -342,17 +374,51 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           }
         }
         return ListView(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
+            Text(
+              _isEditing
+                  ? 'Update your travel story'
+                  : 'Share a highlight from your completed trip',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _isEditing
+                  ? 'Make changes to the photos or story below.'
+                  : 'Add photos and a useful story for other travellers.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
             if (!_isEditing) ...[
-              Text(
-                '1. Completed trip',
-                style: Theme.of(context).textTheme.titleMedium,
+              const _SectionTitle(
+                number: 1,
+                icon: Icons.route_outlined,
+                title: 'Completed trip',
               ),
               const SizedBox(height: 8),
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.location_on_outlined),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
+                  leading: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.location_on_outlined,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
                   title: Text(_selectedTrip!.title),
                   subtitle: Text(
                     '${_selectedTrip!.locationName}\nLocation is locked to your Travel History.',
@@ -366,23 +432,32 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ],
             ],
             const SizedBox(height: 22),
-            Text(
-              _isEditing ? 'Pictures' : '2. Add pictures',
-              style: Theme.of(context).textTheme.titleMedium,
+            _SectionTitle(
+              number: _isEditing ? null : 2,
+              icon: Icons.photo_library_outlined,
+              title: 'Photos',
             ),
             const SizedBox(height: 3),
             Text(
-              'Select 1–6 JPG or PNG pictures. Swipe left or right to preview.',
+              'Choose 1–6 JPG or PNG photos. Swipe to preview.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 8),
             _ImageEditor(
               newImages: _images,
-              existingUrls: _replacingImages
-                  ? const []
-                  : widget.post?.allImageUrls ?? const [],
+              existingImages: _existingImages,
               onPick: _pickImages,
-              onRemove: (index) => setState(() {
+              onRemoveNew: (index) => setState(() {
                 _images.removeAt(index);
+                if (_isEditing) _galleryChanged = true;
+                _fieldFeedback.remove('images');
+                _submissionFeedback = null;
+              }),
+              onRemoveExisting: (index) => setState(() {
+                _existingImages.removeAt(index);
+                _galleryChanged = true;
                 _fieldFeedback.remove('images');
                 _submissionFeedback = null;
               }),
@@ -392,11 +467,19 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               _FeedbackCard(feedback: feedback),
             ],
             const SizedBox(height: 22),
-            Text(
-              _isEditing ? 'Title' : '3. Add a title',
-              style: Theme.of(context).textTheme.titleMedium,
+            _SectionTitle(
+              number: _isEditing ? null : 3,
+              icon: Icons.edit_note_outlined,
+              title: 'Your story',
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
+            Text(
+              'Title',
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 7),
             TextField(
               controller: _titleController,
               onChanged: (_) => _clearFeedback('title'),
@@ -405,14 +488,38 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 hintText: 'Example: Morning light at Kwai Chai Hong',
                 errorText: _fieldFeedback['title']?.inlineMessage,
                 errorMaxLines: 4,
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    width: 1.2,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 1.6,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
-              _isEditing ? 'Description' : '4. Describe your experience',
-              style: Theme.of(context).textTheme.titleMedium,
+              'Description',
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 7),
             TextField(
               controller: _descriptionController,
               onChanged: (_) => _clearFeedback('description'),
@@ -420,18 +527,30 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               maxLines: 7,
               maxLength: 1000,
               decoration: InputDecoration(
-                hintText: 'Share practical tips or a memorable moment…',
+                hintText: 'Share practical tips or a memorable moment...',
                 errorText: _fieldFeedback['description']?.inlineMessage,
                 errorMaxLines: 4,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.auto_awesome_outlined),
-                title: const Text('Tags are added automatically'),
-                subtitle: const Text(
-                  'Tags come only from the completed trip location and attraction, never from your title or description.',
+                filled: true,
+                fillColor: Theme.of(context).colorScheme.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    width: 1.2,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 1.6,
+                  ),
                 ),
               ),
             ),
@@ -440,18 +559,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               _FeedbackCard(feedback: feedback),
             ],
             const SizedBox(height: 26),
-            FilledButton.icon(
-              onPressed: _publishing || _deleting ? null : _publish,
-              icon: _publishing
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.publish),
-              label: Text(
-                _publishing
-                    ? (_isEditing ? 'Saving…' : 'Publishing…')
-                    : (_isEditing ? 'Save changes' : 'Publish post'),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: _publishing || _deleting ? null : _publish,
+                icon: _publishing
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(_isEditing ? Icons.check : Icons.publish_outlined),
+                label: Text(
+                  _publishing
+                      ? (_isEditing ? 'Saving...' : 'Publishing...')
+                      : (_isEditing ? 'Save changes' : 'Publish post'),
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -463,6 +585,45 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         );
       },
     ),
+  );
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.icon, required this.title, this.number});
+
+  final int? number;
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Container(
+        width: 30,
+        height: 30,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.primary,
+          shape: BoxShape.circle,
+        ),
+        child: number == null
+            ? Icon(icon, size: 17, color: Colors.white)
+            : Text(
+                '$number',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+      ),
+      const SizedBox(width: 10),
+      Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+      ),
+    ],
   );
 }
 
@@ -502,19 +663,21 @@ class _FeedbackCard extends StatelessWidget {
 class _ImageEditor extends StatelessWidget {
   const _ImageEditor({
     required this.newImages,
-    required this.existingUrls,
+    required this.existingImages,
     required this.onPick,
-    required this.onRemove,
+    required this.onRemoveNew,
+    required this.onRemoveExisting,
   });
 
   final List<PostImageUpload> newImages;
-  final List<String> existingUrls;
+  final List<_ExistingImage> existingImages;
   final VoidCallback onPick;
-  final ValueChanged<int> onRemove;
+  final ValueChanged<int> onRemoveNew;
+  final ValueChanged<int> onRemoveExisting;
 
   @override
   Widget build(BuildContext context) {
-    final count = newImages.isNotEmpty ? newImages.length : existingUrls.length;
+    final count = existingImages.length + newImages.length;
     if (count == 0) {
       return InkWell(
         onTap: onPick,
@@ -523,9 +686,12 @@ class _ImageEditor extends StatelessWidget {
           aspectRatio: 16 / 9,
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFFE3ECFA),
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFB8CAE7)),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                width: 1.2,
+              ),
             ),
             child: const _PhotoPrompt(),
           ),
@@ -542,82 +708,96 @@ class _ImageEditor extends StatelessWidget {
             scrollDirection: Axis.horizontal,
             itemCount: count,
             separatorBuilder: (_, _) => const SizedBox(width: 10),
-            itemBuilder: (context, index) => SizedBox(
-              width: 270,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: newImages.isNotEmpty
-                        ? Image.memory(
-                            newImages[index].bytes,
-                            fit: BoxFit.cover,
-                          )
-                        : Image.network(existingUrls[index], fit: BoxFit.cover),
-                  ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: CircleAvatar(
-                      radius: 17,
-                      backgroundColor: Colors.black54,
-                      child: newImages.isNotEmpty
-                          ? IconButton(
-                              padding: EdgeInsets.zero,
-                              tooltip: 'Remove picture',
-                              onPressed: () => onRemove(index),
-                              icon: const Icon(
-                                Icons.close,
-                                color: Colors.white,
-                                size: 19,
-                              ),
+            itemBuilder: (context, index) {
+              final isExisting = index < existingImages.length;
+              final newIndex = index - existingImages.length;
+              return SizedBox(
+                width: 270,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: isExisting
+                          ? Image.network(
+                              existingImages[index].url,
+                              fit: BoxFit.cover,
                             )
-                          : const Icon(
-                              Icons.lock_outline,
-                              color: Colors.white,
-                              size: 18,
+                          : Image.memory(
+                              newImages[newIndex].bytes,
+                              fit: BoxFit.cover,
                             ),
                     ),
-                  ),
-                  Positioned(
-                    left: 10,
-                    bottom: 10,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 4,
-                        ),
-                        child: Text(
-                          '${index + 1}/$count',
-                          style: const TextStyle(color: Colors.white),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: CircleAvatar(
+                        radius: 17,
+                        backgroundColor: Colors.black.withValues(alpha: 0.68),
+                        child: IconButton(
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Remove picture',
+                          onPressed: () => isExisting
+                              ? onRemoveExisting(index)
+                              : onRemoveNew(newIndex),
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 19,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
+                    Positioned(
+                      left: 10,
+                      bottom: 10,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 4,
+                          ),
+                          child: Text(
+                            '${index + 1}/$count',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
-          onPressed: onPick,
+          onPressed: count < 6 ? onPick : null,
           icon: const Icon(Icons.add_photo_alternate_outlined),
-          label: Text(
-            newImages.isNotEmpty && newImages.length < 6
-                ? 'Add more (${newImages.length}/6)'
-                : 'Choose a new gallery (maximum 6)',
-          ),
+          label: Text(count < 6 ? 'Add more ($count/6)' : 'Maximum 6 photos'),
         ),
       ],
     );
   }
+}
+
+class _ExistingImage {
+  const _ExistingImage({required this.path, required this.url});
+
+  final String path;
+  final String url;
+}
+
+bool _sameBytes(List<int> left, List<int> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }
 
 class _PhotoPrompt extends StatelessWidget {

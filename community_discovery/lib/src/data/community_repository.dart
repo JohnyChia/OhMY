@@ -33,15 +33,18 @@ class UpdatePostInput {
     required this.description,
     this.images,
     this.existingImagePaths = const [],
+    this.retainedImagePaths,
   });
 
   final String postId;
   final String title;
   final String description;
 
-  /// Null keeps the current gallery; a non-empty list replaces it.
+  /// Null keeps the current gallery. Otherwise, new uploads are combined with
+  /// [retainedImagePaths] to form the updated gallery.
   final List<PostImageUpload>? images;
   final List<String> existingImagePaths;
+  final List<String>? retainedImagePaths;
 }
 
 abstract interface class CommunityRepository {

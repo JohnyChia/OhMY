@@ -157,11 +157,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        leading: TextButton(
+        leading: IconButton(
+          tooltip: 'Back',
           onPressed: () => Navigator.of(context).pop(_hasSavedChanges),
-          child: const Text('‹ Back'),
+          icon: const Icon(Icons.arrow_back),
         ),
-        leadingWidth: 82,
         title: const Text('Edit profile'),
         centerTitle: true,
       ),

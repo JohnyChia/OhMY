@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/community_comment.dart';
 import '../integration/community_integration_callbacks.dart';
+import '../models/community_comment.dart';
 import '../state/community_controller.dart';
 import 'create_post_screen.dart';
 import 'widgets/post_engagement.dart';
@@ -44,9 +44,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final count = widget.controller.postById(widget.postId).commentCount;
     if (count == _lastCommentCount || !mounted) return;
     _lastCommentCount = count;
-    setState(() {
-      _comments = widget.controller.getComments(widget.postId);
-    });
+    setState(() => _comments = widget.controller.getComments(widget.postId));
   }
 
   @override
@@ -70,9 +68,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     try {
       await widget.controller.addComment(widget.postId, content);
       _commentController.clear();
-      setState(() {
-        _comments = widget.controller.getComments(widget.postId);
-      });
+      setState(() => _comments = widget.controller.getComments(widget.postId));
     } catch (error) {
       if (mounted) {
         final message = error
@@ -130,9 +126,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     try {
       await widget.controller.deleteComment(widget.postId, comment.id);
       if (mounted) {
-        setState(() {
-          _comments = widget.controller.getComments(widget.postId);
-        });
+        setState(
+          () => _comments = widget.controller.getComments(widget.postId),
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -143,56 +139,187 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  Future<void> _startJourney() async {
+    final post = widget.controller.postById(widget.postId);
+    final callback = widget.integrationCallbacks.onStartJourney;
+    if (callback == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Connect onStartJourney to open this location in the main app.',
+          ),
+        ),
+      );
+      return;
+    }
+    await callback(
+      StartJourneyRequest(
+        postId: post.id,
+        attractionName: post.attractionName,
+        destinationName: post.locationName,
+      ),
+    );
+  }
+
+  Widget _commentComposer(ColorScheme colorScheme) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _commentController,
+            onChanged: (_) {
+              if (_commentError != null) {
+                setState(() => _commentError = null);
+              }
+            },
+            minLines: 1,
+            maxLines: 3,
+            maxLength: 500,
+            decoration: InputDecoration(
+              hintText: 'Add a comment...',
+              counterText: '',
+              errorText: _commentError,
+              errorMaxLines: 4,
+              filled: true,
+              fillColor: colorScheme.surface,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(22),
+                borderSide: BorderSide(color: colorScheme.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(22),
+                borderSide: BorderSide(
+                  color: colorScheme.outlineVariant,
+                  width: 1.2,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(22),
+                borderSide: BorderSide(color: colorScheme.primary, width: 1.6),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filled(
+          tooltip: 'Send comment',
+          onPressed: _submitting ? null : _submitComment,
+          icon: _submitting
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.send),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.controller,
     builder: (context, _) {
       final post = widget.controller.postById(widget.postId);
+      final colorScheme = Theme.of(context).colorScheme;
+      final imageHeight = (MediaQuery.sizeOf(context).width * 0.74).clamp(
+        240.0,
+        300.0,
+      );
       return Scaffold(
         appBar: AppBar(
-          actions: [
-            if (post.isOwner)
-              IconButton(
-                tooltip: 'Edit post',
-                icon: const Icon(Icons.edit_outlined),
-                onPressed: () async {
-                  final result = await Navigator.of(context).push(
-                    MaterialPageRoute<PostEditorResult>(
-                      builder: (_) => CreatePostScreen(
-                        controller: widget.controller,
-                        post: post,
-                      ),
-                    ),
-                  );
-                  if (result == PostEditorResult.deleted && context.mounted) {
-                    Navigator.pop(context, true);
-                  }
-                },
-              ),
-            if (post.isOwner)
-              IconButton(
-                tooltip: 'Delete post',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: _deletePost,
-              ),
-          ],
+          automaticallyImplyLeading: false,
+          toolbarHeight: 0,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
         ),
         body: ListView(
-          padding: const EdgeInsets.only(bottom: 30),
+          padding: const EdgeInsets.only(bottom: 32),
           children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(18),
-              ),
-              child: PostImage(
-                post: post,
-                height: 360,
-                fit: BoxFit.cover,
-                openFullscreenOnTap: true,
+            Container(
+              color: colorScheme.surface,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back),
+                  ),
+                  const SizedBox(width: 2),
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: colorScheme.primaryContainer,
+                    child: Text(
+                      _initial(post.authorName),
+                      style: TextStyle(
+                        color: colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          post.authorName,
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        Text(
+                          _relativeTime(post.createdAt),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (post.isOwner)
+                    IconButton(
+                      tooltip: 'Edit post',
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: () async {
+                        final result = await Navigator.of(context).push(
+                          MaterialPageRoute<PostEditorResult>(
+                            builder: (_) => CreatePostScreen(
+                              controller: widget.controller,
+                              post: post,
+                            ),
+                          ),
+                        );
+                        if (result == PostEditorResult.deleted &&
+                            context.mounted) {
+                          Navigator.pop(context, true);
+                        }
+                      },
+                    ),
+                  if (post.isOwner)
+                    IconButton(
+                      tooltip: 'Delete post',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: _deletePost,
+                    ),
+                ],
               ),
             ),
+            PostImage(
+              post: post,
+              height: imageHeight,
+              fit: BoxFit.cover,
+              openFullscreenOnTap: true,
+            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 4),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: Text(
                 post.title,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -201,47 +328,94 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: ListTile(
-                leading: const Icon(Icons.location_on_outlined),
-                title: Text(post.attractionName),
-                subtitle: Text(post.locationName),
-                trailing: const Icon(Icons.directions_outlined),
-                onTap: () async {
-                  final callback = widget.integrationCallbacks.onStartJourney;
-                  if (callback == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Connect onStartJourney to open this location in the main app.',
-                        ),
-                      ),
-                    );
-                    return;
-                  }
-                  await callback(
-                    StartJourneyRequest(
-                      postId: post.id,
-                      attractionName: post.attractionName,
-                      destinationName: post.locationName,
-                    ),
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 10),
-              child: Text(post.description),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 2),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Text(
-                '${post.authorName} · ${_relativeTime(post.createdAt)}',
-                style: Theme.of(context).textTheme.bodySmall,
+                post.description,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(height: 1.4),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.primaryContainer.withValues(alpha: 0.68),
+                      colorScheme.surfaceContainerLow,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: _startJourney,
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: colorScheme.surface,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.location_on_outlined,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'VISIT THIS PLACE',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: colorScheme.primary,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.7,
+                                      ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  post.attractionName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  post.locationName,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton.filled(
+                            tooltip: 'Start trip to this place',
+                            onPressed: _startJourney,
+                            icon: const Icon(Icons.directions_outlined),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
               child: Row(
                 children: [
                   TextButton.icon(
@@ -255,35 +429,61 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   Text(
                     '${displayedLikeCount(post, includeDemo: widget.includeDemoLikes)}',
                   ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.chat_bubble_outline, size: 19),
-                  const SizedBox(width: 5),
+                  const SizedBox(width: 14),
+                  const Icon(Icons.chat_bubble_outline, size: 20),
+                  const SizedBox(width: 6),
                   Text('${post.commentCount}'),
                   const Spacer(),
                   if (!post.isOwner)
-                    TextButton.icon(
+                    IconButton(
+                      tooltip: post.isBookmarked
+                          ? 'Remove bookmark'
+                          : 'Bookmark',
                       onPressed: () =>
                           widget.controller.toggleBookmark(post.id),
                       icon: Icon(
                         post.isBookmarked
                             ? Icons.bookmark
                             : Icons.bookmark_border,
-                      ),
-                      label: Text(
-                        post.isBookmarked ? 'Bookmarked' : 'Bookmark',
+                        color: post.isBookmarked ? colorScheme.primary : null,
                       ),
                     ),
                 ],
               ),
             ),
-            const Divider(),
+            const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 8),
-              child: Text(
-                'Comments',
-                style: Theme.of(context).textTheme.titleLarge,
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Comments',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${post.commentCount}',
+                      style: TextStyle(
+                        color: colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
+            _commentComposer(colorScheme),
             FutureBuilder<List<CommunityComment>>(
               future: _comments,
               builder: (context, snapshot) {
@@ -295,7 +495,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 }
                 if (snapshot.hasError) {
                   return Padding(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.all(16),
                     child: Text(
                       'Comments could not be loaded: ${snapshot.error}',
                     ),
@@ -303,45 +503,107 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 }
                 final comments = snapshot.data ?? const [];
                 if (comments.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    child: Text('No comments yet. Be the first to comment.'),
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Text(
+                      'No comments yet. Be the first to comment.',
+                      style: TextStyle(color: colorScheme.onSurfaceVariant),
+                    ),
                   );
                 }
                 return Column(
                   children: comments
                       .map(
-                        (comment) => Container(
-                          margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF4F7FC),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: ListTile(
-                            dense: true,
-                            leading: const CircleAvatar(
-                              radius: 16,
-                              child: Icon(Icons.person, size: 16),
-                            ),
-                            title: Text(
-                              comment.authorName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(comment.content),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(_relativeTime(comment.createdAt)),
-                                if (comment.isOwner || post.isOwner)
-                                  IconButton(
-                                    tooltip: 'Delete comment',
-                                    onPressed: () => _deleteComment(comment),
-                                    icon: const Icon(Icons.delete_outline),
+                        (comment) => Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: colorScheme.primary,
+                                child: Text(
+                                  _initial(comment.authorName),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
                                   ),
-                              ],
-                            ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    9,
+                                    12,
+                                    10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: colorScheme.surface,
+                                    border: Border.all(
+                                      color: colorScheme.outlineVariant,
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x0D000000),
+                                        blurRadius: 6,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(4),
+                                      topRight: Radius.circular(16),
+                                      bottomLeft: Radius.circular(16),
+                                      bottomRight: Radius.circular(16),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              comment.authorName,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ),
+                                          Text(
+                                            _relativeTime(comment.createdAt),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        comment.content,
+                                        style: const TextStyle(height: 1.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              if (comment.isOwner || post.isOwner)
+                                IconButton(
+                                  tooltip: 'Delete comment',
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => _deleteComment(comment),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       )
@@ -349,49 +611,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 );
               },
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _commentController,
-                      onChanged: (_) {
-                        if (_commentError != null) {
-                          setState(() => _commentError = null);
-                        }
-                      },
-                      minLines: 1,
-                      maxLines: 3,
-                      maxLength: 500,
-                      decoration: InputDecoration(
-                        hintText: 'Add a comment…',
-                        counterText: '',
-                        errorText: _commentError,
-                        errorMaxLines: 4,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    tooltip: 'Send comment',
-                    onPressed: _submitting ? null : _submitComment,
-                    icon: _submitting
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       );
     },
   );
+}
+
+String _initial(String name) {
+  final trimmed = name.trim();
+  return trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
 }
 
 String _relativeTime(DateTime value) {

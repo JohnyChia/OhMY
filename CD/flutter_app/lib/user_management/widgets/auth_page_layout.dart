@@ -64,18 +64,13 @@ class AuthPageLayout extends StatelessWidget {
                             if (showBackButton)
                               Align(
                                 alignment: Alignment.centerLeft,
-                                child: TextButton.icon(
+                                child: IconButton(
+                                  tooltip: backLabel,
                                   onPressed: () =>
                                       Navigator.of(context).maybePop(),
-                                  style: TextButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    foregroundColor: const Color(0xFF2E60C4),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.chevron_left,
-                                    size: 18,
-                                  ),
-                                  label: Text(backLabel),
+                                  padding: EdgeInsets.zero,
+                                  alignment: Alignment.centerLeft,
+                                  icon: const Icon(Icons.arrow_back),
                                 ),
                               ),
                             SizedBox(height: topSpacing),

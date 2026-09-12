@@ -875,6 +875,10 @@ class CommunityModulePage extends StatelessWidget {
         showBottomNavigation: false,
         preferredTagNames: preferences,
         includeDemoLikes: true,
+        searchLeading: Image.asset(
+          'assets/images/branding/ohmy_icon.png',
+          fit: BoxFit.contain,
+        ),
         integrationCallbacks: CommunityIntegrationCallbacks(
           onStartJourney: onStartJourney,
         ),

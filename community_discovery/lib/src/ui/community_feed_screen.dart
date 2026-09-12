@@ -6,7 +6,6 @@ import '../models/community_post.dart';
 import '../models/discovery_tag.dart';
 import '../state/community_controller.dart';
 import '../integration/community_integration_callbacks.dart';
-import '../theme/community_theme.dart';
 import 'bookmarked_posts_screen.dart';
 import 'widgets/post_engagement.dart';
 import 'widgets/post_card.dart';
@@ -21,12 +20,14 @@ class CommunityFeedScreen extends StatefulWidget {
     this.showBottomNavigation = true,
     this.preferredTagNames,
     this.includeDemoLikes = false,
+    this.searchLeading,
   });
 
   final CommunityController controller;
   final CommunityIntegrationCallbacks integrationCallbacks;
   final List<String>? preferredTagNames;
   final bool includeDemoLikes;
+  final Widget? searchLeading;
 
   /// Keep this enabled only when Community Discovery runs as a standalone app.
   /// The host OhMY shell owns the real navigation after integration.
@@ -38,6 +39,7 @@ class CommunityFeedScreen extends StatefulWidget {
 
 class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   Timer? _debounce;
   _PostSort _sort = _PostSort.latest;
 
@@ -52,6 +54,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -114,6 +117,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
               ]);
             },
             child: CustomScrollView(
+              controller: _scrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(
@@ -121,11 +125,13 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                     controller: _searchController,
                     onSearch: _search,
                     onFilter: _showFilters,
+                    activeFilterCount: state.selectedTagIds.length,
+                    leading: widget.searchLeading,
                   ),
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 10),
                     child: Row(
                       children: [
                         Expanded(
@@ -134,7 +140,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                             children: [
                               Text(
                                 'Community finds',
-                                style: Theme.of(context).textTheme.headlineSmall
+                                style: Theme.of(context).textTheme.titleLarge
                                     ?.copyWith(fontWeight: FontWeight.w800),
                               ),
                               if (state.selectedTagIds.isNotEmpty) ...[
@@ -144,47 +150,6 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                                 ),
                               ],
                             ],
-                          ),
-                        ),
-                        PopupMenuButton<_PostSort>(
-                          tooltip: 'Arrange posts',
-                          initialValue: _sort,
-                          onSelected: (value) => setState(() => _sort = value),
-                          itemBuilder: (context) => const [
-                            PopupMenuItem(
-                              value: _PostSort.latest,
-                              child: Text('Latest'),
-                            ),
-                            PopupMenuItem(
-                              value: _PostSort.mostLiked,
-                              child: Text('Most liked'),
-                            ),
-                          ],
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 9,
-                            ),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.outlineVariant,
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.swap_vert, size: 18),
-                                const SizedBox(width: 5),
-                                Text(
-                                  _sort == _PostSort.latest
-                                      ? 'Latest'
-                                      : 'Most liked',
-                                ),
-                              ],
-                            ),
                           ),
                         ),
                       ],
@@ -265,7 +230,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 110),
                     sliver: SliverList.separated(
                       itemCount: visiblePosts.length,
                       separatorBuilder: (_, _) => const SizedBox(height: 14),
@@ -328,25 +293,46 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                 ],
               )
             : null,
+        floatingActionButton: FloatingActionButton.small(
+          tooltip: 'Back to top',
+          onPressed: () => _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 420),
+            curve: Curves.easeOutCubic,
+          ),
+          child: const Icon(Icons.keyboard_arrow_up_rounded),
+        ),
       );
     },
   );
 
   Future<void> _showFilters() async {
-    final result = await showModalBottomSheet<Set<int>>(
+    final result = await showModalBottomSheet<_DiscoveryOptions>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => _TagFilterSheet(controller: widget.controller),
+      builder: (_) =>
+          _TagFilterSheet(controller: widget.controller, initialSort: _sort),
     );
-    if (result != null) await widget.controller.loadPosts(tagIds: result);
+    if (result != null) {
+      setState(() => _sort = result.sort);
+      await widget.controller.loadPosts(tagIds: result.tagIds);
+    }
   }
 }
 
+class _DiscoveryOptions {
+  const _DiscoveryOptions({required this.sort, required this.tagIds});
+
+  final _PostSort sort;
+  final Set<int> tagIds;
+}
+
 class _TagFilterSheet extends StatefulWidget {
-  const _TagFilterSheet({required this.controller});
+  const _TagFilterSheet({required this.controller, required this.initialSort});
 
   final CommunityController controller;
+  final _PostSort initialSort;
 
   @override
   State<_TagFilterSheet> createState() => _TagFilterSheetState();
@@ -354,11 +340,13 @@ class _TagFilterSheet extends StatefulWidget {
 
 class _TagFilterSheetState extends State<_TagFilterSheet> {
   late final Set<int> selected;
+  late _PostSort sort;
 
   @override
   void initState() {
     super.initState();
     selected = Set<int>.from(widget.controller.selectedTagIds);
+    sort = widget.initialSort;
     unawaited(widget.controller.loadTags());
   }
 
@@ -378,19 +366,80 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'All tags',
+                      'Discover posts',
                       style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                   ),
-                  Text('${selected.length} selected'),
+                  IconButton(
+                    tooltip: 'Close filters',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
                 ],
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Choose one or more tags. A post matching any selected tag is shown.',
+              Text(
+                'Choose how your Community feed is arranged.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 22),
+              Text(
+                'Sort by',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<_PostSort>(
+                  segments: const [
+                    ButtonSegment(
+                      value: _PostSort.latest,
+                      icon: Icon(Icons.schedule_outlined),
+                      label: Text('Latest'),
+                    ),
+                    ButtonSegment(
+                      value: _PostSort.mostLiked,
+                      icon: Icon(Icons.favorite_outline),
+                      label: Text('Most liked'),
+                    ),
+                  ],
+                  selected: {sort},
+                  onSelectionChanged: (values) =>
+                      setState(() => sort = values.first),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Filter by interest',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${selected.length} selected',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Posts matching any selected interest will be shown.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 14),
               if (state.tagsLoading)
                 const Center(child: CircularProgressIndicator())
               else if (state.tagsError != null)
@@ -441,11 +490,12 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                 child: FilledButton(
                   onPressed: state.tagsLoading || state.tagsError != null
                       ? null
-                      : () => Navigator.pop(context, selected),
+                      : () => Navigator.pop(
+                          context,
+                          _DiscoveryOptions(sort: sort, tagIds: selected),
+                        ),
                   child: Text(
-                    selected.isEmpty
-                        ? 'Show all posts'
-                        : 'Apply ${selected.length} filter(s)',
+                    selected.isEmpty ? 'Apply and show all' : 'Apply filters',
                   ),
                 ),
               ),
@@ -462,71 +512,92 @@ class _Header extends StatelessWidget {
     required this.controller,
     required this.onSearch,
     required this.onFilter,
+    required this.activeFilterCount,
+    this.leading,
   });
 
   final TextEditingController controller;
   final ValueChanged<String> onSearch;
   final VoidCallback onFilter;
+  final int activeFilterCount;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        colors: [CommunityColors.headerStart, CommunityColors.headerEnd],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
-    ),
+    padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+    color: const Color(0xFFE8F0FF),
     child: Row(
       children: [
+        if (leading != null) ...[
+          Container(
+            width: 54,
+            height: 54,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x20000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: leading,
+          ),
+          const SizedBox(width: 10),
+        ],
         Expanded(
-          child: SizedBox(
-            height: 49,
-            child: TextField(
-              controller: controller,
-              onChanged: onSearch,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Search posts, places or tags…',
-                suffixIcon: controller.text.isEmpty
-                    ? const Icon(Icons.search)
-                    : IconButton(
-                        tooltip: 'Clear search',
-                        onPressed: () {
-                          controller.clear();
-                          onSearch('');
-                        },
-                        icon: const Icon(Icons.close),
+          child: Material(
+            color: const Color(0xFFF9F7FC),
+            elevation: 3,
+            shadowColor: const Color(0x33000000),
+            borderRadius: BorderRadius.circular(28),
+            child: SizedBox(
+              height: 54,
+              child: TextField(
+                controller: controller,
+                onChanged: onSearch,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Search posts, places or tags...',
+                  prefixIcon: const Icon(Icons.search, size: 23),
+                  suffixIconConstraints: const BoxConstraints(minWidth: 48),
+                  suffixIcon: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Badge(
+                      isLabelVisible: activeFilterCount > 0,
+                      label: Text('$activeFilterCount'),
+                      child: IconButton(
+                        tooltip: 'Sort and filter',
+                        onPressed: onFilter,
+                        icon: const Icon(Icons.tune, size: 22),
                       ),
-                filled: true,
-                fillColor: const Color(0xFFF7F3FB),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 18),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  borderSide: BorderSide.none,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(28),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 1.5,
+                    ),
+                  ),
+                  filled: true,
+                  fillColor: Colors.transparent,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(28),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 1.5,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 10),
-        IconButton.filledTonal(
-          tooltip: 'All tags',
-          onPressed: onFilter,
-          icon: const Icon(Icons.tune),
         ),
       ],
     ),

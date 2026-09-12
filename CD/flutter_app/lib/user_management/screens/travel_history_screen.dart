@@ -301,13 +301,10 @@ PreferredSizeWidget _appBar(BuildContext context, String title) {
     elevation: 0,
     centerTitle: true,
     title: Text(title, style: const TextStyle(color: _ink, fontSize: 22)),
-    leadingWidth: 80,
-    leading: TextButton(
+    leading: IconButton(
+      tooltip: 'Back',
       onPressed: () => Navigator.maybePop(context),
-      child: const Text(
-        '‹  Back',
-        style: TextStyle(color: _blue, fontSize: 13),
-      ),
+      icon: const Icon(Icons.arrow_back, color: _ink),
     ),
   );
 }

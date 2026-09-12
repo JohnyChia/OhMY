@@ -21,11 +21,11 @@ void main() {
     expect(find.text('Open sample Trip History'), findsNothing);
     expect(find.text('Sign in'), findsNothing);
 
-    await tester.tap(find.byTooltip('All tags'));
+    await tester.tap(find.byTooltip('Sort and filter'));
     await tester.pumpAndSettle();
     expect(find.text('0 selected'), findsOneWidget);
     expect(find.text('Heritage'), findsWidgets);
-    expect(find.text('Show all posts'), findsOneWidget);
+    expect(find.text('Apply and show all'), findsOneWidget);
   });
 
   testWidgets('host app can hide standalone Community navigation', (
@@ -59,12 +59,18 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(find.text('Latest'), findsOneWidget);
-    await tester.tap(find.byTooltip('Arrange posts'));
+    await tester.tap(find.byTooltip('Sort and filter'));
     await tester.pumpAndSettle();
+    expect(find.text('Latest'), findsOneWidget);
     await tester.tap(find.text('Most liked'));
     await tester.pumpAndSettle();
-    expect(find.text('Most liked'), findsOneWidget);
+    final sortControl = tester.widget(
+      find.byWidgetPredicate((widget) => widget is SegmentedButton),
+    );
+    expect(
+      (sortControl as dynamic).selected.single.toString(),
+      contains('mostLiked'),
+    );
   });
 
   testWidgets('only matching preference tags appear below the heading', (
