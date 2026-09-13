@@ -23,6 +23,29 @@ function isMalaysianPlace(place) {
     );
 }
 
+const GEOGRAPHIC_AREA_TYPES = new Set([
+    "country",
+    "administrative_area_level_1",
+    "administrative_area_level_2",
+    "administrative_area_level_3",
+    "locality",
+    "sublocality",
+    "sublocality_level_1",
+    "sublocality_level_2",
+    "sublocality_level_3",
+    "sublocality_level_4",
+    "neighborhood",
+    "postal_code"
+]);
+
+function isGeographicAreaPlace(place) {
+    const types = new Set([
+        ...(place.types || []),
+        ...(place.primaryType ? [place.primaryType] : [])
+    ]);
+    return [...types].some(type => GEOGRAPHIC_AREA_TYPES.has(type));
+}
+
 function keepMalaysianPlaces(data) {
     const places = data.places || [];
     const routingSummaries = Array.isArray(data.routingSummaries)
@@ -333,5 +356,6 @@ module.exports = {
     searchNearbyPlaces,
     getPlaceDetails,
     getPlacePhoto,
-    isMalaysianPlace
+    isMalaysianPlace,
+    isGeographicAreaPlace
 };

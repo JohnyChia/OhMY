@@ -208,17 +208,18 @@ class ItineraryBoard extends StatelessWidget {
                   itemCount: controller.itinerary.length,
                   onReorder: controller.isCreator
                       ? (oldIndex, newIndex) async {
-                          final targetIndex = newIndex > oldIndex
+                          final destinationIndex = newIndex > oldIndex
                               ? newIndex - 1
                               : newIndex;
                           if (!controller.canReorderStop(oldIndex) ||
-                              !controller.canReorderStop(targetIndex)) {
+                              !controller.canReorderStop(destinationIndex) ||
+                              destinationIndex == oldIndex) {
                             return;
                           }
                           try {
                             await controller.reorderStops(
                               oldIndex,
-                              targetIndex,
+                              destinationIndex,
                             );
                           } on TravelGroupException catch (error) {
                             if (context.mounted) {

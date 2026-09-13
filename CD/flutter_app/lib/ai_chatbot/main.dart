@@ -902,294 +902,350 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const CustomAppBar(),
+      appBar: _messages.isEmpty ? null : const CustomAppBar(),
       extendBody: widget.showBottomNavigation,
       bottomNavigationBar: widget.showBottomNavigation
           ? const BottomNavBar()
           : null,
       body: SafeArea(
         bottom: false, // Custom bottom nav handles bottom inset
-        child: Column(
+        child: Stack(
           children: [
-            Expanded(
-              child: _messages.isEmpty
-                  ? LayoutBuilder(
-                      builder: (context, constraints) => SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: constraints.maxHeight > 32
-                                ? constraints.maxHeight - 32
-                                : 0,
-                          ),
-                          child: Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                GestureDetector(
-                                  onTap: _isSending
-                                      ? null
-                                      : () =>
-                                            NovaVoiceController.requestVoiceSession(
-                                              source: NovaInvocationSource
-                                                  .chatbotMicrophone,
-                                            ),
-                                  child: NovaOrb(
-                                    isListening: _isRecording,
-                                    size: 80,
-                                  ),
+            if (_messages.isEmpty)
+              const Positioned.fill(child: ColoredBox(color: Colors.white)),
+            if (_messages.isEmpty)
+              Positioned.fill(
+                child: Opacity(
+                  opacity: 0.34,
+                  child: Image.asset(
+                    'assets/images/ai_chat/ai_bg.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            Column(
+              children: [
+                Expanded(
+                  child: _messages.isEmpty
+                      ? _NovaLanding(
+                          isSending: _isSending,
+                          onMascotTap: () =>
+                              NovaVoiceController.requestVoiceSession(
+                                source: NovaInvocationSource.chatbotMicrophone,
+                              ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            return ChatBubble(
+                              message: _messages[index],
+                              tripState: _tripState,
+                              onRecommendationSelected:
+                                  _openRecommendedPlaceForJourney,
+                            );
+                          },
+                        ),
+                ),
+                if (_attachment != null)
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                    padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF1FF),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFC8D8F7)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _attachment!.type == NovaAttachmentType.image
+                              ? Icons.image_outlined
+                              : Icons.description_outlined,
+                          color: const Color(0xFF315EA8),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _attachment!.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                const SizedBox(height: 40),
-                                Text(
-                                  'Your travel agent, ready.',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w700,
-                                    color: const Color(0xFF1E3A8A),
-                                  ),
+                              ),
+                              const Text(
+                                'Add a message or use voice, then send',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.black54,
                                 ),
-                                const SizedBox(height: 16),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 40,
-                                  ),
-                                  child: Text(
-                                    'Tap Nova to talk. I can plan, update preferences, find community tips, check weather, routes, and itineraries.',
-                                    textAlign: TextAlign.center,
-                                    style: GoogleFonts.inter(
-                                      fontSize: 13,
-                                      color: Colors.blueGrey.shade600,
-                                      height: 1.5,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 30),
-                                Text(
-                                  'Voice or text • English • Bahasa Malaysia • 中文 • Rojak/Manglish',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 10,
-                                    color: Colors.blueGrey.shade400,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        return ChatBubble(
-                          message: _messages[index],
-                          tripState: _tripState,
-                          onRecommendationSelected:
-                              _openRecommendedPlaceForJourney,
-                        );
-                      },
+                        IconButton(
+                          tooltip: 'Describe by voice',
+                          onPressed: _isSending
+                              ? null
+                              : () => NovaVoiceController.requestVoiceSession(
+                                  source:
+                                      NovaInvocationSource.chatbotMicrophone,
+                                ),
+                          icon: const Icon(Icons.mic_none),
+                        ),
+                        IconButton(
+                          tooltip: 'Remove attachment',
+                          onPressed: _isSending
+                              ? null
+                              : () => setState(() => _attachment = null),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
-            ),
-            if (_attachment != null)
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF1FF),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFC8D8F7)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _attachment!.type == NovaAttachmentType.image
-                          ? Icons.image_outlined
-                          : Icons.description_outlined,
-                      color: const Color(0xFF315EA8),
+                  ),
+
+                if (_voiceTurnActive)
+                  _LiveVoicePanel(
+                    onClose: () {
+                      unawaited(_flutterTts.stop());
+                      if (_isRecording) {
+                        unawaited(_stopRecording(discardRecording: true));
+                      }
+                      setState(() => _voiceTurnActive = false);
+                      NovaVoiceController.reset();
+                    },
+                  )
+                else
+                  // Input Area
+                  Container(
+                    padding: EdgeInsets.fromLTRB(
+                      _messages.isEmpty ? 28 : 16,
+                      8,
+                      _messages.isEmpty ? 28 : 16,
+                      14,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _attachment!.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const Text(
-                            'Add a message or use voice, then send',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.black54,
+                    color: Colors.transparent,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(
+                          _messages.isEmpty ? 36 : 30,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: _messages.isEmpty ? 0.10 : 0.05,
                             ),
+                            offset: const Offset(0, 4),
+                            blurRadius: 15,
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          if (_messages.isNotEmpty)
+                            IconButton(
+                              onPressed: _showAttachmentMenu,
+                              icon: const Icon(
+                                Icons.add_circle_outline_rounded,
+                              ),
+                              color: const Color(0xFF273D7C),
+                              tooltip: 'Add photo or file',
+                            ),
+                          if (_messages.isNotEmpty)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 8.0, right: 12.0),
+                              child: NovaOrb(isListening: false, size: 24),
+                            ),
+                          Expanded(
+                            child: ValueListenableBuilder<NovaVoiceState>(
+                              valueListenable: NovaVoiceController.state,
+                              builder: (_, voiceState, _) => TextField(
+                                controller: _textController,
+                                focusNode: _composerFocusNode,
+                                textAlign: _messages.isEmpty
+                                    ? TextAlign.center
+                                    : TextAlign.start,
+                                style: GoogleFonts.inter(fontSize: 14),
+                                decoration: InputDecoration(
+                                  hintText: _isRecording
+                                      ? "Listening..."
+                                      : _isSending
+                                      ? "Nova is thinking..."
+                                      : voiceState.phase ==
+                                                NovaVoicePhase.speaking ||
+                                            voiceState.phase ==
+                                                NovaVoicePhase.prompting
+                                      ? "Nova is speaking..."
+                                      : "Message Nova...",
+                                  hintStyle: GoogleFonts.inter(
+                                    color: _isRecording
+                                        ? Colors.red.shade400
+                                        : Colors.grey.shade500,
+                                    fontSize: 14,
+                                  ),
+                                  border: InputBorder.none,
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                                onSubmitted: (value) {
+                                  _composerFocusNode.unfocus();
+                                  unawaited(_sendMessage(value));
+                                },
+                              ),
+                            ),
+                          ),
+                          AnimatedBuilder(
+                            animation: _textController,
+                            builder: (context, _) {
+                              final hasText = _textController.text
+                                  .trim()
+                                  .isNotEmpty;
+                              // Selecting a file is context, not an instruction.
+                              // Nova waits for the user's typed or spoken request
+                              // so an upload is never implicitly explained, saved,
+                              // or opened on the map.
+                              final canSend = hasText;
+                              return GestureDetector(
+                                onTap: _isSending
+                                    ? null
+                                    : () {
+                                        if (canSend) {
+                                          _composerFocusNode.unfocus();
+                                          unawaited(
+                                            _sendMessage(_textController.text),
+                                          );
+                                        } else if (_isRecording) {
+                                          unawaited(_stopRecording());
+                                        } else {
+                                          NovaVoiceController.requestVoiceSession(
+                                            source: NovaInvocationSource
+                                                .chatbotMicrophone,
+                                          );
+                                        }
+                                      },
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: canSend
+                                        ? Colors.blueAccent
+                                        : (_isRecording
+                                              ? Colors.redAccent
+                                              : _messages.isEmpty
+                                              ? Colors.transparent
+                                              : Colors.blue.shade100),
+                                  ),
+                                  child: Icon(
+                                    _isSending
+                                        ? Icons.hourglass_top_rounded
+                                        : canSend
+                                        ? Icons.arrow_upward
+                                        : Icons.mic_none,
+                                    color: _isSending || canSend || _isRecording
+                                        ? Colors.white
+                                        : _messages.isEmpty
+                                        ? const Color(0xFF123778)
+                                        : Colors.blueAccent,
+                                    size: 20,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),
                     ),
-                    IconButton(
-                      tooltip: 'Describe by voice',
-                      onPressed: _isSending
-                          ? null
-                          : () => NovaVoiceController.requestVoiceSession(
-                              source: NovaInvocationSource.chatbotMicrophone,
-                            ),
-                      icon: const Icon(Icons.mic_none),
-                    ),
-                    IconButton(
-                      tooltip: 'Remove attachment',
-                      onPressed: _isSending
-                          ? null
-                          : () => setState(() => _attachment = null),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ],
-                ),
-              ),
-
-            if (_voiceTurnActive)
-              _LiveVoicePanel(
-                onClose: () {
-                  unawaited(_flutterTts.stop());
-                  if (_isRecording) {
-                    unawaited(_stopRecording(discardRecording: true));
-                  }
-                  setState(() => _voiceTurnActive = false);
-                  NovaVoiceController.reset();
-                },
-              )
-            else
-              // Input Area
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-                color: Colors.transparent,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(30),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        offset: const Offset(0, 4),
-                        blurRadius: 15,
-                      ),
-                    ],
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: _showAttachmentMenu,
-                        icon: const Icon(Icons.add_circle_outline_rounded),
-                        color: const Color(0xFF273D7C),
-                        tooltip: 'Add photo or file',
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.only(left: 8.0, right: 12.0),
-                        child: NovaOrb(isListening: false, size: 24),
-                      ),
-                      Expanded(
-                        child: ValueListenableBuilder<NovaVoiceState>(
-                          valueListenable: NovaVoiceController.state,
-                          builder: (_, voiceState, _) => TextField(
-                            controller: _textController,
-                            focusNode: _composerFocusNode,
-                            style: GoogleFonts.inter(fontSize: 14),
-                            decoration: InputDecoration(
-                              hintText: _isRecording
-                                  ? "Listening..."
-                                  : _isSending
-                                  ? "Nova is thinking..."
-                                  : voiceState.phase ==
-                                            NovaVoicePhase.speaking ||
-                                        voiceState.phase ==
-                                            NovaVoicePhase.prompting
-                                  ? "Nova is speaking..."
-                                  : "Message Nova...",
-                              hintStyle: GoogleFonts.inter(
-                                color: _isRecording
-                                    ? Colors.red.shade400
-                                    : Colors.grey.shade500,
-                                fontSize: 14,
-                              ),
-                              border: InputBorder.none,
-                              isDense: true,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                            onSubmitted: (value) {
-                              _composerFocusNode.unfocus();
-                              unawaited(_sendMessage(value));
-                            },
-                          ),
-                        ),
-                      ),
-                      AnimatedBuilder(
-                        animation: _textController,
-                        builder: (context, _) {
-                          final hasText = _textController.text
-                              .trim()
-                              .isNotEmpty;
-                          // Selecting a file is context, not an instruction.
-                          // Nova waits for the user's typed or spoken request
-                          // so an upload is never implicitly explained, saved,
-                          // or opened on the map.
-                          final canSend = hasText;
-                          return GestureDetector(
-                            onTap: _isSending
-                                ? null
-                                : () {
-                                    if (canSend) {
-                                      _composerFocusNode.unfocus();
-                                      unawaited(
-                                        _sendMessage(_textController.text),
-                                      );
-                                    } else if (_isRecording) {
-                                      unawaited(_stopRecording());
-                                    } else {
-                                      NovaVoiceController.requestVoiceSession(
-                                        source: NovaInvocationSource
-                                            .chatbotMicrophone,
-                                      );
-                                    }
-                                  },
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: canSend
-                                    ? Colors.blueAccent
-                                    : (_isRecording
-                                          ? Colors.redAccent
-                                          : Colors.blue.shade100),
-                              ),
-                              child: Icon(
-                                _isSending
-                                    ? Icons.hourglass_top_rounded
-                                    : canSend
-                                    ? Icons.arrow_upward
-                                    : Icons.mic_none,
-                                color: _isSending || canSend || _isRecording
-                                    ? Colors.white
-                                    : Colors.blueAccent,
-                                size: 20,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              ],
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _NovaLanding extends StatelessWidget {
+  const _NovaLanding({required this.isSending, required this.onMascotTap});
+
+  final bool isSending;
+  final VoidCallback onMascotTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 590;
+        final mascotHeight = (constraints.maxHeight * (compact ? 0.43 : 0.48))
+            .clamp(220.0, 390.0);
+        return SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(24, compact ? 12 : 24, 24, 12),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - (compact ? 24 : 36),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Semantics(
+                  button: true,
+                  label: 'Talk to Nova',
+                  child: GestureDetector(
+                    onTap: isSending ? null : onMascotTap,
+                    child: Image.asset(
+                      'assets/images/ai_chat/ai_mascot.png',
+                      height: mascotHeight,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                SizedBox(height: compact ? 10 : 22),
+                Text(
+                  'Your travel agent,\nready.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: compact ? 30 : 36,
+                    height: 1.06,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF123778),
+                  ),
+                ),
+                SizedBox(height: compact ? 12 : 18),
+                Container(
+                  width: 30,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFB800),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                SizedBox(height: compact ? 12 : 20),
+                Text(
+                  'Tap Nova to talk. I can plan trips,\n'
+                  'find local gems, check weather, routes\n'
+                  'and itineraries.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: compact ? 14 : 16,
+                    height: 1.45,
+                    fontWeight: FontWeight.w400,
+                    color: const Color(0xFF71809C),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

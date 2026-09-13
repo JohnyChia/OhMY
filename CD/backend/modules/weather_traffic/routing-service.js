@@ -18,6 +18,20 @@ function seconds(value) {
     return Number.parseFloat(String(value || "0s").replace("s", "")) || 0;
 }
 
+function stepRequiresNonDrivingTravel(step) {
+    const travelMode = String(step.travelMode || "DRIVE").toUpperCase();
+    const maneuver = String(step.navigationInstruction?.maneuver || "").toUpperCase();
+    const instruction = String(step.navigationInstruction?.instructions || "");
+    return travelMode !== "DRIVE"
+        || maneuver.includes("FERRY")
+        || /\b(ferry|car ferry|vehicle ferry)\b/i.test(instruction);
+}
+
+function routeIsContinuousDriving(route) {
+    const steps = (route.legs || []).flatMap(leg => leg.steps || []);
+    return steps.length > 0 && !steps.some(stepRequiresNonDrivingTravel);
+}
+
 async function computeDrivingRoutes(input) {
     const startLat = coordinate(input.startLat, -90, 90, "start latitude");
     const startLon = coordinate(input.startLon, -180, 180, "start longitude");
@@ -37,6 +51,7 @@ async function computeDrivingRoutes(input) {
                 "routes.travelAdvisory.tollInfo",
                 "routes.polyline.encodedPolyline",
                 "routes.legs.steps.distanceMeters",
+                "routes.legs.steps.travelMode",
                 "routes.legs.steps.navigationInstruction",
                 "routes.legs.steps.startLocation",
                 "routes.legs.steps.endLocation"
@@ -46,6 +61,7 @@ async function computeDrivingRoutes(input) {
             origin: { location: { latLng: { latitude: startLat, longitude: startLon } } },
             destination: { location: { latLng: { latitude: endLat, longitude: endLon } } },
             travelMode: "DRIVE",
+            routeModifiers: { avoidFerries: true },
             languageCode: "en",
             units: "METRIC",
             routingPreference: "TRAFFIC_AWARE_OPTIMAL",
@@ -57,7 +73,16 @@ async function computeDrivingRoutes(input) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || `Google Routes failed (${response.status}).`);
-    const routes = (data.routes || []).map((route, index) => {
+    const returnedRoutes = data.routes || [];
+    const continuousRoutes = returnedRoutes.filter(routeIsContinuousDriving);
+    if (returnedRoutes.length && !continuousRoutes.length) {
+        const error = new Error(
+            "This destination requires a ferry or another non-driving segment. Choose a destination reachable continuously by car."
+        );
+        error.code = "NON_CONTINUOUS_DRIVING_ROUTE";
+        throw error;
+    }
+    const routes = continuousRoutes.map((route, index) => {
         const durationSeconds = seconds(route.duration);
         const staticSeconds = seconds(route.staticDuration);
         const ratio = staticSeconds > 0 ? durationSeconds / staticSeconds : 1;
@@ -72,6 +97,7 @@ async function computeDrivingRoutes(input) {
             (leg.steps || []).map((step) => ({
                 instruction: step.navigationInstruction?.instructions || "Continue on the route",
                 maneuver: step.navigationInstruction?.maneuver || "STRAIGHT",
+                travelMode: step.travelMode || "DRIVE",
                 distanceMeters: Number(step.distanceMeters || 0),
                 start: {
                     lat: step.startLocation?.latLng?.latitude ?? null,
@@ -97,8 +123,18 @@ async function computeDrivingRoutes(input) {
             steps
         };
     }).filter((route) => route.geometry);
-    if (!routes.length) throw new Error("No driving route found.");
+    if (!routes.length) {
+        const error = new Error(
+            "No continuous driving route is available. The destination may require a ferry or another transport mode."
+        );
+        error.code = "NON_CONTINUOUS_DRIVING_ROUTE";
+        throw error;
+    }
     return { start: { lat: startLat, lon: startLon }, destination: { lat: endLat, lon: endLon }, routes };
 }
 
-module.exports = { computeDrivingRoutes };
+module.exports = {
+    computeDrivingRoutes,
+    routeIsContinuousDriving,
+    stepRequiresNonDrivingTravel
+};

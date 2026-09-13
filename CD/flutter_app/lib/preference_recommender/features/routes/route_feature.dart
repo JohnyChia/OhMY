@@ -19,6 +19,7 @@ import '../../../user_management/services/traveler_profile_service.dart';
 import 'package:community_discovery/community_discovery.dart'
     show SupabaseConfig;
 import '../../../shared/services/recommendation_sound.dart';
+import '../../../shared/utils/duration_format.dart';
 import '../../../shared/utils/place_description.dart';
 import '../../widgets/wau_loading_indicator.dart';
 import '../../../user_management/models/travel_history_entry.dart';
@@ -28,6 +29,13 @@ import '../../../user_management/services/saved_location_service.dart';
 const _routeBlue = Color(0xff3266cc);
 const _routeInk = Color(0xff14213d);
 const _routeMuted = Color(0xff68748b);
+
+const minimumNavigationDistanceMeters = int.fromEnvironment(
+  'MIN_NAVIGATION_DISTANCE_METERS',
+  defaultValue: 100,
+);
+const destinationTooCloseMessage =
+    'Destination is too close to your current location to start navigation.';
 
 /// Publishes the final road-snapped position when a journey completes so the
 /// existing Solo Trip map can resume at the place where navigation ended.
@@ -57,6 +65,19 @@ class RouteLocation {
       longitude: (location['longitude'] as num).toDouble(),
     );
   }
+}
+
+bool areDistinctRouteLocations(RouteLocation start, RouteLocation destination) {
+  final samePlaceId =
+      start.id != null && start.id!.isNotEmpty && start.id == destination.id;
+  if (samePlaceId) return false;
+  return Geolocator.distanceBetween(
+        start.latitude,
+        start.longitude,
+        destination.latitude,
+        destination.longitude,
+      ) >=
+      minimumNavigationDistanceMeters;
 }
 
 class DrivingRoute {
@@ -168,6 +189,8 @@ class DirectionsSetupPage extends StatefulWidget {
 class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   final startController = TextEditingController();
   final destinationController = TextEditingController();
+  final startFocusNode = FocusNode();
+  final destinationFocusNode = FocusNode();
   RouteLocation? start;
   late RouteLocation destination;
   List<Map<String, dynamic>> results = [];
@@ -177,9 +200,13 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   bool searching = false;
   bool destinationSelectionValid = true;
   bool loadingSaved = false;
+  bool loadingRecommended = false;
   List<RouteLocation> savedLocations = const [];
+  List<RouteLocation> recommendedLocations = const [];
   int activeField = 0, tab = 0;
   String? error;
+  String? recommendedError;
+  String? savedError;
 
   @override
   void initState() {
@@ -188,6 +215,78 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     destinationController.text = destination.name;
     savedLocationService.changes.addListener(_savedLocationsChanged);
     unawaited(_loadSavedLocations());
+    unawaited(_loadRecommendedLocations());
+  }
+
+  Future<void> _loadRecommendedLocations() async {
+    if (mounted) setState(() => loadingRecommended = true);
+    try {
+      Position? position;
+      try {
+        position = await currentPosition();
+      } catch (_) {
+        position = await Geolocator.getLastKnownPosition();
+      }
+      if (position == null) {
+        throw Exception('Current location is unavailable.');
+      }
+      var preferences = currentTravelerPreferences.value
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList(growable: false);
+      if (preferences.isEmpty) {
+        preferences = await TravelerProfileService()
+            .requireCurrentPreferences();
+      }
+      final response = await http
+          .post(
+            Uri.parse('${widget.backend}/api/recommendations/nearby-tagged'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'latitude': position.latitude,
+              'longitude': position.longitude,
+              'mode': 'preferences',
+              'preferences': preferences,
+            }),
+          )
+          .timeout(const Duration(seconds: 120));
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          data['details'] ??
+              data['error'] ??
+              'Recommended places are unavailable.',
+        );
+      }
+      final seen = <String>{};
+      final locations = <RouteLocation>[];
+      for (final item in List<Map<String, dynamic>>.from(
+        data['matchedPlaces'] ?? const [],
+      )) {
+        final place = Map<String, dynamic>.from(item['place'] as Map? ?? item);
+        if (place['location'] == null || place['isArea'] == true) continue;
+        final location = RouteLocation.fromPlace(place);
+        final key = location.id ?? '${location.latitude}:${location.longitude}';
+        if (seen.add(key)) locations.add(location);
+      }
+      if (mounted) {
+        setState(() {
+          recommendedLocations = locations;
+          recommendedError = null;
+        });
+      }
+    } catch (exception) {
+      if (mounted && recommendedLocations.isEmpty) {
+        setState(
+          () => recommendedError = exception.toString().replaceFirst(
+            'Exception: ',
+            '',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => loadingRecommended = false);
+    }
   }
 
   Future<void> _loadSavedLocations({bool force = true}) async {
@@ -195,8 +294,9 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     try {
       await savedLocationService.fetch(force: force);
       _savedLocationsChanged();
+      if (mounted) setState(() => savedError = null);
     } on SavedLocationFailure catch (exception) {
-      if (mounted) setState(() => error = exception.message);
+      if (mounted) setState(() => savedError = exception.message);
     } finally {
       if (mounted) setState(() => loadingSaved = false);
     }
@@ -303,6 +403,31 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     unawaited(searchPlaces(query, field: field, request: request));
   }
 
+  void clearSearch(int field) {
+    searchDebounce?.cancel();
+    searchRequest++;
+    final controller = field == 0 ? startController : destinationController;
+    final focusNode = field == 0 ? startFocusNode : destinationFocusNode;
+    controller.clear();
+    setState(() {
+      activeField = field;
+      tab = 0;
+      results = [];
+      resultField = null;
+      searching = false;
+      error = null;
+      if (field == 0) {
+        start = null;
+      } else {
+        destinationSelectionValid = false;
+      }
+    });
+    focusNode.requestFocus();
+    if (recommendedLocations.isEmpty) {
+      unawaited(_loadRecommendedLocations());
+    }
+  }
+
   Future<void> searchPlaces(
     String query, {
     required int field,
@@ -367,13 +492,18 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     openRoutesIfReady();
   }
 
-  void selectDestination(RouteLocation selected) {
+  void selectRouteLocation(RouteLocation selected) {
     searchDebounce?.cancel();
     searchRequest++;
     setState(() {
-      destination = selected;
-      destinationController.text = selected.name;
-      destinationSelectionValid = true;
+      if (activeField == 0) {
+        start = selected;
+        startController.text = selected.name;
+      } else {
+        destination = selected;
+        destinationController.text = selected.name;
+        destinationSelectionValid = true;
+      }
       results = [];
       resultField = null;
     });
@@ -382,6 +512,14 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
 
   void openRoutesIfReady() {
     if (start == null || !destinationSelectionValid) return;
+    final startLocation = start!;
+    if (!areDistinctRouteLocations(startLocation, destination)) {
+      setState(() {
+        error = destinationTooCloseMessage;
+      });
+      return;
+    }
+    setState(() => error = null);
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -410,6 +548,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             children: [
               locationField(
                 controller: startController,
+                focusNode: startFocusNode,
                 hint: 'Choose starting point',
                 icon: Icons.my_location,
                 field: 0,
@@ -417,6 +556,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
               const SizedBox(height: 9),
               locationField(
                 controller: destinationController,
+                focusNode: destinationFocusNode,
                 hint: 'Choose destination',
                 icon: Icons.place,
                 field: 1,
@@ -424,7 +564,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             ],
           ),
         ),
-        if (activeField == 1 && results.isEmpty) categoryTabs(),
+        categoryTabs(),
         if (searching)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 6),
@@ -442,22 +582,49 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
 
   Widget locationField({
     required TextEditingController controller,
+    required FocusNode focusNode,
     required String hint,
     required IconData icon,
     required int field,
-  }) => TextField(
-    controller: controller,
-    onTap: () => setState(() => activeField = field),
-    onChanged: (value) => searchChanged(value, field),
-    onSubmitted: (value) => submitSearch(value, field),
-    decoration: InputDecoration(
-      prefixIcon: Icon(icon, color: field == 0 ? _routeBlue : Colors.orange),
-      hintText: hint,
-      suffixIcon: IconButton(
-        onPressed: () => submitSearch(controller.text, field),
-        icon: const Icon(Icons.search),
+  }) => Material(
+    elevation: 3,
+    color: const Color(0xfff8f6fb),
+    borderRadius: BorderRadius.circular(12),
+    clipBehavior: Clip.antiAlias,
+    child: SizedBox(
+      height: 54,
+      child: TextField(
+        controller: controller,
+        focusNode: focusNode,
+        onTap: () => setState(() => activeField = field),
+        onChanged: (value) => searchChanged(value, field),
+        onSubmitted: (value) => submitSearch(value, field),
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: const Color(0xfff8f6fb),
+          prefixIcon: Icon(
+            icon,
+            color: field == 0 ? _routeBlue : Colors.orange,
+          ),
+          hintText: hint,
+          suffixIcon: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => controller.text.isEmpty
+                ? IconButton(
+                    onPressed: () => submitSearch(controller.text, field),
+                    icon: const Icon(Icons.search),
+                  )
+                : IconButton(
+                    key: ValueKey('clear-route-location-$field'),
+                    tooltip: 'Clear',
+                    onPressed: () => clearSearch(field),
+                    icon: const Icon(Icons.close),
+                  ),
+          ),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        ),
       ),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
     ),
   );
 
@@ -465,26 +632,54 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     padding: const EdgeInsets.all(14),
     child: SegmentedButton<int>(
       segments: const [
-        ButtonSegment(value: 0, label: Text('Recent')),
-        ButtonSegment(value: 1, label: Text('Suggested')),
-        ButtonSegment(value: 2, label: Text('Saved')),
+        ButtonSegment(value: 0, label: Text('Recommended')),
+        ButtonSegment(value: 1, label: Text('Saved')),
       ],
       selected: {tab},
       onSelectionChanged: (value) {
-        setState(() => tab = value.first);
-        if (value.first == 2) unawaited(_loadSavedLocations());
+        searchDebounce?.cancel();
+        searchRequest++;
+        setState(() {
+          tab = value.first;
+          results = [];
+          resultField = null;
+          searching = false;
+          error = null;
+        });
+        if (value.first == 0) {
+          unawaited(_loadRecommendedLocations());
+        } else {
+          unawaited(_loadSavedLocations());
+        }
       },
       showSelectedIcon: false,
     ),
   );
 
   Widget resultContent() {
+    final children = <Widget>[];
+    if (activeField == 0) {
+      children.add(
+        ListTile(
+          key: const ValueKey('route-your-location'),
+          contentPadding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+          leading: const CircleAvatar(
+            backgroundColor: Color(0xffdff7fb),
+            child: Icon(Icons.my_location, color: _routeBlue),
+          ),
+          title: const Text(
+            'Your Location',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: const Text('Use current device location'),
+          onTap: useCurrentLocation,
+        ),
+      );
+      children.add(const Divider(height: 1));
+    }
     if (results.isNotEmpty) {
-      return ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: results.length,
-        itemBuilder: (_, index) {
-          final place = results[index];
+      children.addAll(
+        results.map((place) {
           return ListTile(
             leading: const CircleAvatar(
               child: Icon(Icons.location_on_outlined),
@@ -493,56 +688,59 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             subtitle: Text(place['formattedAddress'] ?? '', maxLines: 2),
             onTap: () => selectPlace(place),
           );
-        },
+        }),
       );
+      return ListView(padding: const EdgeInsets.all(12), children: children);
     }
-    if (activeField == 0) {
-      return ListView(
-        children: [
-          ListTile(
-            contentPadding: const EdgeInsets.all(18),
-            leading: const CircleAvatar(
-              backgroundColor: Color(0xffdff7fb),
-              child: Icon(Icons.my_location, color: _routeBlue),
-            ),
-            title: const Text(
-              'Your location',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            subtitle: const Text('Use current device location'),
-            onTap: useCurrentLocation,
-          ),
-        ],
-      );
-    }
-    if (tab == 2 && loadingSaved) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final items = tab == 2 ? savedLocations : [widget.destination];
-    if (items.isEmpty) {
-      return const Center(
-        child: Text(
-          'No saved places yet.',
-          style: TextStyle(color: _routeMuted),
+    final loading = tab == 0 ? loadingRecommended : loadingSaved;
+    if (loading) {
+      children.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 30),
+          child: Center(child: WauLoadingIndicator(size: 34)),
         ),
       );
+      return ListView(padding: const EdgeInsets.all(12), children: children);
     }
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: items.length,
-      itemBuilder: (_, index) => Card(
-        child: ListTile(
-          leading: Icon(
-            tab == 2 ? Icons.bookmark : Icons.history,
-            color: _routeBlue,
+    final items = tab == 0 ? recommendedLocations : savedLocations;
+    if (items.isEmpty) {
+      final sourceError = tab == 0 ? recommendedError : savedError;
+      children.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 18),
+          child: Center(
+            child: Text(
+              sourceError ??
+                  (tab == 0
+                      ? 'No recommended places found nearby.'
+                      : 'No saved places yet.'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: sourceError == null ? _routeMuted : Colors.red,
+              ),
+            ),
           ),
-          title: Text(items[index].name),
-          subtitle: Text(items[index].address, maxLines: 2),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => selectDestination(items[index]),
+        ),
+      );
+      return ListView(padding: const EdgeInsets.all(12), children: children);
+    }
+    children.addAll(
+      items.map(
+        (item) => Card(
+          child: ListTile(
+            leading: Icon(
+              tab == 1 ? Icons.bookmark : Icons.recommend_outlined,
+              color: _routeBlue,
+            ),
+            title: Text(item.name),
+            subtitle: Text(item.address, maxLines: 2),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => selectRouteLocation(item),
+          ),
         ),
       ),
     );
+    return ListView(padding: const EdgeInsets.all(12), children: children);
   }
 
   @override
@@ -551,6 +749,8 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     savedLocationService.changes.removeListener(_savedLocationsChanged);
     startController.dispose();
     destinationController.dispose();
+    startFocusNode.dispose();
+    destinationFocusNode.dispose();
     super.dispose();
   }
 }
@@ -569,6 +769,16 @@ class RoutePreviewPage extends StatefulWidget {
   State<RoutePreviewPage> createState() => _RoutePreviewPageState();
 }
 
+class _RouteCalloutPlacement {
+  const _RouteCalloutPlacement({
+    required this.position,
+    required this.bodyOnRight,
+  });
+
+  final LatLng position;
+  final bool bodyOnRight;
+}
+
 class _RoutePreviewPageState extends State<RoutePreviewPage> {
   GoogleMapController? controller;
   List<DrivingRoute> routes = [];
@@ -576,7 +786,9 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   bool loading = true;
   String? error;
   Map<int, BitmapDescriptor> routeIndicatorIcons = {};
+  Map<int, _RouteCalloutPlacement> routeCalloutPlacements = {};
   BitmapDescriptor? destinationMarkerIcon;
+  bool positioningRouteCallouts = false;
 
   @override
   void initState() {
@@ -586,6 +798,15 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   }
 
   Future<void> loadRoutes() async {
+    if (!areDistinctRouteLocations(widget.start, widget.destination)) {
+      if (mounted) {
+        setState(() {
+          loading = false;
+          error = destinationTooCloseMessage;
+        });
+      }
+      return;
+    }
     final uri = Uri.parse('${widget.backend}/api/routes').replace(
       queryParameters: {
         'startLat': '${widget.start.latitude}',
@@ -617,9 +838,11 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           routes = navigationRoutes;
           loading = false;
         });
-        await buildRouteIndicatorIcons();
+        await refreshRouteCallouts();
       }
-      WidgetsBinding.instance.addPostFrameCallback((_) => fitRoute());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(refreshRoutePresentation()),
+      );
     } catch (exception) {
       if (mounted) {
         setState(() {
@@ -628,6 +851,27 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
         });
       }
     }
+  }
+
+  void startNavigation() {
+    if (!areDistinctRouteLocations(widget.start, widget.destination)) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const OhMySnackBar(content: Text(destinationTooCloseMessage)),
+        );
+      return;
+    }
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => ActiveNavigationPage(
+          backend: widget.backend,
+          destination: widget.destination,
+          routes: routes,
+          initialRoute: selected,
+        ),
+      ),
+    );
   }
 
   Set<Polyline> get polylines => routes
@@ -658,12 +902,34 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
     return 'Tolls $currency ${amount.toStringAsFixed(2)}'.trim();
   }
 
-  Future<BitmapDescriptor> routeIndicatorIcon(int index) async {
+  String routeIndicatorText(int index) {
+    final route = routes[index];
+    return '${formatTravelDuration(route.minutes)}  ·  ${route.distanceKm.toStringAsFixed(1)} km';
+  }
+
+  double routeIndicatorWidth(int index) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: routeIndicatorText(index),
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    return (painter.width + 40).clamp(100.0, 170.0).toDouble();
+  }
+
+  Future<BitmapDescriptor> routeIndicatorIcon(
+    int index, {
+    required bool bodyOnRight,
+  }) async {
     const scale = 3.0;
-    const width = 190.0;
-    const bodyLeft = 24.0;
-    const bodyHeight = 56.0;
-    const height = 67.0;
+    final width = routeIndicatorWidth(index);
+    const pointerWidth = 18.0;
+    const bodyHeight = 36.0;
+    const height = 46.0;
+    final bodyLeft = bodyOnRight ? pointerWidth : 0.0;
+    final bodyWidth = width - pointerWidth;
     final selectedRoute = selected == index;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
@@ -671,33 +937,41 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       ..color = selectedRoute ? _routeBlue : const Color(0xfff7f9ff);
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(
+        Rect.fromLTWH(
           bodyLeft * scale,
           0,
-          (width - bodyLeft) * scale,
+          bodyWidth * scale,
           bodyHeight * scale,
         ),
-        const Radius.circular(14 * scale),
+        const Radius.circular(12 * scale),
       ),
       background,
     );
-    final pointer = Path()
-      ..moveTo((bodyLeft + 18) * scale, (bodyHeight - 1) * scale)
-      ..lineTo(3 * scale, height * scale)
-      ..lineTo((bodyLeft + 5) * scale, (bodyHeight - 20) * scale)
-      ..close();
+    final pointer = Path();
+    if (bodyOnRight) {
+      pointer
+        ..moveTo((bodyLeft + 15) * scale, (bodyHeight - 1) * scale)
+        ..lineTo(3 * scale, height * scale)
+        ..lineTo((bodyLeft + 4) * scale, (bodyHeight - 15) * scale);
+    } else {
+      pointer
+        ..moveTo((bodyWidth - 15) * scale, (bodyHeight - 1) * scale)
+        ..lineTo((width - 3) * scale, height * scale)
+        ..lineTo((bodyWidth - 4) * scale, (bodyHeight - 15) * scale);
+    }
+    pointer.close();
     canvas.drawShadow(pointer, Colors.black.withValues(alpha: .25), 3, true);
     canvas.drawPath(pointer, background);
     if (!selectedRoute) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          const Rect.fromLTWH(
+          Rect.fromLTWH(
             (bodyLeft + 1) * scale,
             1,
-            (width - bodyLeft) * scale - 2,
+            bodyWidth * scale - 2,
             bodyHeight * scale - 2,
           ),
-          const Radius.circular(14 * scale),
+          const Radius.circular(12 * scale),
         ),
         Paint()
           ..color = const Color(0xff9bb8ee)
@@ -718,23 +992,11 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '…',
-      )..layout(maxWidth: (width - bodyLeft - 22) * scale);
-      painter.paint(canvas, Offset((bodyLeft + 11) * scale, top * scale));
+      )..layout(maxWidth: (bodyWidth - 18) * scale);
+      painter.paint(canvas, Offset((bodyLeft + 9) * scale, top * scale));
     }
 
-    final route = routes[index];
-    paintText(
-      '${route.minutes} min · ${route.distanceKm.toStringAsFixed(1)} km',
-      6,
-      11,
-      FontWeight.w700,
-    );
-    paintText(
-      '${route.traffic} - ${tollDescription(route)}',
-      29,
-      9,
-      FontWeight.w500,
-    );
+    paintText(routeIndicatorText(index), 9, 11, FontWeight.w700);
     final image = await recorder.endRecording().toImage(
       (width * scale).round(),
       (height * scale).round(),
@@ -749,7 +1011,10 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   Future<void> buildRouteIndicatorIcons() async {
     final icons = <int, BitmapDescriptor>{};
     for (var index = 0; index < routes.length; index++) {
-      icons[index] = await routeIndicatorIcon(index);
+      icons[index] = await routeIndicatorIcon(
+        index,
+        bodyOnRight: routeCalloutPlacements[index]?.bodyOnRight ?? true,
+      );
     }
     if (mounted) setState(() => routeIndicatorIcons = icons);
   }
@@ -814,7 +1079,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   void selectRoute(int index) {
     if (index == selected) return;
     setState(() => selected = index);
-    unawaited(buildRouteIndicatorIcons());
+    unawaited(refreshRoutePresentation());
   }
 
   Set<Marker> get routeMarkers {
@@ -839,19 +1104,25 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       final route = routes[index];
       final icon = routeIndicatorIcons[index];
       if (route.points.isEmpty || icon == null) continue;
-      final fraction = (index + 1) / (routes.length + 1);
-      final indicatorIndex = math.min(
+      final placement = routeCalloutPlacements[index];
+      final fallbackIndex = math.min(
         route.points.length - 1,
-        ((route.points.length - 1) * fraction).round(),
+        ((route.points.length - 1) * ((index + 1) / (routes.length + 1)))
+            .round(),
       );
+      final bodyOnRight = placement?.bodyOnRight ?? true;
+      final calloutWidth = routeIndicatorWidth(index);
       markers.add(
         Marker(
           markerId: MarkerId('route-indicator-$index'),
-          position: route.points[indicatorIndex],
+          position: placement?.position ?? route.points[fallbackIndex],
           icon: icon,
           // Keep the pointer attached to the route while placing the callout
           // body beside it so the route remains visible and tappable.
-          anchor: const Offset(3 / 190, 1),
+          anchor: Offset(
+            bodyOnRight ? 3 / calloutWidth : (calloutWidth - 3) / calloutWidth,
+            1,
+          ),
           zIndexInt: selected == index ? 4 : 3,
           onTap: () => selectRoute(index),
         ),
@@ -888,6 +1159,115 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
     );
   }
 
+  Future<void> refreshRoutePresentation() async {
+    await fitRoute();
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    await refreshRouteCallouts();
+  }
+
+  Future<void> refreshRouteCallouts() async {
+    if (positioningRouteCallouts || controller == null || routes.isEmpty) {
+      return;
+    }
+    positioningRouteCallouts = true;
+    try {
+      final ratio = MediaQuery.devicePixelRatioOf(context);
+      final screen = MediaQuery.sizeOf(context);
+      final screenWidth = screen.width * ratio;
+      final screenHeight = screen.height * ratio;
+      const calloutHeight = 46.0;
+      final occupied = <Rect>[];
+      final placements = <int, _RouteCalloutPlacement>{};
+      final sampledRoutePixels = <ScreenCoordinate>[];
+      for (final route in routes) {
+        final stride = math.max(1, (route.points.length / 18).ceil());
+        for (
+          var pointIndex = 0;
+          pointIndex < route.points.length;
+          pointIndex += stride
+        ) {
+          sampledRoutePixels.add(
+            await controller!.getScreenCoordinate(route.points[pointIndex]),
+          );
+        }
+      }
+      final order = <int>[
+        selected,
+        for (var index = 0; index < routes.length; index++)
+          if (index != selected) index,
+      ];
+
+      for (final index in order) {
+        final points = routes[index].points;
+        if (points.isEmpty) continue;
+        final calloutWidth = routeIndicatorWidth(index);
+        _RouteCalloutPlacement? best;
+        Rect? bestRect;
+        var bestScore = double.negativeInfinity;
+        for (final fraction in const [.2, .32, .44, .56, .68, .8]) {
+          final pointIndex = math.min(
+            points.length - 1,
+            ((points.length - 1) * fraction).round(),
+          );
+          final point = points[pointIndex];
+          final pixel = await controller!.getScreenCoordinate(point);
+          for (final bodyOnRight in const [true, false]) {
+            final left = bodyOnRight
+                ? pixel.x + 3 * ratio
+                : pixel.x - (calloutWidth - 3) * ratio;
+            final rect = Rect.fromLTWH(
+              left,
+              pixel.y - calloutHeight * ratio,
+              calloutWidth * ratio,
+              calloutHeight * ratio,
+            );
+            var score = 0.0;
+            final safeTop = 125 * ratio;
+            final safeBottom = screenHeight - 185 * ratio;
+            if (rect.left < 8 * ratio) score -= (8 * ratio - rect.left) * 20;
+            if (rect.right > screenWidth - 8 * ratio) {
+              score -= (rect.right - screenWidth + 8 * ratio) * 20;
+            }
+            if (rect.top < safeTop) score -= (safeTop - rect.top) * 20;
+            if (rect.bottom > safeBottom) {
+              score -= (rect.bottom - safeBottom) * 20;
+            }
+            for (final existing in occupied) {
+              final overlap = rect.intersect(existing);
+              if (!overlap.isEmpty) score -= overlap.width * overlap.height;
+            }
+            final protectedBody = rect.deflate(5 * ratio);
+            for (final routePixel in sampledRoutePixels) {
+              if (protectedBody.contains(
+                Offset(routePixel.x.toDouble(), routePixel.y.toDouble()),
+              )) {
+                score -= 1200;
+              }
+            }
+            score += math.min(pixel.y - safeTop, safeBottom - pixel.y);
+            if (score > bestScore) {
+              bestScore = score;
+              bestRect = rect;
+              best = _RouteCalloutPlacement(
+                position: point,
+                bodyOnRight: bodyOnRight,
+              );
+            }
+          }
+        }
+        if (best != null && bestRect != null) {
+          placements[index] = best;
+          occupied.add(bestRect.inflate(8 * ratio));
+        }
+      }
+      if (!mounted) return;
+      setState(() => routeCalloutPlacements = placements);
+      await buildRouteIndicatorIcons();
+    } finally {
+      positioningRouteCallouts = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: Stack(
@@ -899,12 +1279,14 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           ),
           onMapCreated: (value) {
             controller = value;
-            fitRoute();
+            unawaited(refreshRoutePresentation());
           },
+          onCameraIdle: () => unawaited(refreshRouteCallouts()),
           markers: routeMarkers,
           polylines: routes.isEmpty ? {} : polylines,
           myLocationEnabled: true,
           myLocationButtonEnabled: false,
+          compassEnabled: false,
           buildingsEnabled: false,
           indoorViewEnabled: false,
           tiltGesturesEnabled: false,
@@ -991,7 +1373,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${routes[selected].minutes} min',
+                          formatTravelDuration(routes[selected].minutes),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w700,
@@ -1033,16 +1415,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: () => Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                            builder: (_) => ActiveNavigationPage(
-                              backend: widget.backend,
-                              destination: widget.destination,
-                              routes: routes,
-                              initialRoute: selected,
-                            ),
-                          ),
-                        ),
+                        onPressed: startNavigation,
                         child: const Text('Start Journey'),
                       ),
                     ),
@@ -1105,8 +1478,10 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   bool vibrationEnabled = true;
   bool navigationWeatherPillExpanded = false;
   bool navigationWeatherLoading = false;
+  bool navigationWeatherAttempted = false;
   WeatherOverview? navigationWeather;
-  final ValueNotifier<double> navigationCameraBearing = ValueNotifier(0);
+  final GlobalKey _navigationPanelKey = GlobalKey();
+  double _navigationPanelHeight = 133;
   final Set<String> bookmarkedRecommendations = {};
   DateTime? _heavyTrafficSince;
   DateTime? _normalTrafficSince;
@@ -1163,17 +1538,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
 
   Future<void> _toggleNavigationBookmark(Map<String, dynamic> item) async {
     try {
-      final saved = await savedLocationService.toggle(item);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            saved
-                ? 'Location saved to bookmarks.'
-                : 'Location removed from bookmarks.',
-          ),
-        ),
-      );
+      await savedLocationService.toggle(item);
     } on SavedLocationFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1185,7 +1550,6 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
   @override
   void dispose() {
     savedLocationService.changes.removeListener(_navigationBookmarksChanged);
-    navigationCameraBearing.dispose();
     super.dispose();
   }
 
@@ -1399,7 +1763,9 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
               index == selectedRoute ? Icons.check_circle : Icons.alt_route,
               color: _routeBlue,
             ),
-            title: Text('Route ${index + 1}  •  ${item.minutes} min'),
+            title: Text(
+              'Route ${index + 1}  •  ${formatTravelDuration(item.minutes)}',
+            ),
             subtitle: Text(
               '${item.distanceKm.toStringAsFixed(1)} km  •  ${item.traffic}',
             ),
@@ -1435,7 +1801,18 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       );
       return;
     }
-    setState(() => navigationWeatherLoading = true);
+    await _loadNavigationWeather(current, showErrors: true);
+  }
+
+  Future<void> _loadNavigationWeather(
+    Position current, {
+    required bool showErrors,
+  }) async {
+    if (navigationWeatherLoading || navigationWeather != null) return;
+    setState(() {
+      navigationWeatherLoading = true;
+      navigationWeatherAttempted = true;
+    });
     try {
       final weather = await WeatherService(
         backend: widget.backend,
@@ -1443,7 +1820,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       if (!mounted) return;
       setState(() => navigationWeather = weather);
     } catch (error) {
-      if (mounted) {
+      if (mounted && showErrors) {
         setState(() => navigationWeatherPillExpanded = false);
         ScaffoldMessenger.of(context).showSnackBar(
           OhMySnackBar(
@@ -1464,13 +1841,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         builder: (_) => WeatherDetailPage(weather: overview),
       ),
     );
-  }
-
-  Future<void> resetCompassNorthUp() async {
-    setState(() {
-      followUser = false;
-    });
-    await navigationMapKey.currentState?.showNorthUp();
+    if (mounted) setState(() => navigationWeatherPillExpanded = false);
   }
 
   Future<void> recenterNavigation() async {
@@ -1894,6 +2265,9 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _measureNavigationPanel(),
+    );
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -1923,20 +2297,26 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 onArrived: finishJourney,
                 onLocation: (latitude, longitude) {
                   if (!mounted) return;
+                  final latestPosition = Position(
+                    longitude: longitude,
+                    latitude: latitude,
+                    timestamp: DateTime.now(),
+                    accuracy: 0,
+                    altitude: 0,
+                    altitudeAccuracy: 0,
+                    heading: 0,
+                    headingAccuracy: 0,
+                    speed: 0,
+                    speedAccuracy: 0,
+                  );
                   setState(() {
-                    position = Position(
-                      longitude: longitude,
-                      latitude: latitude,
-                      timestamp: DateTime.now(),
-                      accuracy: 0,
-                      altitude: 0,
-                      altitudeAccuracy: 0,
-                      heading: 0,
-                      headingAccuracy: 0,
-                      speed: 0,
-                      speedAccuracy: 0,
-                    );
+                    position = latestPosition;
                   });
+                  if (!navigationWeatherAttempted) {
+                    unawaited(
+                      _loadNavigationWeather(latestPosition, showErrors: false),
+                    );
+                  }
                 },
                 onProgress: (distanceMeters, timeSeconds, traffic) {
                   if (!mounted) return;
@@ -1950,11 +2330,6 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 onStatus: (message) {
                   if (mounted) setState(() => locationError = message);
                 },
-                onCameraBearingChanged: (bearing) {
-                  if ((navigationCameraBearing.value - bearing).abs() >= 1) {
-                    navigationCameraBearing.value = bearing;
-                  }
-                },
               ),
             ),
             if (!showRecommendationCarousel)
@@ -1962,17 +2337,17 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
                 left: 14,
-                bottom: navigationPanelExpanded ? 296 : 154,
+                bottom: _navigationPanelHeight + 10,
                 child: navigationWeatherButton(),
               ),
             if (!showRecommendationCarousel)
-              Positioned(
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
                 right: 14,
-                bottom: navigationPanelExpanded ? 296 : 154,
+                bottom: _navigationPanelHeight + 10,
                 child: Column(
                   children: [
-                    navigationCompassButton(),
-                    const SizedBox(height: 9),
                     navigationButton(
                       Icons.lightbulb_outline_rounded,
                       showRecommendationMode,
@@ -2051,6 +2426,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 right: 0,
                 bottom: 0,
                 child: GestureDetector(
+                  key: _navigationPanelKey,
                   behavior: HitTestBehavior.opaque,
                   onVerticalDragEnd: (details) {
                     final velocity = details.primaryVelocity ?? 0;
@@ -2115,7 +2491,16 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                                     child: Column(
                                       children: [
                                         Text(
-                                          '${sdkRemainingTimeSeconds == null ? route.minutes : math.max(1, (sdkRemainingTimeSeconds! / 60).ceil())} min',
+                                          formatTravelDuration(
+                                            sdkRemainingTimeSeconds == null
+                                                ? route.minutes
+                                                : math.max(
+                                                    1,
+                                                    (sdkRemainingTimeSeconds! /
+                                                            60)
+                                                        .ceil(),
+                                                  ),
+                                          ),
                                           style: TextStyle(
                                             fontSize: 26,
                                             fontWeight: FontWeight.w700,
@@ -2199,6 +2584,19 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
       navigationMapKey.currentState?.setBottomPanelExpanded(expanded) ??
           Future<void>.value(),
     );
+    Future<void>.delayed(
+      const Duration(milliseconds: 240),
+      _measureNavigationPanel,
+    );
+  }
+
+  void _measureNavigationPanel() {
+    if (!mounted) return;
+    final renderObject = _navigationPanelKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+    final measuredHeight = renderObject.size.height;
+    if ((_navigationPanelHeight - measuredHeight).abs() < .5) return;
+    setState(() => _navigationPanelHeight = measuredHeight);
   }
 
   Future<void> _syncRecommendationViewport(bool visible) async {
@@ -2313,33 +2711,6 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     ),
   );
 
-  Widget navigationCompassButton() => ValueListenableBuilder<double>(
-    valueListenable: navigationCameraBearing,
-    builder: (context, bearing, child) => Material(
-      elevation: 4,
-      color: const Color(0xffedf4ff),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: resetCompassNorthUp,
-        child: SizedBox(
-          width: 54,
-          height: 54,
-          child: Center(
-            child: Transform.rotate(
-              angle: -bearing * math.pi / 180,
-              child: const Icon(
-                Icons.navigation_rounded,
-                color: _routeBlue,
-                size: 27,
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-
   Widget navigationButton(
     IconData icon,
     VoidCallback onPressed, {
@@ -2386,10 +2757,12 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
     ),
   );
 
-  Widget navigationRecommendationCarousel() => Positioned(
+  Widget navigationRecommendationCarousel() => AnimatedPositioned(
+    duration: const Duration(milliseconds: 220),
+    curve: Curves.easeOutCubic,
     left: 0,
     right: 0,
-    bottom: 138,
+    bottom: _navigationPanelHeight + 1,
     height: 276,
     child: Material(
       elevation: 14,
@@ -2532,7 +2905,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                       ),
                     const SizedBox(height: 3),
                     Text(
-                      '${eta == null ? 'ETA unavailable' : '$eta min'}  ·  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
+                      '${eta == null ? 'ETA unavailable' : formatTravelDuration(eta)}  ·  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 12,
@@ -2732,7 +3105,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                         ),
                       const SizedBox(height: 6),
                       Text(
-                        '${eta == null ? 'ETA unavailable' : '$eta min'}  •  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
+                        '${eta == null ? 'ETA unavailable' : formatTravelDuration(eta)}  •  ${distanceKm == null ? 'Distance unavailable' : '${distanceKm.toStringAsFixed(1)} km'}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: _routeBlue,
@@ -3003,7 +3376,7 @@ class _NavigationPlaceDetailPageState
               Expanded(
                 child: detailMetric(
                   'Estimated arrival',
-                  eta == null ? 'Unavailable' : '$eta min',
+                  eta == null ? 'Unavailable' : formatTravelDuration(eta),
                 ),
               ),
               const SizedBox(width: 8),

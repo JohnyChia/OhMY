@@ -9,7 +9,8 @@ const {
     searchPlacesAndAttractions,
     searchNearbyPlaces,
     getPlaceDetails,
-    getPlacePhoto
+    getPlacePhoto,
+    isGeographicAreaPlace
 } = require("./modules/preference_recommender/googlePlacesService");
 const {
     TaggingService,
@@ -92,10 +93,14 @@ app.get("/api/routes", async (req, res) => {
         res.json({ success: true, ...result });
     } catch (error) {
         const clientError = error.message.startsWith("Invalid ");
+        const nonContinuous = error.code === "NON_CONTINUOUS_DRIVING_ROUTE";
         console.error("Route calculation error:", error.message);
-        res.status(clientError ? 400 : 502).json({
+        res.status(clientError ? 400 : nonContinuous ? 422 : 502).json({
             success: false,
-            error: clientError ? error.message : "Failed to calculate driving routes.",
+            code: error.code || null,
+            error: clientError || nonContinuous
+                ? error.message
+                : "Failed to calculate driving routes.",
             details: error.message
         });
     }
@@ -947,24 +952,11 @@ app.post(
                         : {}
                 );
 
-            const areaTypes = new Set([
-                "locality",
-                "sublocality",
-                "sublocality_level_1",
-                "administrative_area_level_1",
-                "administrative_area_level_2",
-                "administrative_area_level_3",
-                "neighborhood"
-            ]);
-
             let places =
                 (data.places || []).map(
                     place => ({
                         ...place,
-                        isArea:
-                            (place.types || []).some(
-                                type => areaTypes.has(type)
-                            )
+                        isArea: isGeographicAreaPlace(place)
                     })
                 );
 
@@ -1136,6 +1128,8 @@ app.post(
                     primaryTypeDisplayName:
                         data.primaryTypeDisplayName?.text
                         || null,
+                    types: data.types || [],
+                    isArea: isGeographicAreaPlace(data),
 
                     photo: data.photos?.[0]
                         ? {
@@ -1211,6 +1205,14 @@ app.post(
             const place =
                 await getPlaceDetails(placeId);
 
+            if (isGeographicAreaPlace(place)) {
+                const areaError = new Error(
+                    "Geographic areas cannot be selected as trip destinations."
+                );
+                areaError.code = "PLACE_IS_GEOGRAPHIC_AREA";
+                throw areaError;
+            }
+
             const taggingStart =
                 process.hrtime.bigint();
 
@@ -1268,6 +1270,8 @@ app.post(
                     primaryTypeDisplayName:
                         place.primaryTypeDisplayName?.text
                         || null,
+                    types: place.types || [],
+                    isArea: false,
                     photo: place.photos?.[0]
                         ? {
                             name: place.photos[0].name,
@@ -1300,12 +1304,16 @@ app.post(
                 error
             );
 
-            const outsideMalaysia =
-                error.code === "PLACE_OUTSIDE_MALAYSIA";
-            res.status(outsideMalaysia ? 422 : 500).json({
+            const outsideMalaysia = error.code === "PLACE_OUTSIDE_MALAYSIA";
+            const geographicArea = error.code === "PLACE_IS_GEOGRAPHIC_AREA";
+            const clientSelectionError = outsideMalaysia || geographicArea;
+            res.status(clientSelectionError ? 422 : 500).json({
+                code: error.code || null,
                 error:
                     outsideMalaysia
                         ? "Only places in Malaysia can be selected."
+                        : geographicArea
+                        ? "Select a specific place instead of a city, state, district, or area."
                         : "Failed to fetch and tag this place.",
                 details: error.message
             });
