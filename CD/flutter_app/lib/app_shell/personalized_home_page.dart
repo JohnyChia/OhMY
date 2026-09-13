@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:community_discovery/community_discovery.dart';
 
 import '../shared/widgets/wau_loading_indicator.dart';
+import '../shared/utils/duration_format.dart';
 import '../shared/utils/place_description.dart';
 import '../user_management/services/traveler_profile_service.dart';
 import '../user_management/services/saved_location_service.dart';
@@ -244,7 +245,7 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
 
   String _eta(Map<String, dynamic> item) {
     final value = _place(item)['etaMinutes'];
-    return value is num ? '${value.round()} min' : '-- min';
+    return value is num ? formatTravelDuration(value.round()) : '-- min';
   }
 
   List<String> _tags(Map<String, dynamic> item) {
@@ -264,40 +265,13 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
 
   Future<void> _togglePlaceBookmark(Map<String, dynamic> item) async {
     try {
-      final saved = await savedLocationService.toggle(item);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            saved
-                ? 'Location saved to bookmarks.'
-                : 'Location removed from bookmarks.',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      await savedLocationService.toggle(item);
     } on SavedLocationFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message), backgroundColor: Colors.red),
       );
     }
-  }
-
-  Future<void> _openHomeSearch() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _HomePlaceSearchSheet(
-        backend: _backend,
-        onSelected: (item) {
-          Navigator.pop(sheetContext);
-          widget.onOpenSoloMap(item);
-        },
-      ),
-    );
   }
 
   @override
@@ -327,7 +301,7 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
                 description: featured == null ? null : _description(featured),
                 photoUrl: featured == null ? null : _photoUrl(featured),
                 tags: featured == null ? const [] : _tags(featured),
-                onSearch: _openHomeSearch,
+                onSearchSelected: widget.onOpenSoloMap,
                 onExplore: featured == null
                     ? () => widget.onOpenSoloMap(null)
                     : () => widget.onOpenSoloMap(featured),
@@ -363,35 +337,47 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
   }
 }
 
-class _HomePlaceSearchSheet extends StatefulWidget {
-  const _HomePlaceSearchSheet({
-    required this.backend,
-    required this.onSelected,
-  });
+class _InlineHomeSearch extends StatefulWidget {
+  const _InlineHomeSearch({required this.backend, required this.onSelected});
 
   final String backend;
   final ValueChanged<Map<String, dynamic>> onSelected;
 
   @override
-  State<_HomePlaceSearchSheet> createState() => _HomePlaceSearchSheetState();
+  State<_InlineHomeSearch> createState() => _InlineHomeSearchState();
 }
 
-class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
+class _InlineHomeSearchState extends State<_InlineHomeSearch> {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
+  final _fieldKey = GlobalKey();
+  final _layerLink = LayerLink();
+  final _tapGroup = Object();
+  final _overlayController = OverlayPortalController();
   Timer? _debounce;
   List<Map<String, dynamic>> _results = const [];
   bool _searching = false;
   bool _selecting = false;
   int _requestId = 0;
   String? _message;
+  double _fieldWidth = 0;
+  bool _dropdownWanted = false;
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focusNode.requestFocus();
-    });
+  void _showDropdown() {
+    _dropdownWanted = true;
+    if (!_overlayController.isShowing) _overlayController.show();
+  }
+
+  void _dismissDropdown() {
+    _dropdownWanted = false;
+    _focusNode.unfocus();
+    if (_overlayController.isShowing) _overlayController.hide();
+  }
+
+  void _refreshDropdown() {
+    if (_dropdownWanted && !_overlayController.isShowing) {
+      _overlayController.show();
+    }
   }
 
   @override
@@ -412,8 +398,14 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
         _message = null;
         _searching = false;
       });
+      _dismissDropdown();
       return;
     }
+    setState(() {
+      _searching = true;
+      _message = null;
+    });
+    _showDropdown();
     _debounce = Timer(
       const Duration(milliseconds: 350),
       () => unawaited(_search(query, request)),
@@ -443,14 +435,18 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
       );
       setState(() {
         _results = results;
-        _message = results.isEmpty ? 'No Malaysian attractions found.' : null;
+        _message = results.isEmpty
+            ? 'No Malaysian areas or places found.'
+            : null;
       });
+      _refreshDropdown();
     } catch (error) {
       if (!mounted || request != _requestId) return;
       setState(() {
         _results = const [];
         _message = error.toString().replaceFirst('Exception: ', '');
       });
+      _refreshDropdown();
     } finally {
       if (mounted && request == _requestId) {
         setState(() => _searching = false);
@@ -480,6 +476,7 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
     final placeId = result['id']?.toString();
     if (placeId == null || placeId.isEmpty || _selecting) return;
     if (result['isArea'] == true) {
+      _dismissDropdown();
       widget.onSelected({
         'place': Map<String, dynamic>.from(result),
         'analysis': const <String, dynamic>{
@@ -505,7 +502,10 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
           'culturalTags': <String>[],
         };
       }
-      if (mounted) widget.onSelected(item);
+      if (mounted) {
+        _dismissDropdown();
+        widget.onSelected(item);
+      }
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -517,104 +517,177 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => FractionallySizedBox(
-    heightFactor: .78,
-    child: Material(
-      color: const Color(0xFFF8FAFD),
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 42,
-            height: 4,
-            decoration: BoxDecoration(
-              color: const Color(0xFFBCC4D0),
-              borderRadius: BorderRadius.circular(99),
+  Widget _dropdown() {
+    final visibleItems = _results.length.clamp(1, 4);
+    final height = _results.isNotEmpty
+        ? visibleItems * 68.0 + (_searching || _selecting ? 2 : 0)
+        : 54.0;
+    final renderBox = _fieldKey.currentContext?.findRenderObject();
+    final targetLeft = renderBox is RenderBox
+        ? renderBox.localToGlobal(Offset.zero).dx
+        : 0.0;
+    final availableWidth = MediaQuery.sizeOf(context).width - targetLeft - 12;
+    final dropdownWidth = availableWidth > 0 && availableWidth < _fieldWidth
+        ? availableWidth
+        : _fieldWidth;
+    return CompositedTransformFollower(
+      link: _layerLink,
+      showWhenUnlinked: false,
+      targetAnchor: Alignment.bottomLeft,
+      followerAnchor: Alignment.topLeft,
+      offset: Offset.zero,
+      child: UnconstrainedBox(
+        alignment: Alignment.topLeft,
+        child: TapRegion(
+          groupId: _tapGroup,
+          child: SizedBox(
+            key: const ValueKey('home-search-dropdown'),
+            width: dropdownWidth,
+            height: height.clamp(54.0, 274.0),
+            child: Material(
+              color: Colors.white,
+              elevation: 10,
+              shadowColor: Colors.black38,
+              clipBehavior: Clip.antiAlias,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(10),
+                bottom: Radius.circular(20),
+              ),
+              child: Column(
+                children: [
+                  if (_searching || _selecting)
+                    const LinearProgressIndicator(minHeight: 2),
+                  if (_message != null)
+                    Expanded(
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          child: Text(
+                            _message!,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Color(0xFF687184)),
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (_results.isEmpty)
+                    const Expanded(
+                      child: Center(
+                        child: Text(
+                          'Searching...',
+                          style: TextStyle(color: Color(0xFF687184)),
+                        ),
+                      ),
+                    )
+                  else
+                    Expanded(
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: _results.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (_, index) {
+                          final place = _results[index];
+                          final name =
+                              (place['displayName'] as Map?)?['text']
+                                  ?.toString() ??
+                              'Place';
+                          return SizedBox(
+                            height: 68,
+                            child: ListTile(
+                              enabled: !_selecting,
+                              dense: true,
+                              leading: Icon(
+                                place['isArea'] == true
+                                    ? Icons.map_outlined
+                                    : Icons.location_on_outlined,
+                                color: const Color(0xFF3266CC),
+                              ),
+                              title: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                place['formattedAddress']?.toString() ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () => unawaited(_select(place)),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              enabled: !_selecting,
-              onChanged: _changed,
-              onSubmitted: (value) {
-                _debounce?.cancel();
-                final query = value.trim();
-                if (query.isNotEmpty) {
-                  unawaited(_search(query, ++_requestId));
-                }
-              },
-              decoration: InputDecoration(
-                hintText: 'Search attractions…',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _controller.text.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _controller.clear();
-                          _changed('');
-                          _focusNode.requestFocus();
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      _fieldWidth = constraints.maxWidth;
+      return TapRegion(
+        groupId: _tapGroup,
+        onTapOutside: (_) => _dismissDropdown(),
+        child: CompositedTransformTarget(
+          key: _fieldKey,
+          link: _layerLink,
+          child: OverlayPortal(
+            controller: _overlayController,
+            overlayChildBuilder: (_) => _dropdown(),
+            child: Material(
+              color: const Color(0xFFF8F6FB),
+              elevation: 3,
+              borderRadius: BorderRadius.circular(28),
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                height: 54,
+                child: TextField(
+                  controller: _controller,
+                  focusNode: _focusNode,
+                  enabled: !_selecting,
+                  onTap: () {
+                    if (_controller.text.trim().isNotEmpty) _showDropdown();
+                  },
+                  onChanged: _changed,
+                  onSubmitted: (value) {
+                    _debounce?.cancel();
+                    final query = value.trim();
+                    if (query.isNotEmpty) {
+                      _showDropdown();
+                      unawaited(_search(query, ++_requestId));
+                    }
+                  },
+                  decoration: InputDecoration(
+                    hintText: 'Search Attractions ...',
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.fromLTRB(17, 16, 4, 14),
+                    suffixIcon: _controller.text.isEmpty
+                        ? const Icon(Icons.search_rounded, size: 24)
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            onPressed: () {
+                              _controller.clear();
+                              _changed('');
+                              _focusNode.requestFocus();
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                  ),
                 ),
               ),
             ),
           ),
-          if (_searching || _selecting)
-            const LinearProgressIndicator(minHeight: 2),
-          if (_message != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(22, 12, 22, 4),
-              child: Text(
-                _message!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFF687184)),
-              ),
-            ),
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-              itemCount: _results.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (_, index) {
-                final place = _results[index];
-                final name =
-                    (place['displayName'] as Map?)?['text']?.toString() ??
-                    'Attraction';
-                return ListTile(
-                  enabled: !_selecting,
-                  leading: Icon(
-                    place['isArea'] == true
-                        ? Icons.map_outlined
-                        : Icons.location_on_outlined,
-                    color: const Color(0xFF3266CC),
-                  ),
-                  title: Text(name, maxLines: 1),
-                  subtitle: Text(
-                    place['formattedAddress']?.toString() ?? '',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => unawaited(_select(place)),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    ),
+        ),
+      );
+    },
   );
 }
 
@@ -627,7 +700,7 @@ class _FeaturedPlace extends StatelessWidget {
     required this.description,
     required this.photoUrl,
     required this.tags,
-    required this.onSearch,
+    required this.onSearchSelected,
     required this.onExplore,
   });
 
@@ -638,7 +711,7 @@ class _FeaturedPlace extends StatelessWidget {
   final String? description;
   final String? photoUrl;
   final List<String> tags;
-  final VoidCallback onSearch;
+  final ValueChanged<Map<String, dynamic>> onSearchSelected;
   final VoidCallback onExplore;
 
   @override
@@ -690,35 +763,9 @@ class _FeaturedPlace extends StatelessWidget {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: Material(
-                      color: const Color(0xFFF8F6FB),
-                      elevation: 3,
-                      borderRadius: BorderRadius.circular(28),
-                      child: InkWell(
-                        onTap: onSearch,
-                        borderRadius: BorderRadius.circular(28),
-                        child: const SizedBox(
-                          height: 54,
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 17),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Search Attractions ...',
-                                    style: TextStyle(
-                                      color: Color(0xFF5F6470),
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ),
-                                SizedBox(width: 10),
-                                Icon(Icons.search_rounded, size: 24),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+                    child: _InlineHomeSearch(
+                      backend: backend,
+                      onSelected: onSearchSelected,
                     ),
                   ),
                 ],

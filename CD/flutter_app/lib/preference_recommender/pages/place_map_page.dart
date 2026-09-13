@@ -18,7 +18,52 @@ import '../../user_management/services/saved_location_service.dart';
 import 'package:community_discovery/community_discovery.dart'
     show SupabaseConfig;
 import '../../shared/services/recommendation_sound.dart';
+import '../../shared/utils/duration_format.dart';
 import '../../shared/utils/place_description.dart';
+import '../../shared/widgets/ohmy_snack_bar.dart';
+
+class _BackendRequestException implements Exception {
+  const _BackendRequestException(this.message, {this.code});
+
+  final String message;
+  final String? code;
+
+  @override
+  String toString() => message;
+}
+
+const _unreachableRouteMessage =
+    'This place cannot be reached by a continuous car route.';
+
+Future<String?> _checkCurrentDrivingRoute(
+  String backend,
+  Position origin,
+  RouteLocation destination,
+) async {
+  final uri = Uri.parse('$backend/api/routes').replace(
+    queryParameters: {
+      'startLat': '${origin.latitude}',
+      'startLon': '${origin.longitude}',
+      'endLat': '${destination.latitude}',
+      'endLon': '${destination.longitude}',
+    },
+  );
+  final response = await http.get(uri).timeout(const Duration(seconds: 25));
+  final data = jsonDecode(response.body) as Map<String, dynamic>;
+  if (response.statusCode >= 200 && response.statusCode < 300) return null;
+  if (data['code'] == 'NON_CONTINUOUS_DRIVING_ROUTE') {
+    return _unreachableRouteMessage;
+  }
+  throw Exception(data['error'] ?? 'Unable to check this driving route.');
+}
+
+void _showRouteMessage(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      OhMySnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+}
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -31,10 +76,14 @@ class PlaceMapPage extends StatefulWidget {
     this.autofocusSearch = false,
     this.initialRecommendation,
     this.initialSearchQuery,
+    this.initialPlaceName,
+    this.autoSelectInitialSearchResult = false,
   });
   final bool autofocusSearch;
   final Map<String, dynamic>? initialRecommendation;
   final String? initialSearchQuery;
+  final String? initialPlaceName;
+  final bool autoSelectInitialSearchResult;
   @override
   State<PlaceMapPage> createState() => _PlaceMapPageState();
 }
@@ -69,6 +118,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   String? highlightedRecommendationId;
   final Set<String> bookmarkedRecommendations = {};
   bool initialRecommendationApplied = false;
+  bool initialSearchSelectionApplied = false;
 
   @override
   void initState() {
@@ -86,11 +136,13 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     final initialQuery = widget.initialSearchQuery?.trim() ?? '';
     if (initialQuery.isNotEmpty) {
       search.text = initialQuery;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        searchFocus.requestFocus();
-        unawaited(runSearch(query: initialQuery));
-      });
+      if (!widget.autoSelectInitialSearchResult) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          searchFocus.requestFocus();
+          unawaited(runSearch(query: initialQuery));
+        });
+      }
     }
   }
 
@@ -126,16 +178,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       setState(() {
         bookmarked = selected == item ? isSaved : bookmarked;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isSaved
-                ? 'Location saved to bookmarks.'
-                : 'Location removed from bookmarks.',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
     } on SavedLocationFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -206,6 +248,53 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     await choose(selectedItem, true);
   }
 
+  Future<void> _applyInitialSearchSelection() async {
+    final query = widget.initialSearchQuery?.trim() ?? '';
+    if (!widget.autoSelectInitialSearchResult ||
+        initialSearchSelectionApplied ||
+        query.isEmpty ||
+        controller == null) {
+      return;
+    }
+    initialSearchSelectionApplied = true;
+    setState(() {
+      loading = true;
+      results = [];
+      showCarousel = false;
+      showWeatherPill = false;
+      message = 'Finding this place…';
+    });
+    try {
+      final data = await post('/api/places/search', {'query': query});
+      final places = List<Map<String, dynamic>>.from(data['places'] ?? const [])
+          .where(
+            (place) =>
+                place['isArea'] != true &&
+                place['id']?.toString().trim().isNotEmpty == true,
+          )
+          .toList(growable: false);
+      if (places.isEmpty) throw Exception('This place could not be found.');
+
+      final expectedName = (widget.initialPlaceName ?? '').trim().toLowerCase();
+      Map<String, dynamic>? selectedPlace;
+      if (expectedName.isNotEmpty) {
+        for (final place in places) {
+          final candidate = name(place).trim().toLowerCase();
+          if (candidate == expectedName || candidate.contains(expectedName)) {
+            selectedPlace = place;
+            break;
+          }
+        }
+      }
+      selectedPlace ??= places.first;
+      await selectPlace(selectedPlace['id'].toString());
+    } catch (error) {
+      fail(error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
   String name(Map p) =>
       p['displayName']?['text']?.toString() ?? 'Selected place';
   String? description(Map p) {
@@ -229,7 +318,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   String eta(Map p) {
     final v = p['etaMinutes'];
     return v is num
-        ? '${p['etaEstimated'] == true ? '~' : ''}${v.round()} min'
+        ? '${p['etaEstimated'] == true ? '~' : ''}${formatTravelDuration(v.round())}'
         : 'ETA unavailable';
   }
 
@@ -308,7 +397,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     );
     final data = jsonDecode(r.body) as Map<String, dynamic>;
     if (r.statusCode < 200 || r.statusCode >= 300) {
-      throw Exception(data['error'] ?? 'Request failed');
+      throw _BackendRequestException(
+        data['error']?.toString() ?? 'Request failed',
+        code: data['code']?.toString(),
+      );
     }
     return data;
   }
@@ -409,7 +501,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     }
   }
 
-  Future<void> selectPlace(String id) async {
+  Future<void> selectPlace(
+    String id, {
+    bool ignoreGeographicArea = false,
+  }) async {
     setState(() {
       loading = true;
       results = [];
@@ -422,7 +517,13 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       Map<String, dynamic> item;
       try {
         item = await post('/api/places/analyze', {'placeId': id});
-      } catch (_) {
+      } on _BackendRequestException catch (exception) {
+        if (exception.code == 'PLACE_IS_GEOGRAPHIC_AREA') {
+          if (!ignoreGeographicArea) fail(exception);
+          if (mounted) setState(() => message = null);
+          return;
+        }
+        if (exception.code == 'PLACE_OUTSIDE_MALAYSIA') rethrow;
         item = await post('/api/places/details', {'placeId': id});
         item['analysis'] = const <String, dynamic>{
           'generalTags': <String>[],
@@ -549,6 +650,28 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       }
     });
     await controller?.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
+  }
+
+  void _closeSelectedPlace() {
+    final placeId = selected?['place']?['id']?.toString();
+    setState(() {
+      selected = null;
+      bookmarked = false;
+      highlightedRecommendationId = null;
+      markers = placeId == null
+          ? <Marker>{}
+          : markers.where((marker) => marker.markerId.value != placeId).toSet();
+    });
+  }
+
+  void _closeRecommendationPanel() {
+    setState(() {
+      showCarousel = false;
+      recommendations = [];
+      markers = <Marker>{};
+      selected = null;
+      highlightedRecommendationId = null;
+    });
   }
 
   Future<void> nearby() async {
@@ -827,6 +950,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         builder: (_) => WeatherDetailPage(weather: overview),
       ),
     );
+    if (mounted) setState(() => showWeatherPill = false);
   }
 
   Future<void> _loadWeather(
@@ -853,20 +977,52 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     }
   }
 
-  void directions(Map p) {
+  Future<void> directions(Map p) async {
     if (p['location'] is! Map) {
       fail(Exception('Location coordinates are unavailable.'));
       return;
     }
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DirectionsSetupPage(
-          backend: backend,
-          destination: RouteLocation.fromPlace(Map<String, dynamic>.from(p)),
+    setState(() => loading = true);
+    try {
+      final origin = currentPosition ?? await position();
+      if (origin == null) {
+        fail(Exception('Location permission is required.'));
+        return;
+      }
+      if (!mounted) return;
+      final destination = RouteLocation.fromPlace(Map<String, dynamic>.from(p));
+      final currentLocation = RouteLocation(
+        name: 'Your location',
+        address: 'Current location',
+        latitude: origin.latitude,
+        longitude: origin.longitude,
+      );
+      if (!areDistinctRouteLocations(currentLocation, destination)) {
+        _showRouteMessage(context, destinationTooCloseMessage);
+        return;
+      }
+      final routeError = await _checkCurrentDrivingRoute(
+        backend,
+        origin,
+        destination,
+      );
+      if (!mounted) return;
+      if (routeError != null) {
+        _showRouteMessage(context, routeError);
+        return;
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              DirectionsSetupPage(backend: backend, destination: destination),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      fail(error);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   void details(Map<String, dynamic> item) => Navigator.push(
@@ -898,10 +1054,11 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               final poi = Map<String, dynamic>.from(call.arguments as Map);
               final placeId = poi['placeId']?.toString();
               if (placeId != null && placeId.isNotEmpty) {
-                await selectPlace(placeId);
+                await selectPlace(placeId, ignoreGeographicArea: true);
               }
             });
             unawaited(_applyInitialRecommendation());
+            unawaited(_applyInitialSearchSelection());
           },
           onTap: (_) => dismissSearchResults(),
           markers: markers,
@@ -927,31 +1084,36 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                     child: Material(
                       elevation: 5,
                       borderRadius: BorderRadius.circular(18),
-                      child: TextField(
-                        controller: search,
-                        focusNode: searchFocus,
-                        onChanged: searchChanged,
-                        onSubmitted: (_) => unawaited(runSearch()),
-                        decoration: InputDecoration(
-                          hintText: 'Search attractions…',
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 17,
-                            vertical: 14,
-                          ),
-                          suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                            valueListenable: search,
-                            builder: (_, value, child) => value.text.isEmpty
-                                ? const Icon(Icons.search)
-                                : IconButton(
-                                    tooltip: 'Clear search',
-                                    onPressed: () {
-                                      search.clear();
-                                      searchChanged('');
-                                      searchFocus.requestFocus();
-                                    },
-                                    icon: const Icon(Icons.close),
-                                  ),
+                      child: SizedBox(
+                        height: 54,
+                        child: TextField(
+                          controller: search,
+                          focusNode: searchFocus,
+                          onChanged: searchChanged,
+                          onSubmitted: (_) => unawaited(runSearch()),
+                          decoration: InputDecoration(
+                            hintText: 'Search attractions…',
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 17,
+                              vertical: 14,
+                            ),
+                            suffixIcon:
+                                ValueListenableBuilder<TextEditingValue>(
+                                  valueListenable: search,
+                                  builder: (_, value, child) =>
+                                      value.text.isEmpty
+                                      ? const Icon(Icons.search)
+                                      : IconButton(
+                                          tooltip: 'Clear search',
+                                          onPressed: () {
+                                            search.clear();
+                                            searchChanged('');
+                                            searchFocus.requestFocus();
+                                          },
+                                          icon: const Icon(Icons.close),
+                                        ),
+                                ),
                           ),
                         ),
                       ),
@@ -995,7 +1157,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   );
 
   Widget resultList() => Positioned(
-    top: MediaQuery.paddingOf(context).top + 72,
+    top: MediaQuery.paddingOf(context).top + 64,
     left: 16,
     right: 16,
     child: TapRegion(
@@ -1223,7 +1385,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                           _overlayPill('Selected place'),
                           const Spacer(),
                           IconButton.filledTonal(
-                            onPressed: () => setState(() => selected = null),
+                            onPressed: _closeSelectedPlace,
                             icon: const Icon(Icons.close),
                             color: Colors.white,
                             style: IconButton.styleFrom(
@@ -1275,9 +1437,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                             'Bookmark',
                             () => unawaited(_toggleBookmark(item)),
                           ),
-                          _overlayAction(
+                          _overlayIconAction(
                             Icons.lightbulb_outline_rounded,
-                            'Similar',
+                            'Find similar places',
                             recommendFromSelectedPlace,
                           ),
                         ],
@@ -1322,7 +1484,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                     style: TextStyle(fontSize: 9, color: muted),
                   ),
                 IconButton(
-                  onPressed: () => setState(() => showCarousel = false),
+                  onPressed: _closeRecommendationPanel,
                   icon: const Icon(Icons.close),
                 ),
               ],
@@ -1517,6 +1679,31 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         ),
       );
 
+  Widget _overlayIconAction(
+    IconData icon,
+    String tooltip,
+    VoidCallback onPressed,
+  ) => Padding(
+    padding: const EdgeInsets.only(right: 7),
+    child: Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: 34,
+        height: 30,
+        child: IconButton.filled(
+          onPressed: onPressed,
+          icon: Icon(icon, size: 16),
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          style: IconButton.styleFrom(
+            foregroundColor: blue,
+            backgroundColor: Colors.white,
+          ),
+        ),
+      ),
+    ),
+  );
+
   Widget tiny(IconData i, String s, VoidCallback f) => Padding(
     padding: const EdgeInsets.only(right: 6),
     child: SizedBox(
@@ -1587,6 +1774,7 @@ class PlaceDetailPage extends StatefulWidget {
 
 class _PlaceDetailPageState extends State<PlaceDetailPage> {
   bool saved = false;
+  bool checkingRoute = false;
   int page = 0;
 
   @override
@@ -1620,6 +1808,68 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error.message), backgroundColor: Colors.red),
       );
+    }
+  }
+
+  Future<void> _openDirections() async {
+    if (checkingRoute) return;
+    setState(() => checkingRoute = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw Exception('Location services are disabled.');
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission is required.');
+      }
+      final origin = await Geolocator.getCurrentPosition(
+        locationSettings: navigationLocationSettings,
+      );
+      if (!mounted) return;
+      final place = widget.item['place'] as Map<String, dynamic>;
+      final destination = RouteLocation.fromPlace(place);
+      final currentLocation = RouteLocation(
+        name: 'Your location',
+        address: 'Current location',
+        latitude: origin.latitude,
+        longitude: origin.longitude,
+      );
+      if (!areDistinctRouteLocations(currentLocation, destination)) {
+        _showRouteMessage(context, destinationTooCloseMessage);
+        return;
+      }
+      final routeError = await _checkCurrentDrivingRoute(
+        widget.backend,
+        origin,
+        destination,
+      );
+      if (!mounted) return;
+      if (routeError != null) {
+        _showRouteMessage(context, routeError);
+        return;
+      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DirectionsSetupPage(
+            backend: widget.backend,
+            destination: destination,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        _showRouteMessage(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => checkingRoute = false);
     }
   }
 
@@ -1657,20 +1907,9 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.all(16),
         child: FilledButton.icon(
-          onPressed: () {
-            final place = widget.item['place'] as Map<String, dynamic>;
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DirectionsSetupPage(
-                  backend: widget.backend,
-                  destination: RouteLocation.fromPlace(place),
-                ),
-              ),
-            );
-          },
+          onPressed: checkingRoute ? null : () => unawaited(_openDirections()),
           icon: const Icon(Icons.directions),
-          label: const Text('Directions'),
+          label: Text(checkingRoute ? 'Checking route...' : 'Directions'),
         ),
       ),
       body: ListView(
@@ -1753,7 +1992,7 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 child: metric(
                   'Estimated arrival',
                   p['etaMinutes'] is num
-                      ? '${p['etaEstimated'] == true ? '~' : ''}${(p['etaMinutes'] as num).round()} min'
+                      ? '${p['etaEstimated'] == true ? '~' : ''}${formatTravelDuration((p['etaMinutes'] as num).round())}'
                       : 'Unavailable',
                 ),
               ),

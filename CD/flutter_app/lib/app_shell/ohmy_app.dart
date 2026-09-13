@@ -366,9 +366,15 @@ class _OhMyShellState extends State<OhMyShell> {
   Future<void> _openCommunityLocationInStartTrip(
     StartJourneyRequest request,
   ) async {
-    final query = request.attractionName.trim().isNotEmpty
-        ? request.attractionName.trim()
-        : request.destinationName.trim();
+    final attraction = request.attractionName.trim();
+    final destination = request.destinationName.trim();
+    final queryParts = <String>[];
+    if (attraction.isNotEmpty) queryParts.add(attraction);
+    if (destination.isNotEmpty &&
+        destination.toLowerCase() != attraction.toLowerCase()) {
+      queryParts.add(destination);
+    }
+    final query = queryParts.join(', ');
     if (!mounted) return;
 
     if (_selectedIndex != 2) {
@@ -382,7 +388,11 @@ class _OhMyShellState extends State<OhMyShell> {
     await navigator.push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: '/start-trip/solo-map'),
-        builder: (_) => PlaceMapPage(initialSearchQuery: query),
+        builder: (_) => PlaceMapPage(
+          initialSearchQuery: query,
+          initialPlaceName: attraction.isNotEmpty ? attraction : destination,
+          autoSelectInitialSearchResult: true,
+        ),
       ),
     );
   }
