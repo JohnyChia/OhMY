@@ -88,6 +88,7 @@ flutter:
     - assets/images/navigation/
     - assets/images/start_trip_selection/
     - assets/images/user_management/
+    - assets/images/ai_chat/
 
 flutter_launcher_icons:
   android: true

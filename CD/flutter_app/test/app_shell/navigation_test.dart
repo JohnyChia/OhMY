@@ -32,7 +32,7 @@ void main() {
     expect(find.text('Search Attractions ...'), findsOneWidget);
 
     await _openTab(tester, 'AI Chat');
-    expect(find.text('Your travel agent, ready.'), findsOneWidget);
+    expect(find.text('Your travel agent,\nready.'), findsOneWidget);
 
     await _openTab(tester, 'Start Trip');
     expect(find.text('How would you like\nto travel?'), findsOneWidget);

@@ -189,6 +189,8 @@ class DirectionsSetupPage extends StatefulWidget {
 class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   final startController = TextEditingController();
   final destinationController = TextEditingController();
+  final startFocusNode = FocusNode();
+  final destinationFocusNode = FocusNode();
   RouteLocation? start;
   late RouteLocation destination;
   List<Map<String, dynamic>> results = [];
@@ -198,9 +200,13 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   bool searching = false;
   bool destinationSelectionValid = true;
   bool loadingSaved = false;
+  bool loadingRecommended = false;
   List<RouteLocation> savedLocations = const [];
+  List<RouteLocation> recommendedLocations = const [];
   int activeField = 0, tab = 0;
   String? error;
+  String? recommendedError;
+  String? savedError;
 
   @override
   void initState() {
@@ -209,6 +215,78 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     destinationController.text = destination.name;
     savedLocationService.changes.addListener(_savedLocationsChanged);
     unawaited(_loadSavedLocations());
+    unawaited(_loadRecommendedLocations());
+  }
+
+  Future<void> _loadRecommendedLocations() async {
+    if (mounted) setState(() => loadingRecommended = true);
+    try {
+      Position? position;
+      try {
+        position = await currentPosition();
+      } catch (_) {
+        position = await Geolocator.getLastKnownPosition();
+      }
+      if (position == null) {
+        throw Exception('Current location is unavailable.');
+      }
+      var preferences = currentTravelerPreferences.value
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList(growable: false);
+      if (preferences.isEmpty) {
+        preferences = await TravelerProfileService()
+            .requireCurrentPreferences();
+      }
+      final response = await http
+          .post(
+            Uri.parse('${widget.backend}/api/recommendations/nearby-tagged'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'latitude': position.latitude,
+              'longitude': position.longitude,
+              'mode': 'preferences',
+              'preferences': preferences,
+            }),
+          )
+          .timeout(const Duration(seconds: 120));
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(
+          data['details'] ??
+              data['error'] ??
+              'Recommended places are unavailable.',
+        );
+      }
+      final seen = <String>{};
+      final locations = <RouteLocation>[];
+      for (final item in List<Map<String, dynamic>>.from(
+        data['matchedPlaces'] ?? const [],
+      )) {
+        final place = Map<String, dynamic>.from(item['place'] as Map? ?? item);
+        if (place['location'] == null || place['isArea'] == true) continue;
+        final location = RouteLocation.fromPlace(place);
+        final key = location.id ?? '${location.latitude}:${location.longitude}';
+        if (seen.add(key)) locations.add(location);
+      }
+      if (mounted) {
+        setState(() {
+          recommendedLocations = locations;
+          recommendedError = null;
+        });
+      }
+    } catch (exception) {
+      if (mounted && recommendedLocations.isEmpty) {
+        setState(
+          () => recommendedError = exception.toString().replaceFirst(
+            'Exception: ',
+            '',
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => loadingRecommended = false);
+    }
   }
 
   Future<void> _loadSavedLocations({bool force = true}) async {
@@ -216,8 +294,9 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     try {
       await savedLocationService.fetch(force: force);
       _savedLocationsChanged();
+      if (mounted) setState(() => savedError = null);
     } on SavedLocationFailure catch (exception) {
-      if (mounted) setState(() => error = exception.message);
+      if (mounted) setState(() => savedError = exception.message);
     } finally {
       if (mounted) setState(() => loadingSaved = false);
     }
@@ -324,6 +403,31 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     unawaited(searchPlaces(query, field: field, request: request));
   }
 
+  void clearSearch(int field) {
+    searchDebounce?.cancel();
+    searchRequest++;
+    final controller = field == 0 ? startController : destinationController;
+    final focusNode = field == 0 ? startFocusNode : destinationFocusNode;
+    controller.clear();
+    setState(() {
+      activeField = field;
+      tab = 0;
+      results = [];
+      resultField = null;
+      searching = false;
+      error = null;
+      if (field == 0) {
+        start = null;
+      } else {
+        destinationSelectionValid = false;
+      }
+    });
+    focusNode.requestFocus();
+    if (recommendedLocations.isEmpty) {
+      unawaited(_loadRecommendedLocations());
+    }
+  }
+
   Future<void> searchPlaces(
     String query, {
     required int field,
@@ -388,13 +492,18 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     openRoutesIfReady();
   }
 
-  void selectDestination(RouteLocation selected) {
+  void selectRouteLocation(RouteLocation selected) {
     searchDebounce?.cancel();
     searchRequest++;
     setState(() {
-      destination = selected;
-      destinationController.text = selected.name;
-      destinationSelectionValid = true;
+      if (activeField == 0) {
+        start = selected;
+        startController.text = selected.name;
+      } else {
+        destination = selected;
+        destinationController.text = selected.name;
+        destinationSelectionValid = true;
+      }
       results = [];
       resultField = null;
     });
@@ -439,6 +548,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             children: [
               locationField(
                 controller: startController,
+                focusNode: startFocusNode,
                 hint: 'Choose starting point',
                 icon: Icons.my_location,
                 field: 0,
@@ -446,6 +556,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
               const SizedBox(height: 9),
               locationField(
                 controller: destinationController,
+                focusNode: destinationFocusNode,
                 hint: 'Choose destination',
                 icon: Icons.place,
                 field: 1,
@@ -453,7 +564,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             ],
           ),
         ),
-        if (activeField == 1 && results.isEmpty) categoryTabs(),
+        categoryTabs(),
         if (searching)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 6),
@@ -471,6 +582,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
 
   Widget locationField({
     required TextEditingController controller,
+    required FocusNode focusNode,
     required String hint,
     required IconData icon,
     required int field,
@@ -483,6 +595,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
       height: 54,
       child: TextField(
         controller: controller,
+        focusNode: focusNode,
         onTap: () => setState(() => activeField = field),
         onChanged: (value) => searchChanged(value, field),
         onSubmitted: (value) => submitSearch(value, field),
@@ -494,9 +607,19 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             color: field == 0 ? _routeBlue : Colors.orange,
           ),
           hintText: hint,
-          suffixIcon: IconButton(
-            onPressed: () => submitSearch(controller.text, field),
-            icon: const Icon(Icons.search),
+          suffixIcon: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => controller.text.isEmpty
+                ? IconButton(
+                    onPressed: () => submitSearch(controller.text, field),
+                    icon: const Icon(Icons.search),
+                  )
+                : IconButton(
+                    key: ValueKey('clear-route-location-$field'),
+                    tooltip: 'Clear',
+                    onPressed: () => clearSearch(field),
+                    icon: const Icon(Icons.close),
+                  ),
           ),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(vertical: 16),
@@ -509,26 +632,54 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     padding: const EdgeInsets.all(14),
     child: SegmentedButton<int>(
       segments: const [
-        ButtonSegment(value: 0, label: Text('Recent')),
-        ButtonSegment(value: 1, label: Text('Suggested')),
-        ButtonSegment(value: 2, label: Text('Saved')),
+        ButtonSegment(value: 0, label: Text('Recommended')),
+        ButtonSegment(value: 1, label: Text('Saved')),
       ],
       selected: {tab},
       onSelectionChanged: (value) {
-        setState(() => tab = value.first);
-        if (value.first == 2) unawaited(_loadSavedLocations());
+        searchDebounce?.cancel();
+        searchRequest++;
+        setState(() {
+          tab = value.first;
+          results = [];
+          resultField = null;
+          searching = false;
+          error = null;
+        });
+        if (value.first == 0) {
+          unawaited(_loadRecommendedLocations());
+        } else {
+          unawaited(_loadSavedLocations());
+        }
       },
       showSelectedIcon: false,
     ),
   );
 
   Widget resultContent() {
+    final children = <Widget>[];
+    if (activeField == 0) {
+      children.add(
+        ListTile(
+          key: const ValueKey('route-your-location'),
+          contentPadding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+          leading: const CircleAvatar(
+            backgroundColor: Color(0xffdff7fb),
+            child: Icon(Icons.my_location, color: _routeBlue),
+          ),
+          title: const Text(
+            'Your Location',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: const Text('Use current device location'),
+          onTap: useCurrentLocation,
+        ),
+      );
+      children.add(const Divider(height: 1));
+    }
     if (results.isNotEmpty) {
-      return ListView.builder(
-        padding: const EdgeInsets.all(12),
-        itemCount: results.length,
-        itemBuilder: (_, index) {
-          final place = results[index];
+      children.addAll(
+        results.map((place) {
           return ListTile(
             leading: const CircleAvatar(
               child: Icon(Icons.location_on_outlined),
@@ -537,56 +688,59 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
             subtitle: Text(place['formattedAddress'] ?? '', maxLines: 2),
             onTap: () => selectPlace(place),
           );
-        },
+        }),
       );
+      return ListView(padding: const EdgeInsets.all(12), children: children);
     }
-    if (activeField == 0) {
-      return ListView(
-        children: [
-          ListTile(
-            contentPadding: const EdgeInsets.all(18),
-            leading: const CircleAvatar(
-              backgroundColor: Color(0xffdff7fb),
-              child: Icon(Icons.my_location, color: _routeBlue),
-            ),
-            title: const Text(
-              'Your location',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            subtitle: const Text('Use current device location'),
-            onTap: useCurrentLocation,
-          ),
-        ],
-      );
-    }
-    if (tab == 2 && loadingSaved) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final items = tab == 2 ? savedLocations : [widget.destination];
-    if (items.isEmpty) {
-      return const Center(
-        child: Text(
-          'No saved places yet.',
-          style: TextStyle(color: _routeMuted),
+    final loading = tab == 0 ? loadingRecommended : loadingSaved;
+    if (loading) {
+      children.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 30),
+          child: Center(child: WauLoadingIndicator(size: 34)),
         ),
       );
+      return ListView(padding: const EdgeInsets.all(12), children: children);
     }
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: items.length,
-      itemBuilder: (_, index) => Card(
-        child: ListTile(
-          leading: Icon(
-            tab == 2 ? Icons.bookmark : Icons.history,
-            color: _routeBlue,
+    final items = tab == 0 ? recommendedLocations : savedLocations;
+    if (items.isEmpty) {
+      final sourceError = tab == 0 ? recommendedError : savedError;
+      children.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 18),
+          child: Center(
+            child: Text(
+              sourceError ??
+                  (tab == 0
+                      ? 'No recommended places found nearby.'
+                      : 'No saved places yet.'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: sourceError == null ? _routeMuted : Colors.red,
+              ),
+            ),
           ),
-          title: Text(items[index].name),
-          subtitle: Text(items[index].address, maxLines: 2),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => selectDestination(items[index]),
+        ),
+      );
+      return ListView(padding: const EdgeInsets.all(12), children: children);
+    }
+    children.addAll(
+      items.map(
+        (item) => Card(
+          child: ListTile(
+            leading: Icon(
+              tab == 1 ? Icons.bookmark : Icons.recommend_outlined,
+              color: _routeBlue,
+            ),
+            title: Text(item.name),
+            subtitle: Text(item.address, maxLines: 2),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => selectRouteLocation(item),
+          ),
         ),
       ),
     );
+    return ListView(padding: const EdgeInsets.all(12), children: children);
   }
 
   @override
@@ -595,6 +749,8 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     savedLocationService.changes.removeListener(_savedLocationsChanged);
     startController.dispose();
     destinationController.dispose();
+    startFocusNode.dispose();
+    destinationFocusNode.dispose();
     super.dispose();
   }
 }
