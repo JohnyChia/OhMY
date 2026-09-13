@@ -208,6 +208,7 @@ class ItineraryBoard extends StatelessWidget {
                   itemCount: controller.itinerary.length,
                   onReorder: controller.isCreator
                       ? (oldIndex, newIndex) async {
+                          // onReorder gives the insertion index before removal.
                           final destinationIndex = newIndex > oldIndex
                               ? newIndex - 1
                               : newIndex;

@@ -3,7 +3,7 @@ import 'package:flutter_app/user_management/screens/travel_preferences_screen.da
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('continue button can be reached on a short phone screen', (
+  testWidgets('all preferences and Continue fit on a short phone screen', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(360, 640);
@@ -16,12 +16,50 @@ void main() {
     );
 
     final continueButton = find.widgetWithText(FilledButton, 'Continue');
-    expect(continueButton, findsOneWidget);
-    expect(continueButton.hitTestable(), findsNothing);
-
-    await tester.drag(find.byType(ListView), const Offset(0, -500));
-    await tester.pumpAndSettle();
-
+    expect(find.byTooltip('Back'), findsNothing);
+    expect(find.byType(Scrollable), findsNothing);
+    expect(find.text('Traditional Craft').hitTestable(), findsOneWidget);
     expect(continueButton.hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('editing returns draft selections through Back without saving', (
+    tester,
+  ) async {
+    List<String>? draft;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => TravelPreferencesScreen(
+                    isEditing: true,
+                    initialSelections: const [
+                      'Heritage', 'Local Cuisine', 'Historical Landmark',
+                    ],
+                    onSaved: (value) => draft = value,
+                  ),
+                ),
+              ),
+              child: const Text('Edit interests'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Edit interests'));
+    await tester.pumpAndSettle();
+    expect(find.text('Save preferences'), findsNothing);
+    expect(find.text('Continue'), findsNothing);
+    await tester.ensureVisible(find.text('Cultural Experience'));
+    await tester.tap(find.text('Cultural Experience'));
+    await tester.pump();
+    expect(draft, isNull);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(draft, contains('Cultural Experience'));
+    expect(draft, hasLength(4));
   });
 }

@@ -281,7 +281,6 @@ class _ProfileAvatar extends StatelessWidget {
         ),
       ),
     );
-    final url = profile.avatarUrl;
     return Container(
       width: 98,
       height: 98,
@@ -298,15 +297,7 @@ class _ProfileAvatar extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipOval(
-        child: url == null || url.isEmpty
-            ? fallback
-            : Image.network(
-                url,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => fallback,
-              ),
-      ),
+      child: ClipOval(child: fallback),
     );
   }
 }
