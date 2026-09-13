@@ -36,12 +36,45 @@ class NovaAction {
     if (allowedTargets[type] != target || parameters is! Map) return null;
     final safeParameters = _safeParametersForAction(type, parameters);
     if (safeParameters == null) return null;
+    if (type == 'show_place_results') {
+      _normaliseRecommendationTags(safeParameters);
+    }
     return NovaAction(
       type: type,
       target: target,
       parameters: safeParameters,
       requiresConfirmation: confirmation,
     );
+  }
+
+  static void _normaliseRecommendationTags(Map<String, dynamic> parameters) {
+    final recommendations = parameters['recommendations'];
+    if (recommendations is! List) return;
+    parameters['recommendations'] = recommendations.map((raw) {
+      if (raw is! Map) return raw;
+      final item = Map<String, dynamic>.from(raw);
+      final ranking = item['ranking'] is Map
+          ? Map<String, dynamic>.from(item['ranking'] as Map)
+          : <String, dynamic>{};
+      final values = <String>[
+        ...?((item['matchedPreferences'] as List?)
+            ?.whereType<String>()),
+        ...?((ranking['matchingTags'] as List?)?.whereType<String>()),
+      ];
+      final tags = <String>[];
+      for (final value in values) {
+        final tag = value.trim();
+        if (tag.isNotEmpty && !tags.contains(tag)) tags.add(tag);
+        if (tags.length == 4) break;
+      }
+      if (tags.isNotEmpty) {
+        item['analysis'] = <String, dynamic>{
+          'generalTags': tags,
+          'culturalTags': <String>[],
+        };
+      }
+      return item;
+    }).toList();
   }
 
   static Map<String, dynamic>? _safeParameters(Map value) {

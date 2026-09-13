@@ -7,6 +7,24 @@ const savedTravelItemService = require("../services/savedTravelItemService");
 const { runAgent } = require("../services/agentService");
 const { buildAgentActions, buildPrimaryAction, validatePrimaryAction } = require("../services/agentActionService");
 
+function parseResetDurationSeconds(value) {
+  const source = String(value || '').trim().toLowerCase();
+  if (!source) return null;
+  if (/^\d+(?:\.\d+)?$/.test(source)) return Math.ceil(Number(source));
+  let total = 0;
+  let matched = false;
+  const units = /([0-9]+(?:\.[0-9]+)?)\s*(ms|s|m|h)/g;
+  for (const match of source.matchAll(units)) {
+    matched = true;
+    const amount = Number(match[1]);
+    total += match[2] === 'h' ? amount * 3600
+      : match[2] === 'm' ? amount * 60
+        : match[2] === 'ms' ? amount / 1000
+          : amount;
+  }
+  return matched && total > 0 ? Math.ceil(total) : null;
+}
+
 async function chatController(req, res) {
   const reqId = "REQ-" + Math.random().toString(36).substr(2, 9);
   const startedAt = Date.now();
@@ -144,7 +162,7 @@ async function chatController(req, res) {
     let intent = { intent: agentResponse.intent, parameters: {} };
     let toolResult = agentResponse.toolResult;
     const reply = agentResponse.reply;
-    const mapOnlyRecommendation = (
+    const hasRecommendationResults = (
       agentResponse.intent === 'recommendation' &&
       Array.isArray(toolResult?.recommendations) &&
       toolResult.recommendations.length > 0
@@ -153,9 +171,10 @@ async function chatController(req, res) {
       toolResult?.success === true
     );
 
-    if (!mapOnlyRecommendation) {
-      await memory.saveMessage(user_id, session.id, "assistant", reply);
-    }
+    // Keep the spoken/map handoff in short memory as well. The UI suppresses
+    // its duplicate bubble, but Nova still needs this verified context to
+    // understand a hands-free follow-up such as "start with the first one".
+    await memory.saveMessage(user_id, session.id, "assistant", reply);
 
     let replyLanguageCode = agentResponse.languageCode;
     let replyLanguageName = agentResponse.languageCode;
@@ -186,6 +205,12 @@ async function chatController(req, res) {
       profile: updatedProfile,
       routing: agentResponse.routing,
     }));
+    // A response may be map-only only when the validated owner action really
+    // exists. Otherwise the client must retain Nova's natural-language reply
+    // instead of producing a silent turn with nowhere to present the data.
+    const mapOnlyRecommendation = hasRecommendationResults &&
+      action?.type === 'show_place_results' &&
+      action?.target === 'map';
 
     console.log(`--- [CHAT END] ${reqId} ---`);
     timing('T7_response_sent');
@@ -213,14 +238,29 @@ async function chatController(req, res) {
     const header = (name) => typeof providerHeaders?.get === 'function'
       ? providerHeaders.get(name)
       : providerHeaders?.[name];
-    const retryAfter = Number(header('retry-after'));
+    const retryAfter = parseResetDurationSeconds(header('retry-after'));
     const tokenReset = String(header('x-ratelimit-reset-tokens') || '').trim();
+    const requestReset = String(header('x-ratelimit-reset-requests') || '').trim();
+    const providerResetSeconds = Math.max(
+      parseResetDurationSeconds(tokenReset) || 0,
+      parseResetDurationSeconds(requestReset) || 0,
+    ) || null;
     const quotaLimited = Number(error?.status) === 429 || /rate limit|tokens per minute/i.test(String(error?.message || ''));
-    const timedOut = /timed out|timeout|aborted/i.test(String(error?.message || ''));
+    const timedOut = /timed out|timeout|aborted|temporarily unavailable/i.test(String(error?.message || '')) ||
+      error?.code === 'NOVA_CLASSIFIER_UNAVAILABLE';
+    const configuredQuotaRetry = Number(process.env.NOVA_QUOTA_RETRY_SECONDS);
+    const fallbackQuotaRetry = Number.isFinite(configuredQuotaRetry)
+      ? configuredQuotaRetry
+      : 60;
+    const actualQuotaRetry = Math.max(
+      retryAfter || 0,
+      providerResetSeconds || 0,
+    );
     const retrySeconds = quotaLimited
-      ? Math.max(1, Number.isFinite(retryAfter) && retryAfter > 0
-          ? Math.ceil(retryAfter)
-          : Number(process.env.NOVA_QUOTA_RETRY_SECONDS) || 60)
+      ? Math.max(
+          1,
+          actualQuotaRetry || fallbackQuotaRetry,
+        )
       : timedOut
         ? Math.max(1, Number(process.env.NOVA_TIMEOUT_RETRY_SECONDS) || 8)
         : null;
@@ -234,8 +274,8 @@ async function chatController(req, res) {
         : timedOut
           ? `Nova is temporarily busy. Available again at ${nextRetryAt}.`
         : error.message,
-      ...(Number.isFinite(retryAfter) && retryAfter > 0
-        ? { retry_after_seconds: Math.ceil(retryAfter) }
+      ...(retryAfter
+        ? { retry_after_seconds: retryAfter }
         : {}),
       ...(tokenReset ? { token_refresh_in: tokenReset } : {}),
       ...(retrySeconds
@@ -249,4 +289,4 @@ async function chatController(req, res) {
   }
 }
 
-module.exports = { chatController };
+module.exports = { chatController, parseResetDurationSeconds };

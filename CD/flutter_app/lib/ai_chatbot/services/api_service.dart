@@ -17,6 +17,15 @@ class VoiceTranscript {
   final String? languageCode;
 }
 
+class NovaApiException implements Exception {
+  const NovaApiException(this.data);
+
+  final Map<String, dynamic> data;
+
+  @override
+  String toString() => data['error']?.toString() ?? 'Nova request failed.';
+}
+
 class ApiService {
   static const _configuredApiUrl = String.fromEnvironment('AI_CHATBOT_URL');
   static const _requestTimeout = Duration(seconds: 30);
@@ -293,12 +302,10 @@ class ApiService {
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        data['error'] ?? 'Nova could not analyse this attachment.',
-      );
+      throw NovaApiException(data);
     }
     if (data['success'] != true) {
-      throw Exception(data['error'] ?? 'Attachment analysis failed.');
+      throw NovaApiException(data);
     }
     return Map<String, dynamic>.from(data['analysis'] as Map);
   }

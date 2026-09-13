@@ -29,6 +29,9 @@ const SEMANTIC_INTENTS = Object.freeze([
 ]);
 
 const INTENT_ALIASES = Object.freeze({
+  weather_check: 'weather',
+  check_weather: 'weather',
+  weather_forecast: 'weather',
   recommend_place: 'recommendation',
   recommend_places: 'recommendation',
   recommendations: 'recommendation',
@@ -71,7 +74,11 @@ const classificationTool = {
     parameters: {
       type: 'object',
       properties: {
-        intent: { type: 'string', enum: SEMANTIC_INTENTS },
+        intent: {
+          type: 'string',
+          enum: SEMANTIC_INTENTS,
+          description: 'Use clarification only when the requested travel operation or its indispensable subject cannot be understood. A weather request with a geographic destination is complete; its date is optional and defaults to today. Use out_of_scope for understandable harmless non-travel input. Safety is evaluated separately.',
+        },
         language: {
           type: 'object',
           properties: {
@@ -100,12 +107,17 @@ const classificationTool = {
           },
           required: ['acceptable', 'reason'],
         },
+        attachment_action: {
+          type: 'string',
+          enum: ['none', 'explain', 'save', 'map', 'navigate'],
+          description: 'The action the current user explicitly requests for the attached evidence. Merely recognizing a place is explain, not map or navigation.',
+        },
         confidence: { type: 'number' },
         parameters: {
           type: 'object',
           properties: {
             destination: { type: 'string' },
-            travel_date: { type: 'string' },
+            travel_date: { type: 'string', description: 'Optional date or period. Omit it when the user asks for weather without specifying a time; the weather service will use today.' },
             open_nearest: { type: 'boolean' },
             requirements: { type: 'array', items: { type: 'string', enum: ATTRACTION_TAGS } },
             excluded_requirements: { type: 'array', items: { type: 'string' } },
@@ -151,17 +163,21 @@ function validateClassification(value) {
   const domain = ['malaysia_travel', 'travel', 'non_travel'].includes(value.domain)
     ? value.domain : (intent === 'out_of_scope' ? 'non_travel' : 'travel');
   const parsedConfidence = Number(value.confidence);
-  const confidence = Number.isFinite(parsedConfidence)
-    ? Math.min(1, Math.max(0, parsedConfidence)) : 0.6;
+  if (!Number.isFinite(parsedConfidence) || parsedConfidence < 0 || parsedConfidence > 1) {
+    return null;
+  }
+  const confidence = parsedConfidence;
   const rawParameters = value.parameters && typeof value.parameters === 'object' && !Array.isArray(value.parameters)
     ? value.parameters : {};
   const safetyAccepted = value.safety?.acceptable !== false;
+  const attachmentAction = ['none', 'explain', 'save', 'map', 'navigate'].includes(value.attachment_action)
+    ? value.attachment_action
+    : 'none';
 
   const configuredMinimum = Number(process.env.NOVA_MIN_ACTION_CONFIDENCE);
   const minimumActionConfidence = Number.isFinite(configuredMinimum)
     ? Math.min(1, Math.max(0, configuredMinimum))
     : 0.55;
-  const actionConfidenceSatisfied = confidence >= minimumActionConfidence;
   const actionDomainSatisfied = domain !== 'non_travel' && safetyAccepted;
   let parameters = { ...rawParameters };
   const destinationCandidate = [
@@ -217,6 +233,23 @@ function validateClassification(value) {
       Object.entries(parameters).filter(([key]) => allowedParameterKeys.includes(key)),
     );
   }
+  // Confidence is advisory model metadata. For low-risk read-only requests,
+  // an explicit semantic intent plus its required entity is stronger evidence
+  // than a generic global score. This prevents fully specified weather/place
+  // questions from being downgraded to clarification without matching phrases.
+  const hasDestination = typeof parameters.destination === 'string' &&
+    parameters.destination.trim().length > 0;
+  const hasRecommendationSubject = hasDestination ||
+    (Array.isArray(parameters.requirements) && parameters.requirements.length > 0);
+  const hasCompleteReadOnlyIntent =
+    (intent === 'weather' && hasDestination) ||
+    (intent === 'traffic' && hasDestination) ||
+    (intent === 'recommendation' && hasRecommendationSubject) ||
+    intent === 'community' ||
+    intent === 'saved_items' ||
+    intent === 'link_analysis';
+  const actionConfidenceSatisfied = confidence >= minimumActionConfidence ||
+    hasCompleteReadOnlyIntent;
   return {
     intent,
     language: { ...language },
@@ -235,6 +268,7 @@ function validateClassification(value) {
       acceptable: safetyAccepted,
       reason: String(value.safety?.reason || '').slice(0, 160),
     },
+    attachmentAction,
   };
 }
 
@@ -378,8 +412,7 @@ async function classifyWithGroq({ messages, model, signal, preferFallbackClient,
       if (classification) response = repairResponse;
     }
     if (!classification) {
-      console.warn('[Nova classifier] Providers returned unusable semantic output; requesting clarification.');
-      classification = unavailableClassification(messages);
+      throw new Error('Semantic classifier returned unusable output.');
     }
     return { classification, response };
 }
@@ -404,14 +437,10 @@ async function classifyRequest({
       /rate limit|tokens per minute/i.test(String(error?.message || '')),
     );
     if (capacityError) throw capacityError;
-    console.warn(
-      '[Nova classifier] All providers failed; requesting clarification:',
-      errors.map((error) => error?.message).filter(Boolean).join(' | '),
-    );
-    return {
-      classification: unavailableClassification(messages),
-      response: { _fallbackUsed: preferFallbackClient, _provider: 'local_safe_fallback', usage: null },
-    };
+    const unavailable = new Error('Nova semantic classification is temporarily unavailable.');
+    unavailable.code = 'NOVA_CLASSIFIER_UNAVAILABLE';
+    unavailable.causes = errors.map((error) => error?.message).filter(Boolean);
+    throw unavailable;
   }
 }
 

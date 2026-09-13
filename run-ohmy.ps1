@@ -143,12 +143,14 @@ function Start-BackgroundService(
     [string]$WorkingDirectory,
     [hashtable]$Environment = @{}
 ) {
-    if ($UseExistingServices) {
-        if (-not (Wait-Port $Port)) {
-            throw "$Name is not running on port $Port. Start the first launcher before this device."
-        }
+    if ($UseExistingServices -and (Test-PortListening $Port)) {
         Write-Host "[shared] Reusing $Name on port $Port" -ForegroundColor Green
         return
+    }
+
+    if ($UseExistingServices) {
+        Write-Host "[auto] $Name is not running on port $Port; starting it now..." `
+            -ForegroundColor Cyan
     }
     if (Test-PortListening $Port) {
         Write-Host "[skip] $Name is already listening on port $Port" `
@@ -530,5 +532,6 @@ finally {
     }
     Stop-StartedServices
 }
+
 
 

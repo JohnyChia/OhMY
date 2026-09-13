@@ -26,6 +26,22 @@ function selectPreferences({ requirements, profile }) {
 function compactTaggedPlace(item) {
   const place = item?.place || {};
   const ranking = item?.ranking || {};
+  const matchingTags = cleanCanonicalPreferences([
+    ...(Array.isArray(item?.matchedPreferences) ? item.matchedPreferences : []),
+    ...(Array.isArray(ranking.matchingTags) ? ranking.matchingTags : []),
+  ]);
+  const matchingTagSet = new Set(matchingTags);
+  const analysedTags = cleanCanonicalPreferences([
+    ...(Array.isArray(item?.analysis?.generalTags) ? item.analysis.generalTags : []),
+    ...(Array.isArray(item?.analysis?.culturalTags) ? item.analysis.culturalTags : []),
+  ]);
+  const presentationTags = analysedTags.filter((tag) => matchingTagSet.has(tag));
+  // Some recommender payloads expose the verified intersection only through
+  // matchedPreferences/ranking.matchingTags. Keep those tags on this exact
+  // place so the map PageView moves its chips with the narrated card.
+  for (const tag of matchingTags) {
+    if (!presentationTags.includes(tag)) presentationTags.push(tag);
+  }
   return {
     rank: Number(item?.rank) || null,
     place: {
@@ -54,14 +70,17 @@ function compactTaggedPlace(item) {
       directionsUri: place.directionsUri || null,
     },
     analysis: {
-      generalTags: Array.isArray(item?.analysis?.generalTags) ? item.analysis.generalTags.slice(0, 20) : [],
-      culturalTags: Array.isArray(item?.analysis?.culturalTags) ? item.analysis.culturalTags.slice(0, 20) : [],
+      // The owner map renders analysis tags as chips. For a Nova handoff it
+      // must receive only the recommender's actual preference intersections,
+      // not every characteristic detected for the business.
+      generalTags: presentationTags.slice(0, 4),
+      culturalTags: [],
     },
-    matchedPreferences: Array.isArray(item?.matchedPreferences) ? item.matchedPreferences.slice(0, 20) : [],
+    matchedPreferences: matchingTags.slice(0, 4),
     ranking: {
       finalScore: ranking.finalScore ?? 0,
       similarityPercentage: ranking.similarityPercentage ?? 0,
-      matchingTags: Array.isArray(ranking.matchingTags) ? ranking.matchingTags.slice(0, 20) : [],
+      matchingTags: matchingTags.slice(0, 4),
     },
   };
 }
@@ -100,4 +119,4 @@ async function getRecommendations(options) {
   }
 }
 
-module.exports = { getRecommendations, selectPreferences };
+module.exports = { compactTaggedPlace, getRecommendations, selectPreferences };
