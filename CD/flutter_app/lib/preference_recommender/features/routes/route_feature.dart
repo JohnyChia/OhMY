@@ -171,7 +171,11 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   RouteLocation? start;
   late RouteLocation destination;
   List<Map<String, dynamic>> results = [];
+  Timer? searchDebounce;
+  int searchRequest = 0;
+  int? resultField;
   bool searching = false;
+  bool destinationSelectionValid = true;
   bool loadingSaved = false;
   List<RouteLocation> savedLocations = const [];
   int activeField = 0, tab = 0;
@@ -231,6 +235,8 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   }
 
   Future<void> useCurrentLocation() async {
+    searchDebounce?.cancel();
+    searchRequest++;
     setState(() => searching = true);
     final position = await currentPosition();
     if (!mounted) return;
@@ -251,17 +257,59 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     setState(() {
       searching = false;
       results = [];
+      resultField = null;
       error = null;
     });
     openRoutesIfReady();
   }
 
-  Future<void> searchPlaces(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() => results = []);
+  void searchChanged(String value, int field) {
+    searchDebounce?.cancel();
+    final query = value.trim();
+    final request = ++searchRequest;
+    setState(() {
+      activeField = field;
+      results = [];
+      resultField = null;
+      error = null;
+      if (field == 0 && query != start?.name.trim()) start = null;
+      if (field == 1 && query != destination.name.trim()) {
+        destinationSelectionValid = false;
+      }
+    });
+    if (query.isEmpty) {
+      setState(() => searching = false);
       return;
     }
+    searchDebounce = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(searchPlaces(query, field: field, request: request)),
+    );
+  }
+
+  void submitSearch(String value, int field) {
+    searchDebounce?.cancel();
+    final query = value.trim();
+    final request = ++searchRequest;
+    if (query.isEmpty) {
+      setState(() {
+        activeField = field;
+        results = [];
+        resultField = null;
+        searching = false;
+      });
+      return;
+    }
+    unawaited(searchPlaces(query, field: field, request: request));
+  }
+
+  Future<void> searchPlaces(
+    String query, {
+    required int field,
+    required int request,
+  }) async {
     setState(() {
+      activeField = field;
       searching = true;
       error = null;
     });
@@ -275,52 +323,65 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw Exception(data['error'] ?? 'Search failed.');
       }
-      if (mounted) {
-        setState(
-          () => results = List<Map<String, dynamic>>.from(data['places'] ?? [])
+      if (mounted && request == searchRequest) {
+        setState(() {
+          results = List<Map<String, dynamic>>.from(data['places'] ?? [])
               .where(
                 (place) => place['location'] != null && place['isArea'] != true,
               )
-              .toList(),
-        );
+              .toList();
+          resultField = field;
+        });
       }
     } catch (exception) {
-      if (mounted) {
+      if (mounted && request == searchRequest) {
         setState(
           () => error = exception.toString().replaceFirst('Exception: ', ''),
         );
       }
     } finally {
-      if (mounted) setState(() => searching = false);
+      if (mounted && request == searchRequest) {
+        setState(() => searching = false);
+      }
     }
   }
 
   void selectPlace(Map<String, dynamic> place) {
+    searchDebounce?.cancel();
+    searchRequest++;
     final selected = RouteLocation.fromPlace(place);
+    final field = resultField ?? activeField;
     setState(() {
-      if (activeField == 0) {
+      activeField = field;
+      if (field == 0) {
         start = selected;
         startController.text = selected.name;
       } else {
         destination = selected;
         destinationController.text = selected.name;
+        destinationSelectionValid = true;
       }
       results = [];
+      resultField = null;
     });
     openRoutesIfReady();
   }
 
   void selectDestination(RouteLocation selected) {
+    searchDebounce?.cancel();
+    searchRequest++;
     setState(() {
       destination = selected;
       destinationController.text = selected.name;
+      destinationSelectionValid = true;
       results = [];
+      resultField = null;
     });
     openRoutesIfReady();
   }
 
   void openRoutesIfReady() {
-    if (start == null) return;
+    if (start == null || !destinationSelectionValid) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -387,16 +448,13 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
   }) => TextField(
     controller: controller,
     onTap: () => setState(() => activeField = field),
-    onChanged: (value) {
-      setState(() => activeField = field);
-      searchPlaces(value);
-    },
-    onSubmitted: searchPlaces,
+    onChanged: (value) => searchChanged(value, field),
+    onSubmitted: (value) => submitSearch(value, field),
     decoration: InputDecoration(
       prefixIcon: Icon(icon, color: field == 0 ? _routeBlue : Colors.orange),
       hintText: hint,
       suffixIcon: IconButton(
-        onPressed: () => searchPlaces(controller.text),
+        onPressed: () => submitSearch(controller.text, field),
         icon: const Icon(Icons.search),
       ),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -489,6 +547,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
 
   @override
   void dispose() {
+    searchDebounce?.cancel();
     savedLocationService.changes.removeListener(_savedLocationsChanged);
     startController.dispose();
     destinationController.dispose();

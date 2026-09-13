@@ -918,7 +918,10 @@ app.post(
                 "locality",
                 "sublocality",
                 "sublocality_level_1",
-                "administrative_area_level_2"
+                "administrative_area_level_1",
+                "administrative_area_level_2",
+                "administrative_area_level_3",
+                "neighborhood"
             ]);
 
             let places =

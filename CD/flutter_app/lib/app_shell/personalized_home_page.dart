@@ -430,7 +430,7 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
           .post(
             Uri.parse('${widget.backend}/api/places/search'),
             headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({'query': query, 'placesOnly': true}),
+            body: jsonEncode({'query': query}),
           )
           .timeout(const Duration(seconds: 30));
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -479,6 +479,17 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
   Future<void> _select(Map<String, dynamic> result) async {
     final placeId = result['id']?.toString();
     if (placeId == null || placeId.isEmpty || _selecting) return;
+    if (result['isArea'] == true) {
+      widget.onSelected({
+        'place': Map<String, dynamic>.from(result),
+        'analysis': const <String, dynamic>{
+          'generalTags': <String>[],
+          'culturalTags': <String>[],
+        },
+        'areaSelection': true,
+      });
+      return;
+    }
     setState(() {
       _selecting = true;
       _message = 'Loading place details…';
@@ -583,9 +594,11 @@ class _HomePlaceSearchSheetState extends State<_HomePlaceSearchSheet> {
                     'Attraction';
                 return ListTile(
                   enabled: !_selecting,
-                  leading: const Icon(
-                    Icons.location_on_outlined,
-                    color: Color(0xFF3266CC),
+                  leading: Icon(
+                    place['isArea'] == true
+                        ? Icons.map_outlined
+                        : Icons.location_on_outlined,
+                    color: const Color(0xFF3266CC),
                   ),
                   title: Text(name, maxLines: 1),
                   subtitle: Text(
