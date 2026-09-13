@@ -11,7 +11,6 @@ import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/travel_place_search_service.dart';
 import '../utils/profanity_filter.dart';
-import '../widgets/travel_group_widgets.dart';
 
 class CreateGroupSheet extends StatefulWidget {
   const CreateGroupSheet({
@@ -43,6 +42,10 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
   JoinMode _joinMode = JoinMode.open;
   bool _searching = false;
   bool _saving = false;
+  String? _tagError;
+  String? _submitError;
+  final _tagErrorKey = GlobalKey();
+  final _submitErrorKey = GlobalKey();
 
   static const tagOptions = culturalTravelPreferenceOptions;
 
@@ -138,15 +141,20 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                               ? Colors.white
                               : AppColors.secondaryText,
                         ),
-                        onSelected: (_) => setState(
-                          () => _tags.contains(tag)
+                        onSelected: (_) => setState(() {
+                          _tags.contains(tag)
                               ? _tags.remove(tag)
-                              : _tags.add(tag),
-                        ),
+                              : _tags.add(tag);
+                          if (_tags.isNotEmpty) _tagError = null;
+                        }),
                       ),
                     )
                     .toList(),
               ),
+              if (_tagError != null) ...[
+                const SizedBox(height: 8),
+                _InlineFormError(key: _tagErrorKey, message: _tagError!),
+              ],
               const SizedBox(height: 16),
               TravellerStepper(
                 value: _maxMembers,
@@ -170,6 +178,13 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                 onSelectionChanged: (value) =>
                     setState(() => _joinMode = value.first),
               ),
+              if (_submitError != null) ...[
+                const SizedBox(height: 12),
+                _InlineFormError(
+                  key: _submitErrorKey,
+                  message: _submitError!,
+                ),
+              ],
               const SizedBox(height: 22),
               FilledButton(
                 onPressed: _saving ? null : _save,
@@ -357,12 +372,15 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
   }
 
   Future<void> _save() async {
+    setState(() {
+      _tagError = null;
+      _submitError = null;
+    });
     if (!_formKey.currentState!.validate()) return;
     if (_tags.isEmpty) {
-      showTravelGroupMessage(
-        context,
-        'Select at least one activity preference for group recommendations.',
-        error: true,
+      _showInlineError(
+        tagError:
+            'Select at least one activity preference for group recommendations.',
       );
       return;
     }
@@ -406,19 +424,71 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
       );
       if (mounted) Navigator.pop(context, group);
     } on TravelGroupException catch (error) {
-      if (mounted) showTravelGroupMessage(context, error.message, error: true);
+      if (mounted) _showInlineError(submitError: error.message);
     } catch (_) {
       if (mounted) {
-        showTravelGroupMessage(
-          context,
-          'Could not obtain your current location. Enable precise location and try again.',
-          error: true,
+        _showInlineError(
+          submitError:
+              'Could not obtain your current location. Enable precise location and try again.',
         );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
+
+  void _showInlineError({String? tagError, String? submitError}) {
+    setState(() {
+      _tagError = tagError;
+      _submitError = submitError;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = tagError != null
+          ? _tagErrorKey.currentContext
+          : _submitErrorKey.currentContext;
+      if (target != null) {
+        Scrollable.ensureVisible(
+          target,
+          duration: const Duration(milliseconds: 220),
+          alignment: .45,
+        );
+      }
+    });
+  }
+}
+
+class _InlineFormError extends StatelessWidget {
+  const _InlineFormError({super.key, required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFECEA),
+        border: Border.all(color: const Color(0xFFF0A39B)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFB3261E), size: 19),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: Color(0xFF8C1D18), fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class TravellerStepper extends StatelessWidget {

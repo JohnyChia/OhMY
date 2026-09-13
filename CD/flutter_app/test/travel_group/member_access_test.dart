@@ -108,6 +108,28 @@ void main() {
     expect(controller.isMember, isTrue);
     controller.dispose();
   });
+  test('joined traveller can leave an ongoing group', () async {
+    final repository = MockTravelGroupRepository.seeded();
+    final controller = TravelGroupController(
+      repository: repository,
+      currentUser: PrototypeUser(
+        id: 'USER_101',
+        name: 'Traveller',
+        isVerified: true,
+      ),
+    );
+    await controller.openGroup('GROUP_001');
+
+    await controller.leaveActiveGroup();
+
+    expect(controller.activeGroup, isNull);
+    expect(controller.ongoingMemberGroup, isNull);
+    expect(
+      (await repository.getGroup('GROUP_001'))!.memberIds,
+      isNot(contains('USER_101')),
+    );
+    controller.dispose();
+  });
   test('creation checks destination distance, not browsing area', () {
     final controller = TravelGroupController(
       repository: MockTravelGroupRepository.seeded(),

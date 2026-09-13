@@ -177,6 +177,30 @@ class MockTravelGroupRepository implements TravelGroupRepository {
   }
 
   @override
+  Future<void> leaveGroup({
+    required String groupId,
+    required String userId,
+  }) async {
+    final group = _requireGroup(groupId);
+    if (userId == group.creatorId) {
+      throw const TravelGroupException(
+        'Creators must end or delete their Travel Group.',
+        'creator_cannot_leave',
+      );
+    }
+    if (!group.memberIds.remove(userId)) {
+      throw const TravelGroupException(
+        'You are no longer a member of this group.',
+        'not_a_member',
+      );
+    }
+    group.memberCount = group.memberIds.length;
+    _requests.removeWhere(
+      (request) => request.groupId == groupId && request.travellerId == userId,
+    );
+  }
+
+  @override
   Future<TravelGroup> createGroup(
     TravelGroup group, {
     double? creatorLatitude,

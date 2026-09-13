@@ -155,10 +155,13 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
       var statsRows = <Map<String, dynamic>>[];
       if (userIds.isNotEmpty) {
         try {
-          statsRows = (await _client.rpc(
-            'travel_group_member_stats',
-            params: {'target_group_id': groupId},
-          ) as List<dynamic>).cast<Map<String, dynamic>>();
+          statsRows =
+              (await _client.rpc(
+                        'travel_group_member_stats',
+                        params: {'target_group_id': groupId},
+                      )
+                      as List<dynamic>)
+                  .cast<Map<String, dynamic>>();
         } catch (_) {
           // Profile aggregates are supplementary. Keep the lobby usable while
           // a newly deployed client is waiting for its database migration.
@@ -211,6 +214,43 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
       );
     } catch (error) {
       throw _failure(error);
+    }
+  }
+
+  @override
+  Future<void> leaveGroup({
+    required String groupId,
+    required String userId,
+  }) async {
+    try {
+      await _client.rpc(
+        'leave_travel_group',
+        params: {'target_group_id': groupId},
+      );
+    } catch (error) {
+      final message = error.toString();
+      final missingRpc =
+          message.contains('PGRST202') ||
+          (message.contains('Could not find the function') &&
+              message.contains('leave_travel_group'));
+      if (!missingRpc) throw _failure(error);
+
+      // Older deployments may not have the leave RPC yet. The existing RLS
+      // policy permits a member to delete only their own membership row.
+      try {
+        await _client
+            .from('travel_group_members')
+            .delete()
+            .eq('group_id', groupId)
+            .eq('user_id', _user.id);
+        await _client
+            .from('travel_group_join_requests')
+            .delete()
+            .eq('group_id', groupId)
+            .eq('user_id', _user.id);
+      } catch (fallbackError) {
+        throw _failure(fallbackError);
+      }
     }
   }
 

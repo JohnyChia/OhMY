@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_app/app_shell/ohmy_app.dart';
 import 'package:flutter_app/app_shell/ohmy_bottom_navigation_bar.dart';
 import 'package:flutter_app/preference_recommender/features/routes/native_navigation_map.dart';
+import 'package:flutter_app/travel_group/features/travel_group/controllers/travel_group_controller.dart';
+import 'package:flutter_app/travel_group/features/travel_group/models/travel_group_models.dart';
+import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/group_lobby_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -44,24 +48,28 @@ void main() {
     expect(find.text('Profile setup required'), findsWidgets);
   });
 
-  testWidgets('Home search opens destination search before selecting a result', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
-    await tester.pump();
+  testWidgets(
+    'Home search opens destination search before selecting a result',
+    (tester) async {
+      await tester.pumpWidget(const OhMyApp(supabaseEnabled: false));
+      await tester.pump();
 
-    await tester.tap(find.text('Search Attractions ...'));
-    await tester.pump();
-    // Nova's orb animates continuously even while the chat tab is offstage.
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('Search Attractions ...'));
+      await tester.pump();
+      // Nova's orb animates continuously even while the chat tab is offstage.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
 
-    expect(
-      find.widgetWithText(TextField, 'Search attractions…'),
-      findsOneWidget,
-    );
-    expect(find.text('How would you like\nto travel?').hitTestable(), findsNothing);
-  });
+      expect(
+        find.widgetWithText(TextField, 'Search attractions…'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('How would you like\nto travel?').hitTestable(),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('active native navigation hides and restores the app shell bar', (
     tester,
@@ -97,6 +105,42 @@ void main() {
     await tester.pump();
     expect(find.text('Press back again to exit'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
+  });
+
+  testWidgets('global return button opens a joined traveller current lobby', (
+    tester,
+  ) async {
+    final controller = TravelGroupController(
+      repository: MockTravelGroupRepository.seeded(),
+    );
+    controller.switchUser(
+      PrototypeUser(id: 'USER_101', name: 'Farah', isVerified: true),
+    );
+    await controller.restoreOngoingCreatedGroup();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OhMyShell(
+          supabaseEnabled: false,
+          travelGroupController: controller,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('return_to_group_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(GroupLobbyScreen), findsOneWidget);
+    expect(find.text(controller.activeGroup!.name), findsWidgets);
+    expect(
+      find.text('How would you like\nto travel?').hitTestable(),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
   });
 }
 

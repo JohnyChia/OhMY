@@ -111,7 +111,7 @@ class _TravelGroupDiscoveryScreenState
               ),
               const SizedBox(height: 3),
               const Text(
-                'Nearby groups use your current location. Other areas are view-only unless you are within 10 km.',
+                'Choose any location to browse groups within 10 km. Creating or joining still verifies your precise location.',
                 style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
               ),
               const SizedBox(height: 14),
@@ -517,13 +517,13 @@ class _AreaPickerSheet extends StatefulWidget {
 }
 
 class _AreaPickerSheetState extends State<_AreaPickerSheet> {
-  static const quickAreas = [
+  static const quickLocations = [
+    'Setia City Mall',
+    'KLCC',
+    'Sunway Pyramid',
+    'Batu Caves',
     'Bukit Bintang, Kuala Lumpur',
-    'Shah Alam',
-    'Setia Alam',
-    'Kuala Lumpur City Centre',
-    'Subang Jaya',
-    'Setapak, Kuala Lumpur',
+    'i-City',
   ];
 
   final _query = TextEditingController();
@@ -555,7 +555,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
       _error = null;
     });
     try {
-      final results = await widget.placeSearch.search(query, areasOnly: true);
+      final results = await widget.placeSearch.search(query, placesOnly: false);
       if (!mounted || _query.text.trim() != query) return;
       setState(() {
         _results = results;
@@ -564,7 +564,8 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
     } catch (_) {
       if (mounted) {
         setState(
-          () => _error = 'Could not search areas. Check the backend service.',
+          () =>
+              _error = 'Could not search locations. Check the backend service.',
         );
       }
     } finally {
@@ -628,34 +629,34 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
     }
   }
 
-  Future<void> _selectArea(TravelGroupPlace area) async {
+  Future<void> _selectArea(TravelGroupPlace location) async {
     setState(() => _resolving = true);
     try {
       await widget.controller.setArea(
-        area.name,
-        latitude: area.latitude,
-        longitude: area.longitude,
+        location.name,
+        latitude: location.latitude,
+        longitude: location.longitude,
       );
       if (mounted) Navigator.pop(context);
     } catch (_) {
       if (mounted) {
         setState(() {
           _resolving = false;
-          _error = 'Could not select this area. Try again.';
+          _error = 'Could not select this location. Try again.';
         });
       }
     }
   }
 
-  Future<void> _selectQuickArea(String name) async {
+  Future<void> _selectQuickLocation(String name) async {
     setState(() => _resolving = true);
     try {
-      final matches = await widget.placeSearch.search(name, areasOnly: true);
+      final matches = await widget.placeSearch.search(name, placesOnly: false);
       if (!mounted) return;
       if (matches.isEmpty) {
         setState(() {
           _resolving = false;
-          _error = 'No areas found for $name.';
+          _error = 'No locations found for $name.';
         });
         return;
       }
@@ -690,7 +691,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
             ),
             const SizedBox(height: 4),
             const Text(
-              'Browse another area. Joining still uses your precise current location and requires you to be within 10 km of the destination.',
+              'Choose any place as the centre of the 10 km discovery area. Joining and creating still use your precise location.',
               style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
             ),
             const SizedBox(height: 12),
@@ -709,8 +710,8 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
               controller: _query,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                labelText: 'Search area',
-                hintText: 'e.g. Bangsar, Petaling Jaya',
+                labelText: 'Search any location',
+                hintText: 'e.g. Setia City Mall, KLCC, Shah Alam',
                 prefixIcon: const Icon(Icons.search_rounded),
                 suffixIcon: _searching
                     ? const Padding(
@@ -751,9 +752,9 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
                   children: [
                     Icon(Icons.location_off_outlined, color: AppColors.primary),
                     SizedBox(height: 5),
-                    Text('No areas found'),
+                    Text('No locations found'),
                     Text(
-                      'Try a city or suburb, such as Shah Alam or Setapak.',
+                      'Try a place, landmark, neighbourhood, or city.',
                       style: TextStyle(
                         fontSize: 10,
                         color: AppColors.secondaryText,
@@ -807,20 +808,20 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
             ],
             const SizedBox(height: 14),
             const Text(
-              'Popular areas',
+              'Popular locations',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Wrap(
               spacing: 7,
               runSpacing: 7,
-              children: quickAreas
+              children: quickLocations
                   .map(
-                    (area) => ActionChip(
-                      label: Text(area),
+                    (location) => ActionChip(
+                      label: Text(location),
                       onPressed: _resolving
                           ? null
-                          : () => _selectQuickArea(area),
+                          : () => _selectQuickLocation(location),
                     ),
                   )
                   .toList(),

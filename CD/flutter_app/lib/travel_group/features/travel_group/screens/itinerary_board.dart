@@ -4,19 +4,29 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
+import '../services/travel_place_search_service.dart';
+import '../widgets/travel_place_photo.dart';
 import '../widgets/travel_group_widgets.dart';
 import 'active_itinerary_map_screen.dart';
 
 class ItineraryBoard extends StatelessWidget {
-  const ItineraryBoard({super.key, required this.controller});
+  const ItineraryBoard({
+    super.key,
+    required this.controller,
+    required this.placeSearchService,
+    this.onChooseNext,
+  });
 
   final TravelGroupController controller;
+  final TravelPlaceSearchService placeSearchService;
+  final VoidCallback? onChooseNext;
 
   @override
   Widget build(BuildContext context) {
     final group = controller.activeGroup!;
     final nextStop = controller.nextItineraryStop;
     return CustomScrollView(
+      key: const Key('itinerary_board'),
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -30,10 +40,59 @@ class ItineraryBoard extends StatelessWidget {
                       _ItineraryMapPreview(controller: controller),
                       const SizedBox(height: 10),
                     ],
+                    if (group.isConfirmed && group.meetupPoint.isNotEmpty) ...[
+                      Container(
+                        key: const Key('itinerary_meetup_summary'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.paleBlue,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.location_on_rounded,
+                              color: AppColors.primary,
+                              size: 21,
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    group.meetupPoint,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const Text(
+                                    'Meetup point set by the group creator',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: AppColors.secondaryText,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     if (controller.itinerary.length > 1)
                       Container(
-                        height: 39,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.successSurface,
                           borderRadius: BorderRadius.circular(11),
@@ -46,27 +105,65 @@ class ItineraryBoard extends StatelessWidget {
                               size: 19,
                             ),
                             SizedBox(width: 8),
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Time and distance recalculated',
-                                  style: TextStyle(fontSize: 11),
-                                ),
-                                Text(
-                                  'Live traffic is applied when navigation starts',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: AppColors.success,
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Time and distance recalculated',
+                                    style: TextStyle(fontSize: 11),
                                   ),
-                                ),
-                              ],
+                                  Text(
+                                    'Live traffic is applied when navigation starts',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: AppColors.success,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
                     if (controller.itinerary.length > 1)
+                      const SizedBox(height: 10),
+                    if (controller.itinerary.isNotEmpty)
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Your route',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (controller.isCreator &&
+                              controller.itinerary.length > 1)
+                            const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.edit_outlined,
+                                  size: 16,
+                                  color: AppColors.primary,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  'Drag to edit',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    if (controller.itinerary.isNotEmpty)
                       const SizedBox(height: 10),
                     if (controller.isCreator &&
                         group.status != GroupStatus.completed &&
@@ -109,7 +206,7 @@ class ItineraryBoard extends StatelessWidget {
               if (controller.itinerary.isNotEmpty)
                 SliverReorderableList(
                   itemCount: controller.itinerary.length,
-                  onReorder: controller.isCreator
+                  onReorderItem: controller.isCreator
                       ? (oldIndex, newIndex) async {
                           if (!controller.canReorderStop(oldIndex) ||
                               !controller.canReorderStop(newIndex)) {
@@ -132,24 +229,46 @@ class ItineraryBoard extends StatelessWidget {
                     final stop = controller.itinerary[index];
                     return Padding(
                       key: ValueKey(stop.id),
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _ItineraryStopCard(
-                        stop: stop,
-                        index: index,
-                        canReorder:
-                            controller.isCreator &&
-                            controller.canReorderStop(index),
-                        onRemove:
-                            controller.isCreator &&
-                                index > 0 &&
-                                stop.status == StopStatus.upcoming
-                            ? () => _removeStop(context, stop)
-                            : null,
-                        onComplete:
-                            stop.status == StopStatus.current &&
-                                controller.isCreator
-                            ? () => controller.completeStop(stop)
-                            : null,
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Column(
+                        children: [
+                          _ItineraryStopCard(
+                            stop: stop,
+                            index: index,
+                            placeSearchService: placeSearchService,
+                            knownPhotoName:
+                                (stop.placeId == group.destinationPlaceId ||
+                                    stop.placeName == group.destination)
+                                ? group.destinationPhotoName
+                                : null,
+                            canReorder:
+                                controller.isCreator &&
+                                controller.canReorderStop(index),
+                            onRemove:
+                                controller.isCreator &&
+                                    index > 0 &&
+                                    stop.status == StopStatus.upcoming
+                                ? () => _removeStop(context, stop)
+                                : null,
+                            onComplete:
+                                stop.status == StopStatus.current &&
+                                    controller.isCreator
+                                ? () => controller.completeStop(stop)
+                                : null,
+                          ),
+                          if (index < controller.itinerary.length - 1)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Center(
+                                child: Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  key: Key('itinerary_direction_arrow'),
+                                  size: 22,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     );
                   },
@@ -158,6 +277,76 @@ class ItineraryBoard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    if (controller.isCreator &&
+                        group.status != GroupStatus.completed &&
+                        group.status != GroupStatus.cancelled) ...[
+                      InkWell(
+                        key: const Key('choose_next_itinerary_stop'),
+                        onTap: onChooseNext,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: AppColors.border),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Row(
+                            children: [
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: AppColors.paleBlue,
+                                child: Icon(
+                                  Icons.add_location_alt_outlined,
+                                  color: AppColors.primary,
+                                  size: 18,
+                                ),
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Choose next stop',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Add a place from group suggestions',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: AppColors.secondaryText,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: AppColors.primary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton.icon(
+                        key: const Key('add_itinerary_stop_button'),
+                        onPressed: onChooseNext,
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Add a stop'),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     if (controller.itinerary.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       if (group.tripPhase == GroupTripPhase.navigating)
@@ -327,6 +516,8 @@ class _ItineraryStopCard extends StatelessWidget {
     required this.stop,
     required this.index,
     required this.canReorder,
+    required this.placeSearchService,
+    this.knownPhotoName,
     this.onRemove,
     this.onComplete,
   });
@@ -334,6 +525,8 @@ class _ItineraryStopCard extends StatelessWidget {
   final ItineraryStop stop;
   final int index;
   final bool canReorder;
+  final TravelPlaceSearchService placeSearchService;
+  final String? knownPhotoName;
   final VoidCallback? onRemove;
   final VoidCallback? onComplete;
 
@@ -341,18 +534,12 @@ class _ItineraryStopCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final completed = stop.status == StopStatus.completed;
     final current = stop.status == StopStatus.current;
-    final color = completed
-        ? AppColors.successSurface
-        : current
-        ? AppColors.surfaceBlue
-        : index.isEven
-        ? AppColors.surfaceLavender
-        : AppColors.surfaceWarm;
+    final color = Colors.white;
     final border = completed
         ? const Color(0xFFA8DEB8)
         : current
         ? AppColors.primary
-        : AppColors.border;
+        : const Color(0xFFE6ECF7);
     final status = completed
         ? 'COMPLETED'
         : current
@@ -361,35 +548,43 @@ class _ItineraryStopCard extends StatelessWidget {
     final card = AppPanel(
       color: color,
       borderColor: border,
-      padding: const EdgeInsets.fromLTRB(11, 9, 13, 10),
+      padding: const EdgeInsets.fromLTRB(11, 10, 13, 11),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (completed)
-            const SizedBox(
-              width: 26,
-              child: Icon(Icons.check, color: AppColors.success, size: 22),
-            )
-          else if (canReorder)
-            const SizedBox(
-              width: 26,
-              child: Icon(
-                Icons.drag_indicator,
-                color: AppColors.secondaryText,
-                size: 21,
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              TravelPlacePhoto(
+                key: Key('itinerary_photo_${stop.id}'),
+                placeName: stop.placeName,
+                knownPhotoName: knownPhotoName,
+                placeSearchService: placeSearchService,
+                width: 78,
+                height: 82,
+                borderRadius: 12,
               ),
-            )
-          else
-            SizedBox(
-              width: 26,
-              child: Center(
-                child: Text(
-                  '${index + 1}',
-                  style: const TextStyle(color: AppColors.primary),
+              if (completed || current)
+                Positioned(
+                  left: -5,
+                  bottom: -5,
+                  child: CircleAvatar(
+                    radius: 12,
+                    backgroundColor: completed
+                        ? AppColors.success
+                        : AppColors.primary,
+                    child: Icon(
+                      completed
+                          ? Icons.check_rounded
+                          : Icons.navigation_rounded,
+                      size: 14,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          const SizedBox(width: 6),
+            ],
+          ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -399,29 +594,11 @@ class _ItineraryStopCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         stop.placeName,
-                        style: const TextStyle(fontSize: 15),
-                      ),
-                    ),
-                    Container(
-                      height: 22,
-                      padding: const EdgeInsets.symmetric(horizontal: 15),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(
-                          color: completed
-                              ? AppColors.success
-                              : AppColors.primary,
-                        ),
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: completed
-                              ? AppColors.success
-                              : AppColors.primary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -432,9 +609,27 @@ class _ItineraryStopCard extends StatelessWidget {
                         onPressed: onRemove,
                         icon: const Icon(Icons.close_rounded, size: 19),
                       ),
+                    if (canReorder && onRemove == null)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 5),
+                        child: Icon(
+                          Icons.drag_indicator_rounded,
+                          size: 20,
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
                   ],
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 3),
+                Text(
+                  status == 'NEXT STOP' ? 'Next stop • Confirmed' : status,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: completed ? AppColors.success : AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   '${stop.travelTimeFromPreviousMinutes} min travel  •  ${stop.travelDistanceFromPreviousKm.toStringAsFixed(1)} km',
                   style: const TextStyle(fontSize: 11),

@@ -40,7 +40,7 @@ begin
   end if;
 
   delete from public.travel_group_join_requests
-  where group_id = target_group_id and traveller_id = target_user_id;
+  where group_id = target_group_id and user_id = target_user_id;
 end;
 $$;
 

@@ -32,9 +32,25 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
   final _navigationKey = GlobalKey<NativeNavigationMapState>();
   Timer? _workspaceTimer;
   bool _refreshing = false;
+  bool _returnToItineraryScheduled = false;
 
   void _sharedStateChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _returnTravellerToItineraryIfArrived();
+    setState(() {});
+  }
+
+  void _returnTravellerToItineraryIfArrived() {
+    if (_returnToItineraryScheduled ||
+        widget.controller.isCreator ||
+        widget.controller.activeGroup?.tripPhase !=
+            GroupTripPhase.choosingNext) {
+      return;
+    }
+    _returnToItineraryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).maybePop();
+    });
   }
 
   Future<void> _refreshSharedState() async {
@@ -98,7 +114,9 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     // entrance transition on some Samsung devices. Mount the Navigation SDK
     // view only after this full-screen route has completed its first layout.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _mountNavigationMap = true);
+      if (!mounted) return;
+      _returnTravellerToItineraryIfArrived();
+      setState(() => _mountNavigationMap = true);
     });
   }
 
@@ -139,7 +157,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                 const Text('Your trip history has been saved.'),
                 FilledButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Return to group'),
+                  child: const Text('Back to nearby lobbies'),
                 ),
               ],
             ),

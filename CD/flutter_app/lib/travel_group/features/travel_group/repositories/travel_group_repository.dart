@@ -13,6 +13,7 @@ abstract interface class TravelGroupRepository {
   Future<TravelGroup?> getOngoingGroupForMember(String userId);
   Future<List<GroupMemberProfile>> getMembers(String groupId);
   Future<void> removeMember({required String groupId, required String userId});
+  Future<void> leaveGroup({required String groupId, required String userId});
   Future<TravelGroup> createGroup(
     TravelGroup group, {
     double? creatorLatitude,

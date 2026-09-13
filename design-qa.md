@@ -66,4 +66,13 @@ Fixes applied:
 - P3: replace the photo fallback with a neutral destination-category illustration if the recommendation backend is offline for an extended period.
 - P3: add an optional departure time and accessibility/mobility note to Group Details when those become real group fields.
 
-final result: passed
+## Current iteration — capture pending
+
+- Source visual truth: the three phone screenshots attached to the current request: suggestion-card spacing, centered itinerary connectors, and the traveller post-arrival state.
+- Implementation: 112 × 160 dp full-height suggestion thumbnails; votes and status contained beside the image; centered down-arrow connectors with 8 dp spacing above and below; responsive route-update banner; traveller navigation auto-return to the Itinerary tab when the creator confirms arrival.
+- Viewport: automated layout assertions run at 375 × 812 logical pixels.
+- Full-view and focused comparison: blocked because this session exposes no emulator, native-app, or browser surface. The implementation cannot be captured at the same state for a visual side-by-side comparison.
+- Functional evidence: all 27 Travel Group widget tests passed, including overflow, connector alignment, whole-card reorder, and traveller arrival transition tests. Flutter analyzer reported no issues.
+- Required follow-up: capture Suggestions and Itinerary on the Pixel 9 or Samsung device and confirm the live Google image crops, perceived card rhythm, and native-map composition.
+
+final result: blocked

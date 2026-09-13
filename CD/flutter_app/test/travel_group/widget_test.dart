@@ -2,15 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_app/app_shell/ohmy_app.dart';
 import 'package:flutter_app/travel_group/features/travel_group/controllers/travel_group_controller.dart';
 import 'package:flutter_app/travel_group/features/travel_group/models/travel_group_models.dart';
 import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/active_itinerary_map_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/group_lobby_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/group_details_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/itinerary_board.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/suggestion_board.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/live_trip_location_service.dart';
 import 'package:flutter_app/travel_group/features/travel_group/services/travel_place_search_service.dart';
+import 'package:flutter_app/travel_group/features/travel_group/travel_group_routes.dart';
 
 void main() {
   late MockTravelGroupRepository repository;
@@ -63,6 +67,25 @@ void main() {
     ),
   );
 
+  testWidgets('start trip hub offers a direct return to the active group', (
+    tester,
+  ) async {
+    await controller.restoreOngoingCreatedGroup();
+    await tester.pumpWidget(
+      MaterialApp(home: StartTripHubPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('return_to_group_from_hub_button')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('return_to_group_from_hub_button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(GroupLobbyScreen), findsOneWidget);
+    expect(find.text(controller.activeGroup!.name), findsWidgets);
+  });
+
   testWidgets(
     'creator cannot confirm from the lobby until another traveller joins',
     (tester) async {
@@ -85,6 +108,23 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('nearby lobbies back control has a full touch target', (
+    tester,
+  ) async {
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    final size = tester.getSize(
+      find.byKey(const Key('nearby_lobbies_back_button')),
+    );
+    expect(size.height, 44);
+    expect(size.width, greaterThan(140));
+    expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+  });
 
   testWidgets(
     'outsider group details never reveal the confirmed meetup point',
@@ -125,6 +165,8 @@ void main() {
   testWidgets(
     'long pressing the whole future card reorders it and visit placeholder is absent',
     (tester) async {
+      await tester.binding.setSurfaceSize(const Size(375, 812));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await controller.openGroup('GROUP_001');
       await controller.confirmSuggestion(
         controller.suggestions.firstWhere((s) => s.id == 'SUGGESTION_002'),
@@ -141,7 +183,10 @@ void main() {
           home: Scaffold(
             body: AnimatedBuilder(
               animation: controller,
-              builder: (_, _) => ItineraryBoard(controller: controller),
+              builder: (_, _) => ItineraryBoard(
+                controller: controller,
+                placeSearchService: placeSearch,
+              ),
             ),
           ),
         ),
@@ -159,7 +204,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await gesture.moveBy(const Offset(0, 20));
       await tester.pump(const Duration(milliseconds: 100));
-      await gesture.moveBy(const Offset(0, 230));
+      await gesture.moveBy(const Offset(0, 360));
       await tester.pump(const Duration(milliseconds: 600));
       await gesture.up();
       await tester.pump();
@@ -171,7 +216,7 @@ void main() {
     },
   );
 
-  testWidgets('traveller sees that the creator ended the shared session', (
+  testWidgets('traveller exits to nearby lobbies when creator ends session', (
     tester,
   ) async {
     await controller.openGroup('GROUP_001');
@@ -180,16 +225,47 @@ void main() {
       PrototypeUser(id: 'USER_101', name: 'Traveller', isVerified: true),
     );
     await tester.pumpWidget(
-      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                key: const Key('open_lobby_before_creator_ends'),
+                onPressed: () {
+                  final navigator = Navigator.of(context);
+                  navigator.push<void>(
+                    MaterialPageRoute<void>(
+                      settings: const RouteSettings(
+                        name: travelGroupDiscoveryRouteName,
+                      ),
+                      builder: (_) => const Scaffold(
+                        body: Center(child: Text('Nearby lobbies')),
+                      ),
+                    ),
+                  );
+                  navigator.push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => GroupLobbyScreen(controller: controller),
+                    ),
+                  );
+                },
+                child: const Text('Nearby lobbies'),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
+    await tester.tap(find.byKey(const Key('open_lobby_before_creator_ends')));
     await tester.pumpAndSettle();
     await repository.endTrip('GROUP_001');
     await controller.refreshWorkspace();
     await tester.pumpAndSettle();
+
+    expect(find.byType(GroupLobbyScreen), findsNothing);
+    expect(find.text('Nearby lobbies'), findsOneWidget);
     expect(
-      find.text(
-        '$creator ended this Travel Group session. Your trip history has been saved.',
-      ),
+      find.textContaining('$creator ended the Travel Group'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -210,16 +286,16 @@ void main() {
     expect(find.byKey(const Key('create_group_fab')), findsOneWidget);
   });
 
-  testWidgets('area control opens an area dropdown', (tester) async {
+  testWidgets('area control opens a location picker', (tester) async {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('area_dropdown')));
     await tester.pumpAndSettle();
-    expect(find.text('Subang Jaya'), findsOneWidget);
+    expect(find.text('Setia City Mall'), findsOneWidget);
   });
 
-  testWidgets('area search only requests general urban areas', (tester) async {
+  testWidgets('area search accepts any Google location', (tester) async {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
@@ -228,7 +304,8 @@ void main() {
     await tester.enterText(find.byKey(const Key('area_search_field')), 'Shah');
     await tester.pumpAndSettle();
 
-    expect(placeSearch.lastAreasOnly, isTrue);
+    expect(placeSearch.lastAreasOnly, isFalse);
+    expect(placeSearch.lastPlacesOnly, isFalse);
   });
 
   testWidgets('submitting and selecting an area updates the discovery area', (
@@ -264,7 +341,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No areas found'), findsOneWidget);
+    expect(find.text('No locations found'), findsOneWidget);
   });
 
   testWidgets('precise location resets browsing to the current general area', (
@@ -358,7 +435,168 @@ void main() {
     expect(find.text('Google Places'), findsNothing);
     expect(find.textContaining('Unknown crowd'), findsNothing);
     expect(find.textContaining('1 hr'), findsNothing);
+    expect(
+      find.byKey(const Key('suggestion_photo_SUGGESTION_001')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .getSize(find.byKey(const Key('suggestion_photo_SUGGESTION_001')))
+          .height,
+      160,
+    );
+    expect(find.textContaining('min estimated'), findsWidgets);
   });
+
+  testWidgets('itinerary uses route timeline controls and shows meetup owner', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await controller.openGroup('GROUP_001');
+    await controller.confirmGroup();
+    await controller.confirmSuggestion(
+      controller.suggestions.firstWhere((item) => item.id == 'SUGGESTION_002'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ItineraryBoard(
+            controller: controller,
+            placeSearchService: placeSearch,
+            onChooseNext: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('itinerary_meetup_summary')), findsOneWidget);
+    expect(find.text('Meetup point set by the group creator'), findsOneWidget);
+    expect(find.byKey(const Key('itinerary_direction_arrow')), findsWidgets);
+    expect(
+      tester
+          .getCenter(find.byKey(const Key('itinerary_direction_arrow')).first)
+          .dx,
+      closeTo(187.5, 2),
+    );
+    expect(
+      tester.getSize(find.byKey(const Key('itinerary_photo_STOP_001'))).width,
+      78,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('choose_next_itinerary_stop')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.byKey(const Key('choose_next_itinerary_stop')), findsOneWidget);
+    expect(find.byKey(const Key('add_itinerary_stop_button')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'traveller returns to the completed itinerary when the creator arrives',
+    (tester) async {
+      await controller.openGroup('GROUP_001');
+      await controller.confirmGroup();
+      await controller.startItinerary();
+      await controller.completeStop(controller.itinerary.first);
+      controller.switchUser(
+        PrototypeUser(id: 'USER_101', name: 'Farah', isVerified: true),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          initialRoute: '/travel-group/active-navigation',
+          onGenerateRoute: (settings) {
+            return PageRouteBuilder<void>(
+              settings: settings,
+              transitionDuration: Duration.zero,
+              reverseTransitionDuration: Duration.zero,
+              pageBuilder: (_, _, _) =>
+                  settings.name == '/travel-group/active-navigation'
+                  ? ActiveItineraryMapScreen(controller: controller)
+                  : const Scaffold(
+                      body: Center(child: Text('Itinerary underneath')),
+                    ),
+            );
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ActiveItineraryMapScreen), findsNothing);
+      expect(find.text('Itinerary underneath'), findsOneWidget);
+      expect(find.textContaining('The group is spending time'), findsNothing);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        MaterialApp(home: GroupLobbyScreen(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<IndexedStack>(find.byKey(const Key('group_lobby_tabs')))
+            .index,
+        2,
+      );
+      expect(controller.itinerary.first.status, StopStatus.completed);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'nearby picker starts with recommendations and debounces custom search',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(375, 812));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await controller.openGroup('GROUP_001');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SuggestionBoard(
+              controller: controller,
+              placeSearchService: placeSearch,
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('suggest_place_search')));
+      await tester.pumpAndSettle();
+      expect(find.text('Nearby suggestions'), findsOneWidget);
+      expect(find.text('Nearby Recommendation'), findsOneWidget);
+      expect(
+        tester
+            .getSize(find.byKey(const Key('nearby_place_thumbnail')).first)
+            .height,
+        220,
+      );
+      expect(
+        tester
+            .getSize(find.byKey(const Key('nearby_place_thumbnail')).first)
+            .width,
+        greaterThan(300),
+      );
+      expect(find.byIcon(Icons.tune_rounded), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('nearby_place_search_field')),
+        'museum',
+      );
+      await tester.pump(const Duration(milliseconds: 299));
+      expect(placeSearch.customSearchCalls, 0);
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+
+      expect(placeSearch.customSearchCalls, 1);
+      expect(placeSearch.lastCustomQuery, 'museum');
+      expect(find.text('Search results within 10 km'), findsOneWidget);
+      expect(find.text('Custom Museum'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('workspace maps expose zoom controls and eager gestures', (
     tester,
@@ -453,6 +691,108 @@ void main() {
 
     expect(controller.activeGroup!.memberIds, isNot(contains('USER_101')));
     expect(find.text('Farah Imani'), findsNothing);
+  });
+
+  testWidgets('traveller has a red leave action at the bottom of the lobby', (
+    tester,
+  ) async {
+    controller.switchUser(
+      PrototypeUser(id: 'USER_101', name: 'Farah', isVerified: true),
+    );
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(home: GroupLobbyScreen(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('leave_travel_group_button')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(const Key('leave_travel_group_button')),
+    );
+    expect(button.style?.backgroundColor?.resolve({}), const Color(0xFFB3261E));
+  });
+
+  testWidgets('traveller leaving the lobby returns to the previous screen', (
+    tester,
+  ) async {
+    controller.switchUser(
+      PrototypeUser(id: 'USER_101', name: 'Farah', isVerified: true),
+    );
+    await controller.openGroup('GROUP_001');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                key: const Key('open_group_lobby_for_leave_test'),
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => GroupLobbyScreen(controller: controller),
+                  ),
+                ),
+                child: const Text('Open current lobby'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('open_group_lobby_for_leave_test')));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('leave_travel_group_button')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('leave_travel_group_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm_leave_travel_group_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.activeGroup, isNull);
+    expect(find.text('Open current lobby'), findsOneWidget);
+    expect(find.byType(GroupLobbyScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('missing activity tags show an error inside the creation form', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('create_group_fab')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('group_title')), 'No tags');
+    await tester.enterText(find.byKey(const Key('destination_search')), 'KLCC');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('destination_result_0')));
+    await tester.enterText(
+      find.byKey(const Key('group_description')),
+      'Testing visible validation.',
+    );
+    await tester.scrollUntilVisible(
+      find.text('Create group'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.tap(find.text('Create group'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Select at least one activity preference for group recommendations.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Create group'), findsOneWidget);
   });
 
   testWidgets('choosing-next actions use concise navigation copy', (
@@ -584,6 +924,9 @@ void main() {
 
 class _FakePlaceSearchService extends TravelPlaceSearchService {
   bool? lastAreasOnly;
+  bool? lastPlacesOnly;
+  int customSearchCalls = 0;
+  String? lastCustomQuery;
 
   @override
   Future<List<TravelGroupPlace>> search(
@@ -592,8 +935,9 @@ class _FakePlaceSearchService extends TravelPlaceSearchService {
     bool areasOnly = false,
   }) async {
     lastAreasOnly = areasOnly;
+    lastPlacesOnly = placesOnly;
     if (query.toLowerCase().contains('zzzz')) return const [];
-    if (areasOnly && query.toLowerCase().contains('shah')) {
+    if (query.toLowerCase().contains('shah')) {
       return const [
         TravelGroupPlace(
           id: 'areas/shah-alam',
@@ -617,6 +961,52 @@ class _FakePlaceSearchService extends TravelPlaceSearchService {
 
   @override
   Future<TravelGroupPlace> loadDetails(TravelGroupPlace place) async => place;
+
+  @override
+  Future<List<NearbyPlace>> nearbySuggestions({
+    required double latitude,
+    required double longitude,
+    String? destinationPlaceId,
+    List<String> preferences = const [],
+  }) async => const [
+    NearbyPlace(
+      name: 'Nearby Recommendation',
+      source: 'Recommender',
+      category: 'Heritage',
+      distanceKm: 0.8,
+      crowdLevel: 'Unknown',
+      durationMinutes: 60,
+      tags: ['Heritage'],
+      placeId: 'places/nearby',
+      latitude: 3.14,
+      longitude: 101.69,
+    ),
+  ];
+
+  @override
+  Future<List<NearbyPlace>> searchNearbyByText({
+    required String query,
+    required double latitude,
+    required double longitude,
+    double radiusKm = 10,
+  }) async {
+    customSearchCalls++;
+    lastCustomQuery = query;
+    return const [
+      NearbyPlace(
+        name: 'Custom Museum',
+        source: 'Google Places search',
+        category: 'Museum',
+        distanceKm: 1.2,
+        crowdLevel: 'Unknown',
+        durationMinutes: 60,
+        tags: ['Museum'],
+        placeId: 'places/custom-museum',
+        latitude: 3.15,
+        longitude: 101.7,
+      ),
+    ];
+  }
 
   @override
   Future<String> areaForCoordinates({

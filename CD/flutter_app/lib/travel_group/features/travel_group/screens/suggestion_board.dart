@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -5,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/travel_place_search_service.dart';
+import '../widgets/travel_place_photo.dart';
 import '../widgets/travel_group_widgets.dart';
 
 class SuggestionBoard extends StatefulWidget {
@@ -66,7 +70,6 @@ class _SuggestionBoardState extends State<SuggestionBoard> {
                     style: TextStyle(color: AppColors.secondaryText),
                   ),
                 ),
-                Icon(Icons.tune_rounded, color: AppColors.primary),
               ],
             ),
           ),
@@ -99,7 +102,7 @@ class _SuggestionBoardState extends State<SuggestionBoard> {
               child: _SuggestionCard(
                 controller: controller,
                 suggestion: suggestion,
-                rank: index + 1,
+                placeSearchService: _placeSearch,
               ),
             );
           }),
@@ -138,9 +141,15 @@ class _NearbySuggestionsSheet extends StatefulWidget {
 }
 
 class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
+  final _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  List<NearbyPlace> _nearbyPlaces = const [];
   List<NearbyPlace> _places = const [];
   String? _error;
   bool _loading = true;
+  bool _nearbyLoading = true;
+  bool _showingSearchResults = false;
+  int _requestId = 0;
 
   TravelGroup get _group => widget.controller.activeGroup!;
 
@@ -150,8 +159,16 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() {
+      _nearbyLoading = true;
       _loading = true;
       _error = null;
     });
@@ -172,95 +189,196 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
       );
       if (!mounted) return;
       setState(() {
-        _places = places;
-        _loading = false;
-        if (places.isEmpty) {
-          _error = 'No Google Places suggestions matched this destination yet.';
+        _nearbyPlaces = places;
+        _nearbyLoading = false;
+        if (!_showingSearchResults) {
+          _places = places;
+          _loading = false;
+          if (places.isEmpty) {
+            _error =
+                'No Google Places suggestions matched this destination yet.';
+          }
         }
       });
     } on TravelGroupException catch (error) {
       if (!mounted) return;
       setState(() {
-        _loading = false;
-        _error = error.message;
+        _nearbyLoading = false;
+        if (!_showingSearchResults) {
+          _loading = false;
+          _error = error.message;
+        }
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
+        _nearbyLoading = false;
+        if (!_showingSearchResults) {
+          _loading = false;
+          _error =
+              'Could not reach the recommendation service. Is the backend running?';
+        }
+      });
+    }
+  }
+
+  void _searchChanged(String value) {
+    _searchDebounce?.cancel();
+    final query = value.trim();
+    final requestId = ++_requestId;
+    if (query.length < 2) {
+      setState(() {
+        _showingSearchResults = false;
+        _places = _nearbyPlaces;
+        _loading = _nearbyLoading;
+        _error = null;
+      });
+      return;
+    }
+    setState(() {
+      _showingSearchResults = true;
+      _loading = true;
+      _error = null;
+    });
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 300),
+      () => _runSearch(query, requestId),
+    );
+  }
+
+  Future<void> _runSearch(String query, int requestId) async {
+    final anchor = recommendationAnchorFor(_group, widget.controller.itinerary);
+    if (anchor == null) {
+      if (mounted && requestId == _requestId) {
+        setState(() {
+          _loading = false;
+          _error = 'This group has no location to search around.';
+        });
+      }
+      return;
+    }
+    try {
+      final places = await widget.placeSearch.searchNearbyByText(
+        query: query,
+        latitude: anchor.latitude,
+        longitude: anchor.longitude,
+      );
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _places = places;
         _loading = false;
-        _error =
-            'Could not reach the recommendation service. Is the backend running?';
+        _error = places.isEmpty
+            ? 'No places found within 10 km of ${anchor.name}.'
+            : null;
+      });
+    } on TravelGroupException catch (error) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _loading = false;
+        _error = error.message;
+      });
+    } catch (_) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not search Google Places. Is the backend running?';
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 4, 18, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Suggest a nearby place',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Recommended for this group near ${recommendationAnchorFor(_group, widget.controller.itinerary)?.name ?? _group.destination}.',
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.secondaryText,
+    final anchor = recommendationAnchorFor(_group, widget.controller.itinerary);
+    return FractionallySizedBox(
+      heightFactor: .82,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          4,
+          16,
+          16 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Suggest a nearby place',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-          ),
-          const SizedBox(height: 12),
-          if (_loading)
-            const Padding(
-              padding: EdgeInsets.all(28),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Text(
-                    _error!,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(onPressed: _load, child: const Text('Retry')),
-                ],
+            const SizedBox(height: 4),
+            Text(
+              'Recommended for this group near ${anchor?.name ?? _group.destination}.',
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.secondaryText,
               ),
-            )
-          else
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final place in _places)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: _PlaceThumbnail(
-                        photoName: place.photoName,
-                        placeSearch: widget.placeSearch,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('nearby_place_search_field'),
+              controller: _searchController,
+              onChanged: _searchChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search another nearby place',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () {
+                          _searchController.clear();
+                          _searchChanged('');
+                        },
+                        icon: const Icon(Icons.close_rounded),
                       ),
-                      title: Text(place.name),
-                      subtitle: Text(
-                        '${place.distanceKm.toStringAsFixed(1)} km · ${place.category}',
-                      ),
-                      trailing: const Icon(
-                        Icons.add_circle,
-                        color: AppColors.primary,
-                      ),
-                      onTap: () => _addPlace(place),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _showingSearchResults
+                  ? 'Search results within 10 km'
+                  : 'Nearby suggestions',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (_loading)
+              const Expanded(child: Center(child: CircularProgressIndicator()))
+            else if (_error != null)
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12),
                     ),
-                ],
+                    if (!_showingSearchResults) ...[
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: _load,
+                        child: const Text('Retry'),
+                      ),
+                    ],
+                  ],
+                ),
+              )
+            else
+              Expanded(
+                child: ListView(
+                  children: [
+                    for (final place in _places)
+                      _NearbyPlaceCard(
+                        place: place,
+                        placeSearch: widget.placeSearch,
+                        onAdd: () => _addPlace(place),
+                      ),
+                  ],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -278,19 +396,110 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
   }
 }
 
+class _NearbyPlaceCard extends StatelessWidget {
+  const _NearbyPlaceCard({
+    required this.place,
+    required this.placeSearch,
+    required this.onAdd,
+  });
+
+  final NearbyPlace place;
+  final TravelPlaceSearchService placeSearch;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      elevation: 0,
+      color: AppColors.surfaceBlue,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: AppColors.border),
+        borderRadius: BorderRadius.circular(15),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onAdd,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _PlaceThumbnail(
+              photoName: place.photoName,
+              placeSearch: placeSearch,
+              width: double.infinity,
+              height: 220,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 11, 8, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          place.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          '${place.distanceKm.toStringAsFixed(1)} km  •  ${place.category}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.secondaryText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Add ${place.name}',
+                    onPressed: onAdd,
+                    icon: const Icon(
+                      Icons.add_circle,
+                      color: AppColors.primary,
+                      size: 31,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _PlaceThumbnail extends StatelessWidget {
-  const _PlaceThumbnail({required this.photoName, required this.placeSearch});
+  const _PlaceThumbnail({
+    required this.photoName,
+    required this.placeSearch,
+    this.width = 104,
+    this.height = 88,
+  });
 
   final String? photoName;
   final TravelPlaceSearchService placeSearch;
+  final double width;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final name = photoName;
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child: SizedBox.square(
-        dimension: 54,
+      child: SizedBox(
+        key: const Key('nearby_place_thumbnail'),
+        width: width,
+        height: height,
         child: name == null || name.isEmpty
             ? const ColoredBox(
                 color: AppColors.surfaceBlue,
@@ -313,12 +522,12 @@ class _SuggestionCard extends StatelessWidget {
   const _SuggestionCard({
     required this.controller,
     required this.suggestion,
-    required this.rank,
+    required this.placeSearchService,
   });
 
   final TravelGroupController controller;
   final GroupSuggestion suggestion;
-  final int rank;
+  final TravelPlaceSearchService placeSearchService;
 
   @override
   Widget build(BuildContext context) {
@@ -326,114 +535,151 @@ class _SuggestionCard extends StatelessWidget {
     final downvoted = suggestion.downvoterIds.contains(
       controller.currentUser.id,
     );
-    final color = switch (rank % 3) {
-      1 => AppColors.surfaceBlue,
-      2 => AppColors.surfaceLavender,
-      _ => AppColors.surfaceWarm,
-    };
+    final estimatedTravelMinutes = math.max(
+      1,
+      (suggestion.distanceKm / 30 * 60).round(),
+    );
     return AppPanel(
-      color: color,
-      child: Column(
+      color: Colors.white,
+      padding: const EdgeInsets.all(10),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                radius: 15,
-                backgroundColor: rank == 1 ? AppColors.primary : Colors.white,
-                child: Text(
-                  '#$rank',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: rank == 1 ? Colors.white : AppColors.primary,
+          TravelPlacePhoto(
+            key: Key('suggestion_photo_${suggestion.id}'),
+            placeName: suggestion.placeName,
+            placeSearchService: placeSearchService,
+            width: 112,
+            height: 160,
+            borderRadius: 10,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: SizedBox(
+              height: 160,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          suggestion.placeName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (controller.isCreator ||
+                          suggestion.suggestedByUserId ==
+                              controller.currentUser.id)
+                        IconButton(
+                          tooltip: 'Remove suggestion',
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 32,
+                            height: 32,
+                          ),
+                          onPressed: () => _remove(context),
+                          icon: const Icon(Icons.close_rounded, size: 19),
+                        ),
+                    ],
                   ),
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Text(
-                  suggestion.placeName,
-                  style: const TextStyle(fontSize: 16),
-                ),
-              ),
-              if (controller.isCreator ||
-                  suggestion.suggestedByUserId == controller.currentUser.id)
-                IconButton(
-                  tooltip: 'Remove suggestion',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _remove(context),
-                  icon: const Icon(Icons.close_rounded, size: 20),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${suggestion.distanceKm.toStringAsFixed(1)} km away',
-            style: const TextStyle(fontSize: 11),
-          ),
-          const SizedBox(height: 7),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: AppColors.border),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              suggestion.tags.join('  •  '),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 10,
-                color: AppColors.secondaryText,
-              ),
-            ),
-          ),
-          const SizedBox(height: 7),
-          Row(
-            children: [
-              _VoteButton(
-                label: '▲ ${suggestion.upvoterIds.length}',
-                selected: upvoted,
-                onTap: () => controller.vote(suggestion, true),
-              ),
-              const SizedBox(width: 4),
-              _VoteButton(
-                label: '▼ ${suggestion.downvoterIds.length}',
-                selected: downvoted,
-                onTap: () => controller.vote(suggestion, false),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Score ${suggestion.score}',
-                style: const TextStyle(
-                  fontSize: 9,
-                  color: AppColors.secondaryText,
-                ),
-              ),
-            ],
-          ),
-          if (suggestion.isConfirmed || controller.isCreator) ...[
-            const SizedBox(height: 7),
-            Align(
-              alignment: Alignment.centerRight,
-              child: suggestion.isConfirmed
-                  ? const Text(
-                      '✓ CONFIRMED',
-                      style: TextStyle(fontSize: 10, color: AppColors.success),
+                  const SizedBox(height: 3),
+                  Text(
+                    suggestion.category,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.secondaryText,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${suggestion.distanceKm.toStringAsFixed(1)} km · $estimatedTravelMinutes min estimated',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.secondaryText,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (suggestion.isConfirmed)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.successSurface,
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.check_rounded,
+                            size: 13,
+                            color: AppColors.success,
+                          ),
+                          SizedBox(width: 3),
+                          Text(
+                            'In itinerary',
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: AppColors.success,
+                            ),
+                          ),
+                        ],
+                      ),
                     )
-                  : FilledButton(
+                  else if (controller.isCreator)
+                    FilledButton(
                       onPressed: () => controller.confirmSuggestion(suggestion),
                       style: FilledButton.styleFrom(
-                        minimumSize: const Size(76, 32),
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        minimumSize: const Size(58, 28),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
                       ),
                       child: const Text('Add'),
                     ),
+                  const SizedBox(height: 5),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _VoteButton(
+                        label: '▲ ${suggestion.upvoterIds.length}',
+                        selected: upvoted,
+                        onTap: () => controller.vote(suggestion, true),
+                      ),
+                      const SizedBox(width: 5),
+                      _VoteButton(
+                        label: '▼ ${suggestion.downvoterIds.length}',
+                        selected: downvoted,
+                        onTap: () => controller.vote(suggestion, false),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 44,
+                        child: Text(
+                          'Score ${suggestion.score}',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: AppColors.secondaryText,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );

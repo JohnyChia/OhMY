@@ -703,6 +703,38 @@ class TravelGroupController extends ChangeNotifier {
     await loadGroups();
   }
 
+  Future<void> leaveActiveGroup() async {
+    final group = activeGroup;
+    if (group == null || !isMember) {
+      throw const TravelGroupException(
+        'You are no longer a member of this group.',
+        'not_a_member',
+      );
+    }
+    if (isCreator) {
+      throw const TravelGroupException(
+        'Creators must end or delete their Travel Group.',
+        'creator_cannot_leave',
+      );
+    }
+    final groupId = group.id;
+    await repository.leaveGroup(groupId: groupId, userId: currentUser.id);
+    stopMeetupSimulation();
+    groups.removeWhere((candidate) => candidate.id == groupId);
+    activeGroup = null;
+    if (joinedOngoingGroup?.id == groupId) joinedOngoingGroup = null;
+    members = [];
+    joinRequests = [];
+    suggestions = [];
+    itinerary = [];
+    activeSession = null;
+    notifyListeners();
+    // Leaving should close the lobby immediately. Refresh discovery data in
+    // the background instead of holding the now-empty lobby on screen while a
+    // network request completes.
+    unawaited(loadGroups());
+  }
+
   Future<void> addSuggestion(NearbyPlace place) async {
     if (!isMember) {
       throw const TravelGroupException(

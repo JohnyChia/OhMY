@@ -127,6 +127,55 @@ void main() {
   );
 
   test(
+    'custom nearby search is anchored, photographed, and radius limited',
+    () async {
+      late Map<String, dynamic> requestBody;
+      final service = TravelPlaceSearchService(
+        backendUrl: 'http://example.test',
+        client: MockClient((request) async {
+          requestBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'places': [
+                {
+                  'id': 'places/nearby-museum',
+                  'displayName': {'text': 'Nearby Museum'},
+                  'primaryType': 'museum',
+                  'location': {'latitude': 3.101, 'longitude': 101.501},
+                  'photos': [
+                    {'name': 'places/nearby-museum/photos/first'},
+                  ],
+                },
+                {
+                  'id': 'places/far-museum',
+                  'displayName': {'text': 'Far Museum'},
+                  'primaryType': 'museum',
+                  'location': {'latitude': 3.4, 'longitude': 101.8},
+                },
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+
+      final results = await service.searchNearbyByText(
+        query: 'museum',
+        latitude: 3.1,
+        longitude: 101.5,
+      );
+
+      expect(requestBody['placesOnly'], isTrue);
+      expect(requestBody['latitude'], 3.1);
+      expect(requestBody['longitude'], 101.5);
+      expect(requestBody['radiusMeters'], 10000);
+      expect(results.map((place) => place.name), ['Nearby Museum']);
+      expect(results.single.photoName, 'places/nearby-museum/photos/first');
+      expect(results.single.category, 'Museum');
+    },
+  );
+
+  test(
     'recommendations move from the first destination to the latest visited stop',
     () {
       final group = TravelGroup(

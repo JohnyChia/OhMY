@@ -10,6 +10,8 @@ import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 import '../models/travel_group_models.dart';
 import '../services/live_trip_location_service.dart';
+import '../services/travel_place_search_service.dart';
+import '../travel_group_routes.dart';
 import '../widgets/travel_group_scaffold.dart';
 import '../widgets/travel_group_widgets.dart';
 import 'itinerary_board.dart';
@@ -45,6 +47,8 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   bool _refreshingWorkspace = false;
   String? _openedSharedStopId;
   bool _sharedNavigationOpen = false;
+  bool _terminalExitScheduled = false;
+  late final TravelPlaceSearchService _placeSearchService;
 
   void _followCreatorNavigation() {
     final session = controller.activeSession;
@@ -81,6 +85,11 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   @override
   void initState() {
     super.initState();
+    if (!controller.isCreator &&
+        controller.activeGroup?.tripPhase == GroupTripPhase.choosingNext) {
+      _tabIndex = 2;
+    }
+    _placeSearchService = TravelPlaceSearchService();
     controller.addListener(_handleControllerUpdate);
     unawaited(_refresh());
     _workspaceTimer = Timer.periodic(const Duration(seconds: 5), (_) {
@@ -109,12 +118,26 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     _memberLocationSubscription?.cancel();
     final service = _locationService;
     if (service != null) unawaited(service.dispose());
+    _placeSearchService.dispose();
     super.dispose();
   }
 
   void _handleControllerUpdate() {
     _followCreatorNavigation();
     final group = controller.activeGroup;
+    if (!controller.isCreator &&
+        group?.tripPhase == GroupTripPhase.choosingNext &&
+        _tabIndex != 2) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _tabIndex != 2) setState(() => _tabIndex = 2);
+      });
+    }
+    if (!controller.isCreator &&
+        group != null &&
+        (group.status == GroupStatus.completed ||
+            group.status == GroupStatus.cancelled)) {
+      _scheduleTerminalExit(group);
+    }
     if (!controller.isMember ||
         group == null ||
         group.status == GroupStatus.completed ||
@@ -128,6 +151,32 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
         !_startingLocationSharing) {
       unawaited(_startLocationSharing());
     }
+  }
+
+  void _scheduleTerminalExit(TravelGroup group) {
+    if (_terminalExitScheduled) return;
+    _terminalExitScheduled = true;
+    final message = group.status == GroupStatus.completed
+        ? '${group.creatorName} ended the Travel Group. Your completed journey was saved.'
+        : '${group.creatorName} closed the Travel Group.';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final navigator = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      navigator.popUntil(
+        (route) =>
+            route.settings.name == travelGroupDiscoveryRouteName ||
+            route.isFirst,
+      );
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 6),
+            content: Text(message),
+          ),
+        );
+    });
   }
 
   Future<void> _stopLocationSharing() async {
@@ -302,16 +351,34 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     InkWell(
+                      key: const Key('nearby_lobbies_back_button'),
                       onTap: () => Navigator.pop(context),
-                      child: const Text(
-                        '‹ Nearby lobbies',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(12),
+                      child: const SizedBox(
+                        height: 44,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.arrow_back_rounded,
+                              color: AppColors.primary,
+                              size: 24,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Nearby lobbies',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            SizedBox(width: 12),
+                          ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 2),
                     Row(
                       children: [
                         Expanded(
@@ -371,6 +438,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
               ),
               Expanded(
                 child: IndexedStack(
+                  key: const Key('group_lobby_tabs'),
                   index: _tabIndex,
                   children: [
                     _LobbyTab(
@@ -378,9 +446,17 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                       locationSharingError: _locationSharingError,
                       liveMembers: _liveMembers,
                       onSuggest: () => setState(() => _tabIndex = 1),
+                      onLeave: _leaveTravelGroup,
                     ),
-                    SuggestionBoard(controller: controller),
-                    ItineraryBoard(controller: controller),
+                    SuggestionBoard(
+                      controller: controller,
+                      placeSearchService: _placeSearchService,
+                    ),
+                    ItineraryBoard(
+                      controller: controller,
+                      placeSearchService: _placeSearchService,
+                      onChooseNext: () => setState(() => _tabIndex = 1),
+                    ),
                   ],
                 ),
               ),
@@ -419,6 +495,51 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     try {
       await controller.deleteActiveGroup();
       if (mounted) Navigator.pop(context, true);
+    } on TravelGroupException catch (error) {
+      if (mounted) {
+        showTravelGroupMessage(context, error.message, error: true);
+      }
+    }
+  }
+
+  Future<void> _leaveTravelGroup() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Leave this Travel Group?'),
+        content: const Text(
+          'You will stop sharing your live location and must join again to return.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Stay'),
+          ),
+          FilledButton(
+            key: const Key('confirm_leave_travel_group_button'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB3261E),
+            ),
+            child: const Text('Leave group'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // This State remains mounted when activeGroup is cleared. A callback owned
+    // by _LobbyTab cannot navigate at that point because the tab has already
+    // been removed from the AnimatedBuilder subtree.
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await controller.leaveActiveGroup();
+      if (!mounted) return;
+      navigator.popUntil((route) => route.isFirst);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('You left the Travel Group.')),
+      );
     } on TravelGroupException catch (error) {
       if (mounted) {
         showTravelGroupMessage(context, error.message, error: true);
@@ -529,12 +650,14 @@ class _LobbyTab extends StatelessWidget {
     required this.locationSharingError,
     required this.liveMembers,
     required this.onSuggest,
+    required this.onLeave,
   });
 
   final TravelGroupController controller;
   final String? locationSharingError;
   final List<LiveMemberLocation> liveMembers;
   final VoidCallback onSuggest;
+  final VoidCallback onLeave;
 
   @override
   Widget build(BuildContext context) {
@@ -952,6 +1075,23 @@ class _LobbyTab extends StatelessWidget {
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 10, color: AppColors.secondaryText),
         ),
+        if (controller.isMember &&
+            !controller.isCreator &&
+            group.status != GroupStatus.completed &&
+            group.status != GroupStatus.cancelled) ...[
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            key: const Key('leave_travel_group_button'),
+            onPressed: onLeave,
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB3261E),
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+            ),
+            icon: const Icon(Icons.exit_to_app_rounded),
+            label: const Text('Leave Travel Group'),
+          ),
+        ],
       ],
     );
   }

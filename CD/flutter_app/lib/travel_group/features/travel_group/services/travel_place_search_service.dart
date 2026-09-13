@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 import 'package:flutter_app/user_management/config/travel_preference_options.dart';
@@ -126,6 +127,40 @@ class TravelPlaceSearchService {
         .toList(growable: false);
   }
 
+  Future<List<NearbyPlace>> searchNearbyByText({
+    required String query,
+    required double latitude,
+    required double longitude,
+    double radiusKm = 10,
+  }) async {
+    final normalized = query.trim();
+    if (normalized.length < 2) return const [];
+    final response = await _client.post(
+      Uri.parse('$backendUrl/api/places/search'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'query': normalized,
+        'placesOnly': true,
+        'latitude': latitude,
+        'longitude': longitude,
+        'radiusMeters': (radiusKm * 1000).round(),
+      }),
+    );
+    final body = _decode(response);
+    return List<Map<String, dynamic>>.from(body['places'] ?? const [])
+        .map(
+          (place) => _fromNearbySearchResult(
+            place,
+            latitude: latitude,
+            longitude: longitude,
+          ),
+        )
+        .whereType<NearbyPlace>()
+        .where((place) => place.distanceKm <= radiusKm)
+        .take(12)
+        .toList(growable: false);
+  }
+
   NearbyPlace? _fromRecommendation(Map<String, dynamic> item) {
     final place = Map<String, dynamic>.from(item['place'] as Map? ?? const {});
     final name = place['displayName']?['text']?.toString();
@@ -159,6 +194,72 @@ class TravelPlaceSearchService {
       longitude: (location['longitude'] as num?)?.toDouble(),
       photoName: photo['name']?.toString(),
     );
+  }
+
+  NearbyPlace? _fromNearbySearchResult(
+    Map<String, dynamic> place, {
+    required double latitude,
+    required double longitude,
+  }) {
+    final location = Map<String, dynamic>.from(
+      place['location'] as Map? ?? const {},
+    );
+    final placeLatitude = (location['latitude'] as num?)?.toDouble();
+    final placeLongitude = (location['longitude'] as num?)?.toDouble();
+    final name = place['displayName']?['text']?.toString().trim();
+    if (name == null ||
+        name.isEmpty ||
+        placeLatitude == null ||
+        placeLongitude == null) {
+      return null;
+    }
+    final displayType = place['primaryTypeDisplayName'];
+    final rawType = displayType is Map
+        ? displayType['text']?.toString()
+        : displayType?.toString() ?? place['primaryType']?.toString();
+    final category = _readablePlaceType(rawType);
+    final photos = List<Map<String, dynamic>>.from(
+      place['photos'] as List? ?? const [],
+    );
+    return NearbyPlace(
+      name: name,
+      source: 'Google Places search',
+      category: category,
+      distanceKm: _distanceKm(
+        latitude,
+        longitude,
+        placeLatitude,
+        placeLongitude,
+      ),
+      crowdLevel: 'Unknown',
+      durationMinutes: 60,
+      tags: [category],
+      placeId: place['id']?.toString(),
+      latitude: placeLatitude,
+      longitude: placeLongitude,
+      photoName: photos.firstOrNull?['name']?.toString(),
+    );
+  }
+
+  double _distanceKm(
+    double startLatitude,
+    double startLongitude,
+    double endLatitude,
+    double endLongitude,
+  ) {
+    double radians(double degrees) => degrees * math.pi / 180;
+    const earthRadiusKm = 6371.0;
+    final latitudeDelta = radians(endLatitude - startLatitude);
+    final longitudeDelta = radians(endLongitude - startLongitude);
+    final value =
+        math.sin(latitudeDelta / 2) * math.sin(latitudeDelta / 2) +
+        math.cos(radians(startLatitude)) *
+            math.cos(radians(endLatitude)) *
+            math.sin(longitudeDelta / 2) *
+            math.sin(longitudeDelta / 2);
+    return earthRadiusKm *
+        2 *
+        math.atan2(math.sqrt(value), math.sqrt(1 - value));
   }
 
   String _readablePlaceType(String? value) {

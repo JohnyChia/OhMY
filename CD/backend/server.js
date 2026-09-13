@@ -888,7 +888,10 @@ app.post(
         try {
 
             const {
-                query
+                query,
+                latitude,
+                longitude,
+                radiusMeters
             } = req.body;
 
 
@@ -909,9 +912,39 @@ app.post(
             }
 
 
+            const hasSearchOrigin =
+                latitude !== undefined
+                || longitude !== undefined;
+            const parsedLatitude = Number(latitude);
+            const parsedLongitude = Number(longitude);
+            if (
+                hasSearchOrigin
+                && (!Number.isFinite(parsedLatitude)
+                    || parsedLatitude < -90
+                    || parsedLatitude > 90
+                    || !Number.isFinite(parsedLongitude)
+                    || parsedLongitude < -180
+                    || parsedLongitude > 180)
+            ) {
+                return res.status(400).json({
+                    error: "Valid search origin coordinates are required."
+                });
+            }
+
+            const parsedRadius = Number(radiusMeters);
+            const searchRadius = Number.isFinite(parsedRadius)
+                ? Math.min(50_000, Math.max(100, parsedRadius))
+                : 10_000;
             const data =
                 await searchPlacesAndAttractions(
-                    query.trim()
+                    query.trim(),
+                    hasSearchOrigin
+                        ? {
+                            latitude: parsedLatitude,
+                            longitude: parsedLongitude,
+                            radius: searchRadius
+                        }
+                        : {}
                 );
 
             const areaTypes = new Set([

@@ -23,6 +23,7 @@ import '../travel_group/features/travel_group/repositories/mock_travel_group_rep
 import '../travel_group/features/travel_group/repositories/supabase_travel_group_repository.dart';
 import '../travel_group/features/travel_group/screens/group_lobby_screen.dart';
 import '../travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
+import '../travel_group/features/travel_group/travel_group_routes.dart';
 import '../travel_group/features/travel_group/services/live_trip_location_service.dart';
 import '../travel_group/features/travel_group/services/supabase_live_trip_location_service.dart';
 import '../user_management/screens/auth/auth_gate.dart';
@@ -68,9 +69,14 @@ class OhMyApp extends StatelessWidget {
 }
 
 class OhMyShell extends StatefulWidget {
-  const OhMyShell({super.key, required this.supabaseEnabled});
+  const OhMyShell({
+    super.key,
+    required this.supabaseEnabled,
+    @visibleForTesting this.travelGroupController,
+  });
 
   final bool supabaseEnabled;
+  final TravelGroupController? travelGroupController;
 
   @override
   State<OhMyShell> createState() => _OhMyShellState();
@@ -81,6 +87,7 @@ class _OhMyShellState extends State<OhMyShell> {
   final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
   CommunityController? _communityController;
   late final TravelGroupController _travelGroupController;
+  late final bool _ownsTravelGroupController;
   late final List<WidgetBuilder> _rootBuilders;
   StreamSubscription<AuthState>? _authSubscription;
   DateTime? _lastHomeBackPress;
@@ -101,16 +108,20 @@ class _OhMyShellState extends State<OhMyShell> {
         ? Supabase.instance.client.auth.currentUser
         : null;
     final travelUser = authUser == null ? null : _prototypeUser(authUser);
-    _travelGroupController = TravelGroupController(
-      repository: widget.supabaseEnabled
-          ? SupabaseTravelGroupRepository(Supabase.instance.client)
-          : MockTravelGroupRepository.seeded(),
-      currentUser: travelUser,
-      allowDemoVerification: !widget.supabaseEnabled,
-      liveTripLocationServiceFactory: widget.supabaseEnabled
-          ? createSupabaseLiveTripLocationService
-          : createMockLiveTripLocationService,
-    )..addListener(_onTravelGroupChanged);
+    _ownsTravelGroupController = widget.travelGroupController == null;
+    _travelGroupController =
+        widget.travelGroupController ??
+        TravelGroupController(
+          repository: widget.supabaseEnabled
+              ? SupabaseTravelGroupRepository(Supabase.instance.client)
+              : MockTravelGroupRepository.seeded(),
+          currentUser: travelUser,
+          allowDemoVerification: !widget.supabaseEnabled,
+          liveTripLocationServiceFactory: widget.supabaseEnabled
+              ? createSupabaseLiveTripLocationService
+              : createMockLiveTripLocationService,
+        );
+    _travelGroupController.addListener(_onTravelGroupChanged);
     if (widget.supabaseEnabled) {
       unawaited(_travelGroupController.restoreOngoingCreatedGroup());
     }
@@ -219,9 +230,8 @@ class _OhMyShellState extends State<OhMyShell> {
       registration.dispose();
     }
     _authSubscription?.cancel();
-    _travelGroupController
-      ..removeListener(_onTravelGroupChanged)
-      ..dispose();
+    _travelGroupController.removeListener(_onTravelGroupChanged);
+    if (_ownsTravelGroupController) _travelGroupController.dispose();
     _communityController?.dispose();
     super.dispose();
   }
@@ -305,17 +315,40 @@ class _OhMyShellState extends State<OhMyShell> {
     final group = _travelGroupController.ongoingMemberGroup;
     if (group == null) return;
     if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
-    await _travelGroupController.openGroup(group.id);
-    if (!mounted) return;
-    final navigator = _navigatorKeys[2].currentState;
-    navigator?.popUntil((route) => route.isFirst);
-    unawaited(
-      navigator?.push<void>(
+    try {
+      await _travelGroupController.openGroup(group.id);
+      // Changing the selected module and opening the group both rebuild the
+      // shell. Wait for that frame so the Start Trip navigator is guaranteed
+      // to be attached before pushing the lobby.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final navigator = _navigatorKeys[2].currentState;
+      if (navigator == null) {
+        throw const TravelGroupException(
+          'The Travel Group screen is not ready. Please try again.',
+          'group_navigation_not_ready',
+        );
+      }
+      navigator.popUntil((route) => route.isFirst);
+      navigator.push<void>(
         MaterialPageRoute<void>(
+          settings: const RouteSettings(name: travelGroupDiscoveryRouteName),
+          builder: (_) =>
+              TravelGroupModulePage(controller: _travelGroupController),
+        ),
+      );
+      await navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: RouteSettings(name: '/travel-group/${group.id}'),
           builder: (_) => GroupLobbyScreen(controller: _travelGroupController),
         ),
-      ),
-    );
+      );
+    } on TravelGroupException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(OhMySnackBar(content: Text(error.message)));
+    }
   }
 
   void _selectTab(int index) {
@@ -1324,7 +1357,26 @@ class StartTripHubPage extends StatelessWidget {
                     height: 1.45,
                   ),
                 ),
-                const SizedBox(height: 42),
+                if (controller.ongoingMemberGroup != null) ...[
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      key: const Key('return_to_group_from_hub_button'),
+                      onPressed: () => _returnToTravelGroup(context),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(52),
+                      ),
+                      icon: const Icon(Icons.groups_rounded),
+                      label: Text(
+                        'Return to ${controller.ongoingMemberGroup!.name}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 30),
                 _TripModeCard(
                   imageAsset:
                       'assets/images/start_trip_selection/startTripSelectionSolo.png',
@@ -1344,6 +1396,9 @@ class StartTripHubPage extends StatelessWidget {
                       'Discover or create a travel group, vote on stops and manage a shared itinerary.',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
+                      settings: const RouteSettings(
+                        name: travelGroupDiscoveryRouteName,
+                      ),
                       builder: (_) =>
                           TravelGroupModulePage(controller: controller),
                     ),
@@ -1396,6 +1451,25 @@ class StartTripHubPage extends StatelessWidget {
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: '/start-trip/solo-map'),
         builder: (_) => const PlaceMapPage(),
+      ),
+    );
+  }
+
+  Future<void> _returnToTravelGroup(BuildContext context) async {
+    final group = controller.ongoingMemberGroup;
+    if (group == null) return;
+    await controller.openGroup(group.id);
+    if (!context.mounted) return;
+    final navigator = Navigator.of(context);
+    navigator.push<void>(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: travelGroupDiscoveryRouteName),
+        builder: (_) => TravelGroupModulePage(controller: controller),
+      ),
+    );
+    await navigator.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => GroupLobbyScreen(controller: controller),
       ),
     );
   }

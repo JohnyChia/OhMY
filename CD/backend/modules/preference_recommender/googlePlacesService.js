@@ -45,7 +45,15 @@ function keepMalaysianPlaces(data) {
 // SEARCH PLACES
 // ============================================================
 
-async function searchPlaces(query) {
+async function searchPlaces(query, {
+    latitude,
+    longitude,
+    radius = 10_000
+} = {}) {
+
+    const hasLocationBias =
+        Number.isFinite(latitude)
+        && Number.isFinite(longitude);
 
     const response = await fetch(
         `${GOOGLE_PLACES_URL}/places:searchText`,
@@ -66,7 +74,9 @@ async function searchPlaces(query) {
                     "places.viewport",
                     "places.types",
                     "places.primaryType",
+                    "places.primaryTypeDisplayName",
                     "places.googleMapsUri",
+                    "places.photos",
                     "places.addressComponents"
                 ].join(",")
             },
@@ -75,7 +85,17 @@ async function searchPlaces(query) {
                 textQuery: query,
                 languageCode: "en",
                 regionCode: "MY",
-                pageSize: 5
+                pageSize: 5,
+                ...(hasLocationBias
+                    ? {
+                        locationBias: {
+                            circle: {
+                                center: { latitude, longitude },
+                                radius
+                            }
+                        }
+                    }
+                    : {})
             })
         }
     );
@@ -98,13 +118,14 @@ async function searchPlaces(query) {
 // MIXED AREA + PLACE SEARCH
 // ============================================================
 
-async function searchPlacesAndAttractions(query) {
+async function searchPlacesAndAttractions(query, options = {}) {
 
     const searches =
         await Promise.allSettled([
-            searchPlaces(query),
+            searchPlaces(query, options),
             searchPlaces(
-                `tourist attractions in ${query}`
+                `tourist attractions in ${query}`,
+                options
             )
         ]);
 
