@@ -29,6 +29,22 @@ class RecoveryLookupTests(unittest.TestCase):
             result = self.lookup(' KNOWN@example.com ')
         self.assertEqual(result.json(), {'registered': True})
 
+    def test_gmail_dot_and_googlemail_aliases_are_the_same_account(self):
+        users = [[SimpleNamespace(email='ylynnnnx@gmail.com')]]
+        with self.mock_admin(users):
+            dotted = self.lookup('ylynnnn.x@gmail.com')
+        self.assertEqual(dotted.json(), {'registered': True})
+
+        recovery.limiter = recovery.LookupLimiter()
+        with self.mock_admin(users):
+            googlemail = self.lookup('y.lynnnnx@googlemail.com')
+        self.assertEqual(googlemail.json(), {'registered': True})
+
+    def test_dots_remain_significant_for_other_providers(self):
+        with self.mock_admin([[SimpleNamespace(email='firstlast@example.com')]]):
+            result = self.lookup('first.last@example.com')
+        self.assertEqual(result.json(), {'registered': False})
+
     def test_pagination(self):
         with self.mock_admin([
             [SimpleNamespace(email='other@example.com')] * 200,

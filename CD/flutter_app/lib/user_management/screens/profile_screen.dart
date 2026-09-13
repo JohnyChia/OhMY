@@ -188,10 +188,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         const Text(
           'My Profile',
           style: TextStyle(
-            color: Color(0xFF17345F),
-            fontSize: 30,
-            fontWeight: FontWeight.w800,
-            fontFamily: 'serif',
+            color: Color(0xFF123A78),
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 6),

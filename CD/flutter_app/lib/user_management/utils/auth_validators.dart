@@ -4,8 +4,9 @@ class AuthValidators {
   AuthValidators._();
 
   static List<TextInputFormatter> get emailInputFormatters => [
-    FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9@._-]')),
-    LengthLimitingTextInputFormatter(254),
+    // Keep invalid pasted characters visible so validation can explain the
+    // problem instead of silently changing the user's address.
+    LengthLimitingTextInputFormatter(320),
   ];
 
   static List<TextInputFormatter> get usernameInputFormatters => [
@@ -26,7 +27,13 @@ class AuthValidators {
 
     final email = value!.trim();
     final parts = email.split('@');
-    if (parts.length != 2 || parts.first.length > 64) {
+    if (email.length > 254 ||
+        parts.length != 2 ||
+        parts.first.length > 64 ||
+        parts.last.length > 253 ||
+        parts.last
+            .split('.')
+            .any((label) => label.isEmpty || label.length > 63)) {
       return 'Enter a valid email such as name@example.com.';
     }
 
@@ -43,6 +50,28 @@ class AuthValidators {
       return 'Enter a valid email without symbols such as + or %.';
     }
     return null;
+  }
+
+  /// Returns the one address used for Supabase authentication.
+  ///
+  /// Gmail delivers dotted local-part variants to the same inbox, and
+  /// googlemail.com is an alias of gmail.com. Removing those dots prevents
+  /// one Gmail inbox from registering several application accounts. Dots are
+  /// preserved for every other provider because they may identify different
+  /// inboxes there.
+  static String canonicalEmail(String value) {
+    final normalized = value.trim().toLowerCase();
+    final atIndex = normalized.lastIndexOf('@');
+    if (atIndex <= 0 || atIndex == normalized.length - 1) {
+      return normalized;
+    }
+
+    final localPart = normalized.substring(0, atIndex);
+    final domain = normalized.substring(atIndex + 1);
+    if (domain == 'gmail.com' || domain == 'googlemail.com') {
+      return '${localPart.replaceAll('.', '')}@gmail.com';
+    }
+    return normalized;
   }
 
   static String? password(String? value) {

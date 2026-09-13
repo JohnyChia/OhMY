@@ -44,9 +44,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
     try {
+      final canonicalEmail = AuthValidators.canonicalEmail(
+        _emailController.text,
+      );
       final response = await _authService.register(
         username: _usernameController.text,
-        email: _emailController.text,
+        email: canonicalEmail,
         password: _passwordController.text,
       );
 
@@ -54,8 +57,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (response.session == null) {
         await Navigator.of(context).pushReplacement(
           MaterialPageRoute<void>(
-            builder: (_) =>
-                EmailVerificationScreen(email: _emailController.text.trim()),
+            builder: (_) => EmailVerificationScreen(email: canonicalEmail),
           ),
         );
       } else {

@@ -33,6 +33,50 @@ void main() {
       expect(AuthValidators.email('student_01@mail.example.edu.my'), isNull);
       expect(AuthValidators.email('user-name@example.com'), isNull);
     });
+
+    test('rejects overlong addresses and domain labels', () {
+      final overlongLabel = 'a@${'x' * 64}.com';
+      final overlongAddress =
+          '${'a' * 64}@${'b' * 63}.${'c' * 63}.${'d' * 63}.com';
+
+      expect(AuthValidators.email(overlongLabel), isNotNull);
+      expect(AuthValidators.email(overlongAddress), isNotNull);
+    });
+
+    test('does not silently remove invalid pasted symbols', () {
+      final formatter = AuthValidators.emailInputFormatters.first;
+      const pasted = TextEditingValue(text: 'name+tag@gmail.com');
+
+      expect(
+        formatter.formatEditUpdate(TextEditingValue.empty, pasted).text,
+        pasted.text,
+      );
+      expect(AuthValidators.email(pasted.text), isNotNull);
+    });
+  });
+
+  group('AuthValidators.canonicalEmail', () {
+    test('treats Gmail dot aliases as the same account', () {
+      expect(
+        AuthValidators.canonicalEmail(' Y.Lynnnnx@Gmail.com '),
+        'ylynnnnx@gmail.com',
+      );
+      expect(
+        AuthValidators.canonicalEmail('ylynnnn.x@googlemail.com'),
+        'ylynnnnx@gmail.com',
+      );
+    });
+
+    test('preserves dots and hyphens for other providers', () {
+      expect(
+        AuthValidators.canonicalEmail('first.last@tarc.edu.my'),
+        'first.last@tarc.edu.my',
+      );
+      expect(
+        AuthValidators.canonicalEmail('chanyl-wm23@student.tarc.edu.my'),
+        'chanyl-wm23@student.tarc.edu.my',
+      );
+    });
   });
 
   group('AuthValidators.password', () {

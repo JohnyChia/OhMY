@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/app_user_profile.dart';
+import '../utils/auth_validators.dart';
 import 'password_recovery_account_service.dart';
 
 class AuthFailure implements Exception {
@@ -57,9 +58,10 @@ class AuthService {
     required String email,
     required String password,
   }) async {
+    final canonicalEmail = _validatedEmail(email);
     try {
       final response = await _client.auth.signUp(
-        email: email.trim().toLowerCase(),
+        email: canonicalEmail,
         password: password,
         data: {
           'username': username.trim(),
@@ -90,9 +92,10 @@ class AuthService {
     required String email,
     required String otp,
   }) async {
+    final canonicalEmail = _validatedEmail(email);
     try {
       await _client.auth.verifyOTP(
-        email: email.trim(),
+        email: canonicalEmail,
         token: otp.trim(),
         type: OtpType.email,
       );
@@ -102,17 +105,19 @@ class AuthService {
   }
 
   Future<void> resendRegistrationOtp(String email) async {
+    final canonicalEmail = _validatedEmail(email);
     try {
-      await _client.auth.resend(type: OtpType.signup, email: email.trim());
+      await _client.auth.resend(type: OtpType.signup, email: canonicalEmail);
     } catch (error) {
       throw _friendlyFailure(error);
     }
   }
 
   Future<void> login({required String email, required String password}) async {
+    final canonicalEmail = _validatedEmail(email);
     try {
       await _client.auth.signInWithPassword(
-        email: email.trim(),
+        email: canonicalEmail,
         password: password,
       );
     } catch (error) {
@@ -129,13 +134,14 @@ class AuthService {
   }
 
   Future<void> sendPasswordRecoveryOtp(String email) async {
+    final canonicalEmail = _validatedEmail(email);
     try {
       // Supabase recovery itself hides unknown accounts. Only advance the
       // UI after our server-side, rate-limited lookup confirms this account.
-      if (!await _recoveryAccountService.isRegistered(email)) {
+      if (!await _recoveryAccountService.isRegistered(canonicalEmail)) {
         throw const AuthFailure('This email address is not registered.');
       }
-      await _client.auth.resetPasswordForEmail(email.trim());
+      await _client.auth.resetPasswordForEmail(canonicalEmail);
     } on RecoveryAccountCheckFailure catch (error) {
       throw AuthFailure(error.message);
     } catch (error) {
@@ -147,9 +153,10 @@ class AuthService {
     required String email,
     required String otp,
   }) async {
+    final canonicalEmail = _validatedEmail(email);
     try {
       await _client.auth.verifyOTP(
-        email: email.trim(),
+        email: canonicalEmail,
         token: otp.trim(),
         type: OtpType.recovery,
       );
@@ -304,6 +311,12 @@ class AuthService {
       // profile from loading.
       return profile.withAvatarUrl(null);
     }
+  }
+
+  String _validatedEmail(String email) {
+    final validationError = AuthValidators.email(email);
+    if (validationError != null) throw AuthFailure(validationError);
+    return AuthValidators.canonicalEmail(email);
   }
 
   AuthFailure _friendlyFailure(Object error) {

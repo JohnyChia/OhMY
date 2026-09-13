@@ -179,103 +179,110 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
-          children: [
-            _VerificationHeader(
-              backLabel: 'Back',
-              progress: 'STEP 1 OF 2',
-              onBack: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Photograph your ID',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF17243D), fontSize: 28),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Capture your document with the camera or upload a clear photo.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
-            ),
-            const SizedBox(height: 18),
-            _DocumentTypeSelector(
-              selected: _documentType,
-              onChanged: _changeType,
-            ),
-            const SizedBox(height: 22),
-            Text(
-              _capturingBack
-                  ? 'MYKAD — BACK'
-                  : (_documentType == _DocumentType.mykad
-                        ? 'MYKAD — FRONT'
-                        : 'PASSPORT — BIODATA PAGE'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xFF2E60C4),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _VerificationHeader(
+                backLabel: 'Back',
+                progress: 'STEP 1 OF 2',
+                onBack: () => Navigator.of(context).pop(),
               ),
-            ),
-            const SizedBox(height: 8),
-            _DocumentCameraPanel(
-              controller: _camera,
-              capturedPath: currentPath,
-              error: _cameraError,
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F7FE),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Text(
-                'Privacy: photos are sent only to your laptop verification service. Successful verification photos are deleted after processing.',
-                style: TextStyle(color: Color(0xFF536681), fontSize: 11),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (currentPath == null)
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _capturing ? null : _pickDocumentPhoto,
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Upload photo'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _cameraError == null && !_capturing
-                          ? _takePhoto
-                          : null,
-                      icon: const Icon(Icons.camera_alt_outlined),
-                      label: Text(_capturing ? 'Opening…' : 'Use camera'),
-                    ),
-                  ),
-                ],
-              )
-            else ...[
-              OutlinedButton(onPressed: _retake, child: const Text('Retake')),
               const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _capturingBack || !_needsBack
-                    ? _continue
-                    : () {
-                        setState(() => _capturingBackSide = true);
-                      },
-                child: Text(
-                  _needsBack && !_capturingBack
-                      ? 'Continue to MyKad back'
-                      : 'Continue to selfie',
+              const Text(
+                'Photograph your ID',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF17243D), fontSize: 28),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Capture your document with the camera or upload a clear photo.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              _DocumentTypeSelector(
+                selected: _documentType,
+                onChanged: _changeType,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _capturingBack
+                    ? 'MYKAD — BACK'
+                    : (_documentType == _DocumentType.mykad
+                          ? 'MYKAD — FRONT'
+                          : 'PASSPORT — BIODATA PAGE'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF2E60C4),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: _DocumentCameraPanel(
+                  controller: _camera,
+                  capturedPath: currentPath,
+                  error: _cameraError,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F7FE),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Text(
+                  'Privacy: photos are sent only to your laptop verification service. Successful verification photos are deleted after processing.',
+                  style: TextStyle(color: Color(0xFF536681), fontSize: 11),
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (currentPath == null)
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _capturing ? null : _pickDocumentPhoto,
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: const Text('Upload photo'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _cameraError == null && !_capturing
+                            ? _takePhoto
+                            : null,
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: Text(
+                          _capturing ? 'Please wait…' : 'Capture photo',
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                OutlinedButton(onPressed: _retake, child: const Text('Retake')),
+                const SizedBox(height: 8),
+                ElevatedButton(
+                  onPressed: _capturingBack || !_needsBack
+                      ? _continue
+                      : () {
+                          setState(() => _capturingBackSide = true);
+                        },
+                  child: Text(
+                    _needsBack && !_capturingBack
+                        ? 'Continue to MyKad back'
+                        : 'Continue to selfie',
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -393,54 +400,59 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
-          children: [
-            _VerificationHeader(
-              backLabel: 'Back',
-              progress: 'STEP 2 OF 2',
-              onBack: () => Navigator.of(context).pop(),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Take a live selfie',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF17243D), fontSize: 28),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Look straight at the camera. Your selfie will be submitted immediately after capture.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
-            ),
-            const SizedBox(height: 22),
-            _SelfieCameraPanel(
-              controller: _camera,
-              capturedPath: null,
-              error: _cameraError,
-              instruction: 'Keep your face centred and look straight ahead',
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F7FE),
-                borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _VerificationHeader(
+                backLabel: 'Back',
+                progress: 'STEP 2 OF 2',
+                onBack: () => Navigator.of(context).pop(),
               ),
-              child: const Text(
-                'Face matching compares this live front selfie with the portrait on your document.',
-                style: TextStyle(color: Color(0xFF536681), fontSize: 11),
+              const SizedBox(height: 8),
+              const Text(
+                'Take a live selfie',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF17243D), fontSize: 28),
               ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _busy || _cameraError != null
-                  ? null
-                  : _captureAndVerify,
-              icon: const Icon(Icons.camera_alt_outlined),
-              label: Text(_busy ? 'Verifying…' : 'Capture and verify'),
-            ),
-          ],
+              const SizedBox(height: 8),
+              const Text(
+                'Look straight at the camera. Your selfie will be submitted immediately after capture.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: _SelfieCameraPanel(
+                  controller: _camera,
+                  capturedPath: null,
+                  error: _cameraError,
+                  instruction: 'Keep your face centred and look straight ahead',
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F7FE),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Text(
+                  'Face matching compares this live front selfie with the portrait on your document.',
+                  style: TextStyle(color: Color(0xFF536681), fontSize: 11),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: _busy || _cameraError != null
+                    ? null
+                    : _captureAndVerify,
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: Text(_busy ? 'Verifying…' : 'Capture and verify'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -609,7 +621,6 @@ class _DocumentCameraPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 332,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF18243A),
@@ -637,12 +648,14 @@ class _DocumentCameraPanel extends StatelessWidget {
             ),
           if (capturedPath == null && error == null)
             Center(
-              child: Container(
-                width: 296,
-                height: 187,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white, width: 2),
-                  borderRadius: BorderRadius.circular(14),
+              child: FractionallySizedBox(
+                widthFactor: 0.82,
+                heightFactor: 0.58,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white, width: 2),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
               ),
             ),
@@ -679,7 +692,6 @@ class _SelfieCameraPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 385,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF18243A),
