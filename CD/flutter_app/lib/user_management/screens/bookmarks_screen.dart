@@ -7,6 +7,7 @@ import '../../preference_recommender/pages/place_map_page.dart';
 import '../../shared/widgets/ohmy_snack_bar.dart';
 import '../models/saved_location.dart';
 import '../services/saved_location_service.dart';
+import '../widgets/profile_tab_background.dart';
 
 class BookmarksScreen extends StatefulWidget {
   const BookmarksScreen({super.key, required this.communityController});
@@ -87,50 +88,57 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFFF7FAFF),
+    backgroundColor: const Color(0xFFFFFBF5),
+    extendBodyBehindAppBar: true,
     appBar: AppBar(
+      centerTitle: false,
       title: const Text(
         'Bookmarks',
         style: TextStyle(color: Color(0xFF123A78), fontWeight: FontWeight.w700),
       ),
-      backgroundColor: const Color(0xFFF7FAFF),
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
     ),
-    body: Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-          child: SegmentedButton<int>(
-            segments: const [
-              ButtonSegment(
-                value: 0,
-                icon: Icon(Icons.article_outlined),
-                label: Text('Saved posts'),
-              ),
-              ButtonSegment(
-                value: 1,
-                icon: Icon(Icons.location_on),
-                label: Text('Saved locations'),
-              ),
-            ],
-            selected: {_tab},
-            showSelectedIcon: false,
-            onSelectionChanged: (selection) {
-              setState(() => _tab = selection.first);
-            },
+    body: ProfileTabBackground(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 10),
+            child: SegmentedButton<int>(
+              expandedInsets: EdgeInsets.zero,
+              segments: const [
+                ButtonSegment(
+                  value: 0,
+                  icon: Icon(Icons.article_outlined),
+                  label: Text('Saved posts'),
+                ),
+                ButtonSegment(
+                  value: 1,
+                  icon: Icon(Icons.location_on),
+                  label: Text('Saved locations'),
+                ),
+              ],
+              selected: {_tab},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) {
+                setState(() => _tab = selection.first);
+              },
+            ),
           ),
-        ),
-        Expanded(
-          child: _tab == 0
-              ? AnimatedBuilder(
-                  animation: widget.communityController,
-                  builder: (_, _) => SavedPostsSection(
-                    controller: widget.communityController,
-                    posts: widget.communityController.bookmarkedPosts,
-                  ),
-                )
-              : _locationContent(),
-        ),
-      ],
+          Expanded(
+            child: _tab == 0
+                ? AnimatedBuilder(
+                    animation: widget.communityController,
+                    builder: (_, _) => SavedPostsSection(
+                      controller: widget.communityController,
+                      posts: widget.communityController.bookmarkedPosts,
+                    ),
+                  )
+                : _locationContent(),
+          ),
+        ],
+      ),
     ),
   );
 
@@ -175,7 +183,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     return RefreshIndicator(
       onRefresh: _loadLocations,
       child: GridView.builder(
-        padding: const EdgeInsets.fromLTRB(10, 4, 10, 28),
+        padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2,
           crossAxisSpacing: 10,

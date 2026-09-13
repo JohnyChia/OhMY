@@ -33,7 +33,9 @@ and 8000 and teammates' services are unchanged.
 
 No SQL, public email table, RLS changes or auth.users SELECT grants are needed.
 The lookup uses paginated Admin API calls, suitable for this small prototype.
-It compares the trimmed/lowercased actual Auth email, not Gmail aliases.
+It compares canonical account emails. Gmail dots are ignored and
+`googlemail.com` is treated as `gmail.com`; dots remain significant for other
+providers.
 At large scale use an indexed server-only lookup; the capacity guard returns
 unavailable rather than falsely reporting an unregistered account.
 

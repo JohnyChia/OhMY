@@ -31,7 +31,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     try {
-      final email = _emailController.text.trim();
+      final email = AuthValidators.canonicalEmail(_emailController.text);
       await _authService.sendPasswordRecoveryOtp(email);
       if (!mounted) return;
       await Navigator.of(context).push(

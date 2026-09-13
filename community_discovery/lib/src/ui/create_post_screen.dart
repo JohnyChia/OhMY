@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -6,7 +8,12 @@ import '../data/community_validation_api.dart';
 import '../models/community_post.dart';
 import '../models/completed_trip.dart';
 import '../state/community_controller.dart';
+import '../theme/community_theme.dart';
 import 'widgets/community_status_card.dart';
+
+const _editorNavy = Color(0xFF123A78);
+const _editorMuted = Color(0xFF536A8E);
+const _editorBorder = Color(0xFFB9D0F5);
 
 enum PostEditorResult { saved, deleted }
 
@@ -322,8 +329,21 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFFFFBF5),
+    extendBodyBehindAppBar: true,
     appBar: AppBar(
-      title: Text(_isEditing ? 'Edit post' : 'Create post'),
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      foregroundColor: _editorNavy,
+      title: Text(
+        _isEditing ? 'Edit post' : 'Create post',
+        style: const TextStyle(
+          color: _editorNavy,
+          fontWeight: FontWeight.w700,
+          fontFamily: 'sans-serif',
+        ),
+      ),
       actions: [
         if (_isEditing)
           IconButton(
@@ -338,252 +358,266 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
       ],
     ),
-    body: FutureBuilder<List<CompletedTrip>>(
-      future: _trips,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return _CenteredMessage(
-            icon: Icons.error_outline,
-            title: 'Trips could not be loaded',
-            message: '${snapshot.error}',
-          );
-        }
-        final trips = snapshot.data ?? const [];
-        if (!_isEditing && trips.isEmpty) {
-          return const _CenteredMessage(
-            icon: Icons.flag_outlined,
-            title: 'Complete a trip first',
-            message:
-                'Only completed trips that have not been posted can be shared.',
-          );
-        }
-        if (_selectedTrip == null && !_isEditing) {
-          _selectedTrip = trips
-              .where((trip) => trip.id == widget.completedTrip?.id)
-              .firstOrNull;
-          if (_selectedTrip == null) {
-            return const _CenteredMessage(
-              icon: Icons.lock_clock_outlined,
-              title: 'Trip is not available',
-              message:
-                  'This trip is unfinished, already posted, or does not belong to the signed-in user.',
+    body: _EditorBackground(
+      child: FutureBuilder<List<CompletedTrip>>(
+        future: _trips,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return _CenteredMessage(
+              icon: Icons.error_outline,
+              title: 'Trips could not be loaded',
+              message: '${snapshot.error}',
             );
           }
-        }
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-          children: [
-            Text(
-              _isEditing
-                  ? 'Update your travel story'
-                  : 'Share a highlight from your completed trip',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _isEditing
-                  ? 'Make changes to the photos or story below.'
-                  : 'Add photos and a useful story for other travellers.',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 24),
-            if (!_isEditing) ...[
-              const _SectionTitle(
-                number: 1,
-                icon: Icons.route_outlined,
-                title: 'Completed trip',
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  leading: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.location_on_outlined,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  title: Text(_selectedTrip!.title),
-                  subtitle: Text(
-                    '${_selectedTrip!.locationName}\nLocation is locked to your Travel History.',
-                  ),
-                  isThreeLine: true,
+          final trips = snapshot.data ?? const [];
+          if (!_isEditing && trips.isEmpty) {
+            return const _CenteredMessage(
+              icon: Icons.flag_outlined,
+              title: 'Complete a trip first',
+              message:
+                  'Only completed trips that have not been posted can be shared.',
+            );
+          }
+          if (_selectedTrip == null && !_isEditing) {
+            _selectedTrip = trips
+                .where((trip) => trip.id == widget.completedTrip?.id)
+                .firstOrNull;
+            if (_selectedTrip == null) {
+              return const _CenteredMessage(
+                icon: Icons.lock_clock_outlined,
+                title: 'Trip is not available',
+                message:
+                    'This trip is unfinished, already posted, or does not belong to the signed-in user.',
+              );
+            }
+          }
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+            children: [
+              Text(
+                _isEditing
+                    ? 'Update your travel story'
+                    : 'Share a highlight from your completed trip',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: _editorNavy,
+                  fontWeight: FontWeight.w800,
+                  fontFamily: 'sans-serif',
                 ),
               ),
-              if (_fieldFeedback['trip'] case final feedback?) ...[
+              const SizedBox(height: 4),
+              Text(
+                _isEditing
+                    ? 'Make changes to the photos or story below.'
+                    : 'Add photos and a useful story for other travellers.',
+                style: TextStyle(color: _editorMuted),
+              ),
+              const SizedBox(height: 24),
+              if (!_isEditing) ...[
+                const _SectionTitle(
+                  number: 1,
+                  icon: Icons.route_outlined,
+                  title: 'Completed trip',
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  color: Colors.white.withValues(alpha: 0.96),
+                  elevation: 1,
+                  shadowColor: const Color(0x220D2F69),
+                  shape: RoundedRectangleBorder(
+                    side: const BorderSide(color: _editorBorder, width: 1.2),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 6,
+                    ),
+                    leading: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8F1FF),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.location_on_outlined,
+                        color: CommunityColors.primary,
+                      ),
+                    ),
+                    title: Text(_selectedTrip!.title),
+                    subtitle: Text(
+                      '${_selectedTrip!.locationName}\nLocation is locked to your Travel History.',
+                    ),
+                    isThreeLine: true,
+                  ),
+                ),
+                if (_fieldFeedback['trip'] case final feedback?) ...[
+                  const SizedBox(height: 8),
+                  _FeedbackCard(feedback: feedback),
+                ],
+              ],
+              const SizedBox(height: 22),
+              _SectionTitle(
+                number: _isEditing ? null : 2,
+                icon: Icons.photo_library_outlined,
+                title: 'Photos',
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Choose 1–6 JPG or PNG photos. Swipe to preview.',
+                style: TextStyle(color: _editorMuted),
+              ),
+              const SizedBox(height: 8),
+              _ImageEditor(
+                newImages: _images,
+                existingImages: _existingImages,
+                onPick: _pickImages,
+                onRemoveNew: (index) => setState(() {
+                  _images.removeAt(index);
+                  if (_isEditing) _galleryChanged = true;
+                  _fieldFeedback.remove('images');
+                  _submissionFeedback = null;
+                }),
+                onRemoveExisting: (index) => setState(() {
+                  _existingImages.removeAt(index);
+                  _galleryChanged = true;
+                  _fieldFeedback.remove('images');
+                  _submissionFeedback = null;
+                }),
+              ),
+              if (_fieldFeedback['images'] case final feedback?) ...[
                 const SizedBox(height: 8),
                 _FeedbackCard(feedback: feedback),
               ],
+              const SizedBox(height: 22),
+              _SectionTitle(
+                number: _isEditing ? null : 3,
+                icon: Icons.edit_note_outlined,
+                title: 'Your story',
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Title',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: _editorNavy,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 7),
+              TextField(
+                controller: _titleController,
+                onChanged: (_) => _clearFeedback('title'),
+                maxLength: 120,
+                decoration: InputDecoration(
+                  hintText: 'Example: Morning light at Kwai Chai Hong',
+                  errorText: _fieldFeedback['title']?.inlineMessage,
+                  errorMaxLines: 4,
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.96),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _editorBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _editorBorder, width: 1.2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color: CommunityColors.primary,
+                      width: 1.6,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Description',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: _editorNavy,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 7),
+              TextField(
+                controller: _descriptionController,
+                onChanged: (_) => _clearFeedback('description'),
+                minLines: 4,
+                maxLines: 7,
+                maxLength: 1000,
+                decoration: InputDecoration(
+                  hintText: 'Share practical tips or a memorable moment...',
+                  errorText: _fieldFeedback['description']?.inlineMessage,
+                  errorMaxLines: 4,
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.96),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _editorBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: _editorBorder, width: 1.2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(
+                      color: CommunityColors.primary,
+                      width: 1.6,
+                    ),
+                  ),
+                ),
+              ),
+              if (_submissionFeedback case final feedback?) ...[
+                const SizedBox(height: 14),
+                _FeedbackCard(feedback: feedback),
+              ],
+              const SizedBox(height: 26),
+              SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: CommunityColors.primary,
+                    foregroundColor: Colors.white,
+                    textStyle: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'sans-serif',
+                    ),
+                    shape: const StadiumBorder(),
+                  ),
+                  onPressed: _publishing || _deleting ? null : _publish,
+                  icon: _publishing
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(_isEditing ? Icons.check : Icons.publish_outlined),
+                  label: Text(
+                    _publishing
+                        ? (_isEditing ? 'Saving...' : 'Publishing...')
+                        : (_isEditing ? 'Save changes' : 'Publish post'),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Your title and description are checked for unsafe, spam-like, meaningless, or location-unrelated text. Publishing is blocked if validation is unavailable.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: _editorMuted,
+                  fontSize: 11,
+                  height: 1.35,
+                ),
+              ),
             ],
-            const SizedBox(height: 22),
-            _SectionTitle(
-              number: _isEditing ? null : 2,
-              icon: Icons.photo_library_outlined,
-              title: 'Photos',
-            ),
-            const SizedBox(height: 3),
-            Text(
-              'Choose 1–6 JPG or PNG photos. Swipe to preview.',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _ImageEditor(
-              newImages: _images,
-              existingImages: _existingImages,
-              onPick: _pickImages,
-              onRemoveNew: (index) => setState(() {
-                _images.removeAt(index);
-                if (_isEditing) _galleryChanged = true;
-                _fieldFeedback.remove('images');
-                _submissionFeedback = null;
-              }),
-              onRemoveExisting: (index) => setState(() {
-                _existingImages.removeAt(index);
-                _galleryChanged = true;
-                _fieldFeedback.remove('images');
-                _submissionFeedback = null;
-              }),
-            ),
-            if (_fieldFeedback['images'] case final feedback?) ...[
-              const SizedBox(height: 8),
-              _FeedbackCard(feedback: feedback),
-            ],
-            const SizedBox(height: 22),
-            _SectionTitle(
-              number: _isEditing ? null : 3,
-              icon: Icons.edit_note_outlined,
-              title: 'Your story',
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Title',
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 7),
-            TextField(
-              controller: _titleController,
-              onChanged: (_) => _clearFeedback('title'),
-              maxLength: 120,
-              decoration: InputDecoration(
-                hintText: 'Example: Morning light at Kwai Chai Hong',
-                errorText: _fieldFeedback['title']?.inlineMessage,
-                errorMaxLines: 4,
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    width: 1.2,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 1.6,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Description',
-              style: Theme.of(
-                context,
-              ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 7),
-            TextField(
-              controller: _descriptionController,
-              onChanged: (_) => _clearFeedback('description'),
-              minLines: 4,
-              maxLines: 7,
-              maxLength: 1000,
-              decoration: InputDecoration(
-                hintText: 'Share practical tips or a memorable moment...',
-                errorText: _fieldFeedback['description']?.inlineMessage,
-                errorMaxLines: 4,
-                filled: true,
-                fillColor: Theme.of(context).colorScheme.surface,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                    width: 1.2,
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 1.6,
-                  ),
-                ),
-              ),
-            ),
-            if (_submissionFeedback case final feedback?) ...[
-              const SizedBox(height: 14),
-              _FeedbackCard(feedback: feedback),
-            ],
-            const SizedBox(height: 26),
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                onPressed: _publishing || _deleting ? null : _publish,
-                icon: _publishing
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(_isEditing ? Icons.check : Icons.publish_outlined),
-                label: Text(
-                  _publishing
-                      ? (_isEditing ? 'Saving...' : 'Publishing...')
-                      : (_isEditing ? 'Save changes' : 'Publish post'),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Your title and description are checked for unsafe, spam-like, meaningless, or location-unrelated text. Publishing is blocked if validation is unavailable.',
-              textAlign: TextAlign.center,
-            ),
-          ],
-        );
-      },
+          );
+        },
+      ),
     ),
   );
 }
@@ -603,7 +637,7 @@ class _SectionTitle extends StatelessWidget {
         height: 30,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primary,
+          color: CommunityColors.primary,
           shape: BoxShape.circle,
         ),
         child: number == null
@@ -619,9 +653,11 @@ class _SectionTitle extends StatelessWidget {
       const SizedBox(width: 10),
       Text(
         title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          color: _editorNavy,
+          fontWeight: FontWeight.w800,
+          fontFamily: 'sans-serif',
+        ),
       ),
     ],
   );
@@ -686,12 +722,9 @@ class _ImageEditor extends StatelessWidget {
           aspectRatio: 16 / 9,
           child: Container(
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
+              color: Colors.white.withValues(alpha: 0.96),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-                width: 1.2,
-              ),
+              border: Border.all(color: _editorBorder, width: 1.2),
             ),
             child: const _PhotoPrompt(),
           ),
@@ -776,6 +809,11 @@ class _ImageEditor extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: CommunityColors.primary,
+            side: const BorderSide(color: CommunityColors.primary),
+            textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          ),
           onPressed: count < 6 ? onPick : null,
           icon: const Icon(Icons.add_photo_alternate_outlined),
           label: Text(count < 6 ? 'Add more ($count/6)' : 'Maximum 6 photos'),
@@ -807,9 +845,45 @@ class _PhotoPrompt extends StatelessWidget {
   Widget build(BuildContext context) => const Column(
     mainAxisAlignment: MainAxisAlignment.center,
     children: [
-      Icon(Icons.add_photo_alternate_outlined, size: 44),
+      Icon(
+        Icons.add_photo_alternate_outlined,
+        size: 44,
+        color: CommunityColors.primary,
+      ),
       SizedBox(height: 8),
-      Text('Choose JPG, JPEG, or PNG (maximum 10 MB)'),
+      Text(
+        'Choose JPG, JPEG, or PNG (maximum 10 MB)',
+        style: TextStyle(color: _editorNavy, fontWeight: FontWeight.w600),
+      ),
+    ],
+  );
+}
+
+class _EditorBackground extends StatelessWidget {
+  const _EditorBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      ClipRect(
+        child: ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(sigmaX: 3.5, sigmaY: 3.5),
+          child: Transform.scale(
+            scale: 1.02,
+            child: Image.asset(
+              'assets/images/user_management/profile_bg.png',
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) =>
+                  const ColoredBox(color: Color(0xFFF5F8FF)),
+            ),
+          ),
+        ),
+      ),
+      const ColoredBox(color: Color(0xA8FFFDF8)),
+      SafeArea(child: child),
     ],
   );
 }

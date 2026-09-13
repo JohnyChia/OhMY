@@ -63,6 +63,20 @@ void main() {
     await client.dispose();
   });
 
+  test(
+    'Gmail dotted aliases are canonicalized before account lookup',
+    () async {
+      final lookup = PasswordRecoveryAccountService(
+        httpClient: MockClient((request) async {
+          expect(jsonDecode(request.body)['email'], 'ylynnnnx@gmail.com');
+          return http.Response('{"registered":true}', 200);
+        }),
+      );
+
+      expect(await lookup.isRegistered('ylynnnn.x@gmail.com'), isTrue);
+    },
+  );
+
   for (final response in [
     http.Response('{}', 503),
     http.Response('bad json', 200),

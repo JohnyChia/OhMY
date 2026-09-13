@@ -6,11 +6,14 @@ import 'package:flutter/material.dart';
 import '../models/community_post.dart';
 import '../models/discovery_tag.dart';
 import '../state/community_controller.dart';
+import '../theme/community_theme.dart';
 import '../integration/community_integration_callbacks.dart';
 import 'bookmarked_posts_screen.dart';
 import 'widgets/post_card.dart';
 
 enum _PostSort { latest, mostLiked }
+
+const _communityNavy = Color(0xFF123A78);
 
 class CommunityFeedScreen extends StatefulWidget {
   const CommunityFeedScreen({
@@ -142,7 +145,10 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                                     style: Theme.of(context)
                                         .textTheme
                                         .titleLarge
-                                        ?.copyWith(fontWeight: FontWeight.w800),
+                                        ?.copyWith(
+                                          color: _communityNavy,
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                   ),
                                   if (state.selectedTagIds.isNotEmpty) ...[
                                     const SizedBox(height: 3),
@@ -179,7 +185,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 4,
                                     ),
-                                    child: FilterChip(
+                                    child: _InterestFilterChip(
                                       label: Text(tag.name),
                                       selected: selected,
                                       onSelected: (_) =>
@@ -317,13 +323,16 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   );
 
   Future<void> _showFilters() async {
+    FocusManager.instance.primaryFocus?.unfocus();
     final result = await showModalBottomSheet<_DiscoveryOptions>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
+      requestFocus: false,
       builder: (_) =>
           _TagFilterSheet(controller: widget.controller, initialSort: _sort),
     );
+    FocusManager.instance.primaryFocus?.unfocus();
     if (result != null) {
       setState(() => _sort = result.sort);
       await widget.controller.loadPosts(tagIds: result.tagIds);
@@ -424,13 +433,16 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                     child: Text(
                       'Discover posts',
                       style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                          ?.copyWith(
+                            color: _communityNavy,
+                            fontWeight: FontWeight.w800,
+                          ),
                     ),
                   ),
                   IconButton(
                     tooltip: 'Close filters',
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close, color: _communityNavy),
                   ),
                 ],
               ),
@@ -443,14 +455,34 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
               const SizedBox(height: 22),
               Text(
                 'Sort by',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: _communityNavy,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 child: SegmentedButton<_PostSort>(
+                  style: ButtonStyle(
+                    backgroundColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.selected)
+                          ? CommunityColors.primary
+                          : Colors.white,
+                    ),
+                    foregroundColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.selected)
+                          ? Colors.white
+                          : _communityNavy,
+                    ),
+                    side: WidgetStateProperty.resolveWith(
+                      (states) => BorderSide(
+                        color: states.contains(WidgetState.selected)
+                            ? CommunityColors.primary
+                            : CommunityColors.primary.withValues(alpha: 0.35),
+                      ),
+                    ),
+                  ),
                   segments: const [
                     ButtonSegment(
                       value: _PostSort.latest,
@@ -475,6 +507,7 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                     child: Text(
                       'Filter by interest',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: _communityNavy,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -524,19 +557,18 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                     child: Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: state.tags
-                          .map(
-                            (tag) => FilterChip(
-                              label: Text(tag.name),
-                              selected: selected.contains(tag.id),
-                              onSelected: (value) => setState(
-                                () => value
-                                    ? selected.add(tag.id)
-                                    : selected.remove(tag.id),
-                              ),
-                            ),
-                          )
-                          .toList(),
+                      children: state.tags.map((tag) {
+                        final isSelected = selected.contains(tag.id);
+                        return _InterestFilterChip(
+                          label: Text(tag.name),
+                          selected: isSelected,
+                          onSelected: (value) => setState(
+                            () => value
+                                ? selected.add(tag.id)
+                                : selected.remove(tag.id),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),
@@ -563,7 +595,48 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
   );
 }
 
-class _Header extends StatelessWidget {
+class _InterestFilterChip extends StatelessWidget {
+  const _InterestFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final Widget label;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) => FilterChip(
+    avatar: SizedBox(
+      width: 18,
+      height: 18,
+      child: selected
+          ? const Icon(Icons.check, size: 18, color: Colors.white)
+          : null,
+    ),
+    showCheckmark: false,
+    label: Transform.translate(
+      offset: Offset(selected ? -2 : -13, 0),
+      child: label,
+    ),
+    selected: selected,
+    selectedColor: CommunityColors.primary,
+    backgroundColor: Colors.white.withValues(alpha: 0.88),
+    side: BorderSide(
+      color: selected
+          ? CommunityColors.primary
+          : CommunityColors.primary.withValues(alpha: 0.35),
+    ),
+    labelStyle: TextStyle(
+      color: selected ? Colors.white : _communityNavy,
+      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+    ),
+    onSelected: onSelected,
+  );
+}
+
+class _Header extends StatefulWidget {
   const _Header({
     required this.controller,
     required this.onSearch,
@@ -577,62 +650,78 @@ class _Header extends StatelessWidget {
   final int activeFilterCount;
 
   @override
+  State<_Header> createState() => _HeaderState();
+}
+
+class _HeaderState extends State<_Header> {
+  final FocusNode _searchFocusNode = FocusNode();
+
+  @override
+  void dispose() {
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
     color: Colors.transparent,
     child: Row(
       children: [
         Expanded(
-          child: Material(
-            color: const Color(0xFFF9F7FC),
-            elevation: 3,
-            shadowColor: const Color(0x33000000),
-            borderRadius: BorderRadius.circular(28),
-            child: SizedBox(
-              height: 54,
-              child: TextField(
-                controller: controller,
-                onChanged: onSearch,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: 'Search posts, places or tags...',
-                  suffixIconConstraints: const BoxConstraints(minWidth: 92),
-                  suffixIcon: Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.search, size: 23),
-                        const SizedBox(width: 4),
-                        Badge(
-                          isLabelVisible: activeFilterCount > 0,
-                          label: Text('$activeFilterCount'),
-                          child: IconButton(
-                            tooltip: 'Sort and filter',
-                            onPressed: onFilter,
-                            icon: const Icon(Icons.tune, size: 22),
+          child: AnimatedBuilder(
+            animation: _searchFocusNode,
+            builder: (context, child) => Material(
+              color: const Color(0xFFF9F7FC),
+              elevation: 3,
+              shadowColor: const Color(0x33000000),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+                side: _searchFocusNode.hasFocus
+                    ? BorderSide(
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 1.5,
+                      )
+                    : BorderSide.none,
+              ),
+              child: SizedBox(
+                height: 54,
+                child: TextField(
+                  focusNode: _searchFocusNode,
+                  controller: widget.controller,
+                  onChanged: widget.onSearch,
+                  textInputAction: TextInputAction.search,
+                  textAlignVertical: TextAlignVertical.center,
+                  decoration: InputDecoration(
+                    hintText: 'Search posts, places or tags...',
+                    suffixIconConstraints: const BoxConstraints(minWidth: 92),
+                    suffixIcon: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.search, size: 23),
+                          const SizedBox(width: 4),
+                          Badge(
+                            alignment: Alignment.topRight,
+                            offset: const Offset(-5, 5),
+                            isLabelVisible: widget.activeFilterCount > 0,
+                            label: Text('${widget.activeFilterCount}'),
+                            child: IconButton(
+                              tooltip: 'Sort and filter',
+                              onPressed: widget.onFilter,
+                              icon: const Icon(Icons.tune, size: 22),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                  filled: true,
-                  fillColor: Colors.transparent,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(28),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(28),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(28),
-                    borderSide: BorderSide(
-                      color: Theme.of(context).colorScheme.primary,
-                      width: 1.5,
-                    ),
+                    filled: true,
+                    fillColor: Colors.transparent,
+                    contentPadding: const EdgeInsets.fromLTRB(16, 2, 0, 0),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
                   ),
                 ),
               ),

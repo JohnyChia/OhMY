@@ -35,7 +35,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _authService = AuthService();
   final _imagePicker = ImagePicker();
   late final TextEditingController _nameController;
-  late final TextEditingController _bioController;
   late List<String> _preferences;
   bool _isSaving = false;
   bool _isUploadingPhoto = false;
@@ -49,7 +48,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.profile.fullName);
-    _bioController = TextEditingController(text: widget.profile.bio);
     _preferences = widget.initialPreferences
         .where(culturalTravelPreferenceOptions.contains)
         .toList();
@@ -59,7 +57,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _bioController.dispose();
     super.dispose();
   }
 
@@ -140,7 +137,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       await _authService.updateProfile(
         fullName: _nameController.text,
-        bio: _bioController.text,
+        bio: widget.profile.bio,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -182,34 +179,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           shadowColor: Colors.transparent,
           elevation: 0,
           scrolledUnderElevation: 0,
-          toolbarHeight: 68,
-          leadingWidth: 68,
-          leading: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-            child: Material(
-              color: const Color(0xF7FFFFFF),
-              elevation: 3,
-              shadowColor: const Color(0x33000000),
-              shape: const CircleBorder(
-                side: BorderSide(color: Color(0xFFBFD3F2)),
-              ),
-              child: IconButton(
-                tooltip: 'Back',
-                onPressed: _closeScreen,
-                icon: const Icon(Icons.arrow_back, color: _blue, size: 25),
-              ),
-            ),
+          leading: IconButton(
+            tooltip: 'Back',
+            onPressed: _closeScreen,
+            icon: const Icon(Icons.arrow_back),
           ),
           title: const Text(
             'Edit profile',
             style: TextStyle(
-              color: _ink,
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              fontFamily: 'serif',
+              color: Color(0xFF123A78),
+              fontWeight: FontWeight.w700,
             ),
           ),
-          centerTitle: true,
+          centerTitle: false,
         ),
         body: Stack(
           fit: StackFit.expand,
@@ -278,7 +260,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         textStyle: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
-                          fontFamily: 'serif',
                         ),
                       ),
                       onPressed: _isUploadingPhoto ? null : _pickProfilePhoto,
@@ -305,32 +286,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1,
                         ),
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                        enabledBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: _blue),
-                        ),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: _blue, width: 2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _bioController,
-                      maxLength: 160,
-                      minLines: 2,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'BIO',
-                        labelStyle: TextStyle(
-                          color: _blue,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1,
-                        ),
-                        hintText:
-                            'Tell other travellers a little about yourself',
-                        hintStyle: TextStyle(color: Color(0xFF64789A)),
                         floatingLabelBehavior: FloatingLabelBehavior.always,
                         enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: _blue),
@@ -531,7 +486,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         textStyle: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
-                          fontFamily: 'serif',
+                          fontFamily: 'sans-serif',
                         ),
                       ),
                       onPressed: _isSaving ? null : _save,

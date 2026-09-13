@@ -180,7 +180,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     final value = await position();
     if (!mounted || value == null) return;
     setState(() => currentPosition = value);
-    await moveMapTo(value, zoom: 16);
+    if (widget.initialRecommendation == null) {
+      await moveMapTo(value, zoom: 16);
+    }
     unawaited(_loadWeather(value, showErrors: false));
   }
 
@@ -195,6 +197,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
       selectedItem['place'] as Map? ?? const {},
     );
     selectedItem['place'] = place;
+    if (selectedItem['areaSelection'] == true || place['isArea'] == true) {
+      await selectArea(place);
+      return;
+    }
     final origin = currentPosition ?? await position();
     if (origin != null) await _applyDrivingMetrics(place, origin);
     await choose(selectedItem, true);
@@ -434,6 +440,38 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     } finally {
       if (mounted) setState(() => loading = false);
     }
+  }
+
+  Future<void> selectArea(Map<String, dynamic> area) async {
+    final location = area['location'];
+    if (location is! Map ||
+        location['latitude'] is! num ||
+        location['longitude'] is! num) {
+      fail(Exception('This area has no map location.'));
+      return;
+    }
+    final types = List<String>.from(area['types'] as List? ?? const []);
+    final zoom = types.contains('administrative_area_level_1')
+        ? 9.0
+        : types.contains('administrative_area_level_2')
+        ? 10.5
+        : types.contains('locality')
+        ? 12.0
+        : 13.5;
+    final target = LatLng(
+      (location['latitude'] as num).toDouble(),
+      (location['longitude'] as num).toDouble(),
+    );
+    search.text = name(area);
+    searchFocus.unfocus();
+    setState(() {
+      results = [];
+      selected = null;
+      markers = {};
+      showCarousel = false;
+      message = null;
+    });
+    await controller?.animateCamera(CameraUpdate.newLatLngZoom(target, zoom));
   }
 
   Future<List<String>> _travelerPreferences() async {
@@ -982,7 +1020,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                 ),
                 title: Text(name(p), maxLines: 1),
                 subtitle: Text(p['formattedAddress'] ?? '', maxLines: 2),
-                onTap: p['isArea'] == true ? null : () => selectPlace(p['id']),
+                onTap: p['isArea'] == true
+                    ? () => unawaited(selectArea(p))
+                    : () => unawaited(selectPlace(p['id'].toString())),
               );
             },
           ),

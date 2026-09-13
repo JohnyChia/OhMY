@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../utils/auth_validators.dart';
+
 class RecoveryAccountCheckFailure implements Exception {
   const RecoveryAccountCheckFailure(this.message);
   final String message;
@@ -22,10 +24,15 @@ class PasswordRecoveryAccountService {
   final String _backendUrl;
 
   Future<bool> isRegistered(String email) async {
+    final validationError = AuthValidators.email(email);
+    if (validationError != null) {
+      throw RecoveryAccountCheckFailure(validationError);
+    }
+    final canonicalEmail = AuthValidators.canonicalEmail(email);
     try {
       final uri = Uri.parse('$_backendUrl/auth/email-registered');
       final headers = {'Content-Type': 'application/json'};
-      final body = jsonEncode({'email': email.trim().toLowerCase()});
+      final body = jsonEncode({'email': canonicalEmail});
       // http.post closes its temporary client; injected clients belong to
       // the caller (tests), so this service never closes those clients.
       final response =

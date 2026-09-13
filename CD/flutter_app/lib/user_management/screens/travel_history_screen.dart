@@ -4,6 +4,7 @@ import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../models/travel_history_entry.dart';
 import '../services/travel_history_service.dart';
+import '../widgets/profile_tab_background.dart';
 
 const _blue = Color(0xFF2E60C4);
 const _ink = Color(0xFF17243D);
@@ -41,129 +42,134 @@ class _TravelHistoryScreenState extends State<TravelHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFFFFBF5),
+      extendBodyBehindAppBar: true,
       appBar: _appBar(context, 'Travel history'),
-      body: FutureBuilder<List<TravelHistoryEntry>>(
-        future: _history,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: WauLoadingIndicator(size: 58));
-          }
-          if (snapshot.hasError) {
-            final message = snapshot.error is TravelHistoryFailure
-                ? (snapshot.error! as TravelHistoryFailure).message
-                : 'Your completed trips could not be loaded.';
-            return _Message(
-              title: 'Could not load history',
-              message: message,
-              actionLabel: 'Try again',
-              onAction: _refresh,
-            );
-          }
+      body: ProfileTabBackground(
+        child: FutureBuilder<List<TravelHistoryEntry>>(
+          future: _history,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: WauLoadingIndicator(size: 58));
+            }
+            if (snapshot.hasError) {
+              final message = snapshot.error is TravelHistoryFailure
+                  ? (snapshot.error! as TravelHistoryFailure).message
+                  : 'Your completed trips could not be loaded.';
+              return _Message(
+                title: 'Could not load history',
+                message: message,
+                actionLabel: 'Try again',
+                onAction: _refresh,
+              );
+            }
 
-          final trips = snapshot.data ?? const [];
-          if (trips.isEmpty) {
-            return RefreshIndicator(
-              onRefresh: _refresh,
-              child: const CustomScrollView(
-                physics: AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: _EmptyPanel(),
+            final trips = snapshot.data ?? const [];
+            if (trips.isEmpty) {
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: const CustomScrollView(
+                  physics: AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: _EmptyPanel(),
+                      ),
                     ),
-                  ),
-                  SliverFillRemaining(hasScrollBody: false, child: SizedBox()),
-                ],
-              ),
-            );
-          }
-
-          final visible = trips
-              .where((trip) {
-                return _filter == _Filter.all ||
-                    (_filter == _Filter.solo &&
-                        trip.type == TravelHistoryType.solo) ||
-                    (_filter == _Filter.group &&
-                        trip.type == TravelHistoryType.group);
-              })
-              .toList(growable: false);
-
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-              children: [
-                const _ReadOnlyNote(),
-                const SizedBox(height: 12),
-                _HistorySummary(trips: trips),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    _FilterButton(
-                      label: 'All',
-                      selected: _filter == _Filter.all,
-                      onTap: () => setState(() => _filter = _Filter.all),
-                    ),
-                    _FilterButton(
-                      label: 'Solo',
-                      selected: _filter == _Filter.solo,
-                      onTap: () => setState(() => _filter = _Filter.solo),
-                    ),
-                    _FilterButton(
-                      label: 'Group',
-                      selected: _filter == _Filter.group,
-                      onTap: () => setState(() => _filter = _Filter.group),
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: SizedBox(),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                if (visible.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 36),
-                    child: Text(
-                      'No completed trips match this filter.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: _muted),
-                    ),
-                  )
-                else
-                  ...visible.map(
-                    (trip) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Column(
-                        children: [
-                          _TripCard(
-                            trip: trip,
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => TravelHistoryDetailsScreen(
-                                  trip: trip,
-                                  communityController:
-                                      widget.communityController,
+              );
+            }
+
+            final visible = trips
+                .where((trip) {
+                  return _filter == _Filter.all ||
+                      (_filter == _Filter.solo &&
+                          trip.type == TravelHistoryType.solo) ||
+                      (_filter == _Filter.group &&
+                          trip.type == TravelHistoryType.group);
+                })
+                .toList(growable: false);
+
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                children: [
+                  const _ReadOnlyNote(),
+                  const SizedBox(height: 12),
+                  _HistorySummary(trips: trips),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FilterButton(
+                          label: 'All',
+                          selected: _filter == _Filter.all,
+                          onTap: () => setState(() => _filter = _Filter.all),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _FilterButton(
+                          label: 'Solo',
+                          selected: _filter == _Filter.solo,
+                          onTap: () => setState(() => _filter = _Filter.solo),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _FilterButton(
+                          label: 'Group',
+                          selected: _filter == _Filter.group,
+                          onTap: () => setState(() => _filter = _Filter.group),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (visible.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 36),
+                      child: Text(
+                        'No completed trips match this filter.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: _muted),
+                      ),
+                    )
+                  else
+                    ...visible.map(
+                      (trip) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Column(
+                          children: [
+                            _TripCard(
+                              trip: trip,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => TravelHistoryDetailsScreen(
+                                    trip: trip,
+                                    communityController:
+                                        widget.communityController,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          if (trip.canShareToCommunity &&
-                              widget.communityController != null) ...[
-                            const SizedBox(height: 6),
-                            _CommunityPostAction(
-                              trip: trip,
-                              controller: widget.communityController!,
-                            ),
                           ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -183,35 +189,55 @@ class TravelHistoryDetailsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final isSolo = trip.type == TravelHistoryType.solo;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFFFFBF5),
+      extendBodyBehindAppBar: true,
       appBar: _appBar(context, 'Trip details'),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-        children: [
-          _TripCard(trip: trip),
-          if (trip.canShareToCommunity && communityController != null) ...[
-            const SizedBox(height: 8),
-            _CommunityPostAction(trip: trip, controller: communityController!),
-          ],
-          const SizedBox(height: 10),
-          _Metrics(
-            values: [
-              if (!isSolo) ('${trip.stops.length}', 'Stops'),
-              ('${_distance(trip.distanceKm)} km', 'Distance'),
-              (_duration(trip.durationMinutes), 'Duration'),
+      body: ProfileTabBackground(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+          children: [
+            _TripCard(trip: trip),
+            if (trip.canShareToCommunity && communityController != null) ...[
+              const SizedBox(height: 8),
+              _CommunityPostAction(
+                trip: trip,
+                controller: communityController!,
+              ),
             ],
-          ),
-          if (!isSolo) ...[
-            const SizedBox(height: 18),
-            const Text('Journey itinerary', style: TextStyle(color: _ink)),
+            const SizedBox(height: 10),
+            _Metrics(
+              values: [
+                if (!isSolo) ('${trip.stops.length}', 'Stops'),
+                ('${_distance(trip.distanceKm)} km', 'Distance'),
+                (_duration(trip.durationMinutes), 'Duration'),
+              ],
+            ),
+            if (!isSolo) ...[
+              const SizedBox(height: 18),
+              const Text(
+                'Journey itinerary',
+                style: TextStyle(
+                  color: Color(0xFF123A78),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 9),
+              _ItineraryPanel(trip: trip),
+            ],
+            const SizedBox(height: 16),
+            const Text(
+              'Trip information',
+              style: TextStyle(
+                color: Color(0xFF123A78),
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 9),
-            _ItineraryPanel(trip: trip),
+            _InformationPanel(trip: trip),
           ],
-          const SizedBox(height: 12),
-          const Text('Trip information', style: TextStyle(color: _ink)),
-          const SizedBox(height: 9),
-          _InformationPanel(trip: trip),
-        ],
+        ),
       ),
     );
   }
@@ -282,7 +308,17 @@ class _CommunityPostActionState extends State<_CommunityPostAction> {
       }
       return SizedBox(
         width: double.infinity,
-        child: FilledButton.tonalIcon(
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: _blue,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(46),
+            textStyle: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+            shape: const StadiumBorder(),
+          ),
           onPressed: _open,
           icon: Icon(
             snapshot.data == null ? Icons.add_photo_alternate : Icons.edit,
@@ -296,11 +332,17 @@ class _CommunityPostActionState extends State<_CommunityPostAction> {
 
 PreferredSizeWidget _appBar(BuildContext context, String title) {
   return AppBar(
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.transparent,
     surfaceTintColor: Colors.transparent,
     elevation: 0,
-    centerTitle: true,
-    title: Text(title, style: const TextStyle(color: _ink, fontSize: 22)),
+    centerTitle: false,
+    title: Text(
+      title,
+      style: const TextStyle(
+        color: Color(0xFF123A78),
+        fontWeight: FontWeight.w700,
+      ),
+    ),
     leading: IconButton(
       tooltip: 'Back',
       onPressed: () => Navigator.maybePop(context),
@@ -315,17 +357,30 @@ class _ReadOnlyNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 42,
+      constraints: const BoxConstraints(minHeight: 52),
       alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F6FF),
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white.withValues(alpha: 0.96),
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x160D2F69),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: const Text(
         'Automatically recorded from completed journeys — history cannot be edited.',
         textAlign: TextAlign.center,
-        style: TextStyle(color: _muted, fontSize: 10),
+        style: TextStyle(
+          color: _muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          height: 1.3,
+        ),
       ),
     );
   }
@@ -365,10 +420,18 @@ class _Metrics extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 58,
+      height: 68,
       decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.96),
         border: Border.all(color: const Color(0xFFC5D6F5)),
         borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120D2F69),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         children: values
@@ -380,13 +443,18 @@ class _Metrics extends StatelessWidget {
                     Text(
                       value.$1,
                       maxLines: 1,
-                      style: const TextStyle(color: _blue, fontSize: 18),
+                      style: const TextStyle(
+                        color: _blue,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     Text(
                       value.$2,
                       style: const TextStyle(
                         color: Color(0xFF62708A),
-                        fontSize: 10,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -416,7 +484,7 @@ class _FilterButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        height: 28,
+        height: 36,
         constraints: const BoxConstraints(minWidth: 48),
         padding: const EdgeInsets.symmetric(horizontal: 14),
         alignment: Alignment.center,
@@ -428,8 +496,9 @@ class _FilterButton extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : _muted,
-            fontSize: 11,
+            color: selected ? Colors.white : _ink,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
@@ -453,9 +522,14 @@ class _TripCard extends StatelessWidget {
       if (trip.tags.isNotEmpty) trip.tags.take(2).join(' + '),
     ].join('  •  ');
     return Material(
-      color: isGroup ? const Color(0xFFF7F5FF) : const Color(0xFFEDF5FF),
+      color: Colors.white.withValues(alpha: 0.96),
+      elevation: 1,
+      shadowColor: const Color(0x220D2F69),
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: _border),
+        side: BorderSide(
+          color: isGroup ? const Color(0xFFCFC7EF) : const Color(0xFFB9D0F5),
+          width: 1.2,
+        ),
         borderRadius: BorderRadius.circular(15),
       ),
       clipBehavior: Clip.antiAlias,
@@ -475,37 +549,52 @@ class _TripCard extends StatelessWidget {
                         vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: isGroup
+                            ? const Color(0xFFF0ECFF)
+                            : const Color(0xFFE8F1FF),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
                         isGroup ? 'Travel Group' : 'Solo Trip',
                         style: TextStyle(
                           color: isGroup ? const Color(0xFF7656C9) : _blue,
-                          fontSize: 9,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       trip.title,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _ink, fontSize: 16),
+                      style: const TextStyle(
+                        color: Color(0xFF123A78),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       '${trip.destination}  •  ${_date(trip.completedAt.toLocal())}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _muted, fontSize: 11),
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: 7),
                     Text(
                       details,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: _blue, fontSize: 11),
+                      style: const TextStyle(
+                        color: _blue,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -513,9 +602,10 @@ class _TripCard extends StatelessWidget {
               if (onTap != null)
                 const Padding(
                   padding: EdgeInsets.only(left: 8),
-                  child: Text(
-                    '›',
-                    style: TextStyle(color: Color(0xFF73819A), fontSize: 20),
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    color: _blue,
+                    size: 22,
                   ),
                 ),
             ],
@@ -537,16 +627,27 @@ class _ItineraryPanel extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: 100),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F5FF),
-        border: Border.all(color: _border),
+        color: Colors.white.withValues(alpha: 0.96),
+        border: Border.all(color: const Color(0xFFB9D0F5), width: 1.2),
         borderRadius: BorderRadius.circular(15),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120D2F69),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: trip.stops.isEmpty
           ? const Center(
               child: Text(
                 'Stop details were not recorded for this older trip.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: _muted, fontSize: 11),
+                style: TextStyle(
+                  color: _muted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             )
           : Column(
@@ -564,13 +665,21 @@ class _ItineraryPanel extends StatelessWidget {
                             width: 48,
                             child: Text(
                               time,
-                              style: const TextStyle(color: _ink, fontSize: 11),
+                              style: const TextStyle(
+                                color: _muted,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                           Expanded(
                             child: Text(
                               '•  ${stop.name}',
-                              style: const TextStyle(color: _ink, fontSize: 11),
+                              style: const TextStyle(
+                                color: Color(0xFF123A78),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],
@@ -593,12 +702,24 @@ class _InformationPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
-        border: Border.all(color: _border),
+        color: Colors.white.withValues(alpha: 0.96),
+        border: Border.all(color: const Color(0xFFB9D0F5), width: 1.2),
         borderRadius: BorderRadius.circular(15),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120D2F69),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: DefaultTextStyle(
-        style: const TextStyle(color: _muted, fontSize: 10, height: 1.8),
+        style: const TextStyle(
+          color: _muted,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+          height: 1.8,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
