@@ -994,10 +994,14 @@ class _NearbyPlaceCard extends StatelessWidget {
                 children: [
                   _PlaceImage(url: photoUrl),
                   Positioned(
-                    top: 4,
-                    right: 4,
-                    child: IconButton.filledTonal(
+                    top: 5,
+                    right: 5,
+                    child: IconButton.filled(
                       visualDensity: VisualDensity.compact,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black45,
+                        foregroundColor: Colors.white,
+                      ),
                       tooltip: bookmarked ? 'Remove bookmark' : 'Bookmark',
                       onPressed: onBookmark,
                       icon: Icon(
@@ -1233,7 +1237,9 @@ class _CommunityPostPreviewCard extends StatelessWidget {
                         backgroundColor: Colors.black45,
                         foregroundColor: Colors.white,
                       ),
-                      onPressed: () => controller.toggleBookmark(post.id),
+                      onPressed: controller.isBookmarkPending(post.id)
+                          ? null
+                          : () => controller.toggleBookmark(post.id),
                       icon: Icon(
                         post.isBookmarked
                             ? Icons.bookmark_rounded
@@ -1246,7 +1252,7 @@ class _CommunityPostPreviewCard extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 7, 8),
+              padding: const EdgeInsets.fromLTRB(10, 8, 15, 8),
               child: Row(
                 children: [
                   const CircleAvatar(
@@ -1277,28 +1283,62 @@ class _CommunityPostPreviewCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    tooltip: post.isLiked ? 'Unlike' : 'Like',
-                    onPressed: () => controller.toggleLike(post.id),
-                    icon: Icon(
-                      post.isLiked
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      color: post.isLiked ? Colors.redAccent : null,
-                      size: 18,
+                  SizedBox(
+                    width: 38,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          height: 30,
+                          child: IconButton(
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(24, 30),
+                              padding: EdgeInsets.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            tooltip: post.isLiked ? 'Unlike' : 'Like',
+                            onPressed: controller.isLikePending(post.id)
+                                ? null
+                                : () => controller.toggleLike(post.id),
+                            icon: Icon(
+                              post.isLiked
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: post.isLiked ? Colors.redAccent : null,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${post.likeCount}',
+                          style: const TextStyle(fontSize: 9),
+                        ),
+                      ],
                     ),
                   ),
-                  Text(
-                    '${post.likeCount}',
-                    style: const TextStyle(fontSize: 9),
-                  ),
-                  const SizedBox(width: 5),
-                  const Icon(Icons.chat_bubble_outline_rounded, size: 17),
-                  const SizedBox(width: 2),
-                  Text(
-                    '${post.commentCount}',
-                    style: const TextStyle(fontSize: 9),
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 38,
+                    child: Row(
+                      children: [
+                        const SizedBox(
+                          width: 24,
+                          height: 30,
+                          child: Center(
+                            child: Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${post.commentCount}',
+                          style: const TextStyle(fontSize: 9),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),

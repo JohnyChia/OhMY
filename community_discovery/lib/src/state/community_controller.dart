@@ -23,6 +23,8 @@ class CommunityController extends ChangeNotifier {
   List<CommunityPost> _posts = const [];
   List<CommunityPost> _bookmarkedPosts = const [];
   final Map<String, CommunityPost> _postCache = {};
+  final Set<String> _pendingLikePostIds = {};
+  final Set<String> _pendingBookmarkPostIds = {};
   bool _bookmarksLoaded = false;
   Set<int> _selectedTagIds = {};
   List<DiscoveryTag> _tags = const [];
@@ -46,6 +48,9 @@ class CommunityController extends ChangeNotifier {
   bool get tagsLoaded => _tagsLoaded;
   String? get tagsError => _tagsError;
   String? get error => _error;
+  bool isLikePending(String postId) => _pendingLikePostIds.contains(postId);
+  bool isBookmarkPending(String postId) =>
+      _pendingBookmarkPostIds.contains(postId);
 
   CommunityPost postById(String id) {
     return _postCache[id] ??
@@ -73,9 +78,8 @@ class CommunityController extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      _posts = await _repository.getPosts(
-        query: _query,
-        tagIds: _selectedTagIds,
+      _posts = List<CommunityPost>.of(
+        await _repository.getPosts(query: _query, tagIds: _selectedTagIds),
       );
       for (final post in _posts) {
         _postCache[post.id] = post;
@@ -97,6 +101,7 @@ class CommunityController extends ChangeNotifier {
   Future<void> clearTags() => loadPosts(tagIds: {});
 
   Future<void> toggleLike(String postId) async {
+    if (!_pendingLikePostIds.add(postId)) return;
     final before = postById(postId);
     final liked = !before.isLiked;
     _replacePost(
@@ -108,18 +113,22 @@ class CommunityController extends ChangeNotifier {
     notifyListeners();
     try {
       await _repository.setLiked(postId, liked);
-    } catch (error) {
-      _replacePost(before);
-      _error = _message(error);
+    } catch (_) {
+      final current = postById(postId);
+      _replacePost(
+        current.copyWith(isLiked: before.isLiked, likeCount: before.likeCount),
+      );
+    } finally {
+      _pendingLikePostIds.remove(postId);
       notifyListeners();
     }
   }
 
   Future<void> toggleBookmark(String postId) async {
+    if (!_pendingBookmarkPostIds.add(postId)) return;
     final before = postById(postId);
     if (before.isOwner) {
-      _error = 'You cannot bookmark your own post.';
-      notifyListeners();
+      _pendingBookmarkPostIds.remove(postId);
       return;
     }
     final bookmarked = !before.isBookmarked;
@@ -128,9 +137,11 @@ class CommunityController extends ChangeNotifier {
     try {
       await _repository.setBookmarked(postId, bookmarked);
       if (_bookmarksLoaded) await loadBookmarkedPosts();
-    } catch (error) {
-      _replacePost(before);
-      _error = _message(error);
+    } catch (_) {
+      final current = postById(postId);
+      _replacePost(current.copyWith(isBookmarked: before.isBookmarked));
+    } finally {
+      _pendingBookmarkPostIds.remove(postId);
       notifyListeners();
     }
   }
@@ -184,7 +195,9 @@ class CommunityController extends ChangeNotifier {
   Future<void> loadBookmarkedPosts() async {
     _bookmarksLoaded = true;
     try {
-      _bookmarkedPosts = await _repository.getPosts(bookmarkedOnly: true);
+      _bookmarkedPosts = List<CommunityPost>.of(
+        await _repository.getPosts(bookmarkedOnly: true),
+      );
       for (final post in _bookmarkedPosts) {
         _postCache[post.id] = post;
       }

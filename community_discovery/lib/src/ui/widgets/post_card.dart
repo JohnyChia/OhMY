@@ -133,7 +133,9 @@ class PostCard extends StatelessWidget {
               children: [
                 IconButton(
                   tooltip: post.isLiked ? 'Unlike' : 'Like',
-                  onPressed: () => controller.toggleLike(post.id),
+                  onPressed: controller.isLikePending(post.id)
+                      ? null
+                      : () => controller.toggleLike(post.id),
                   icon: Icon(
                     post.isLiked ? Icons.favorite : Icons.favorite_border,
                     color: post.isLiked ? Colors.pink : null,
@@ -151,7 +153,9 @@ class PostCard extends StatelessWidget {
                 if (!post.isOwner)
                   IconButton(
                     tooltip: post.isBookmarked ? 'Remove bookmark' : 'Bookmark',
-                    onPressed: () => controller.toggleBookmark(post.id),
+                    onPressed: controller.isBookmarkPending(post.id)
+                        ? null
+                        : () => controller.toggleBookmark(post.id),
                     icon: Icon(
                       post.isBookmarked
                           ? Icons.bookmark

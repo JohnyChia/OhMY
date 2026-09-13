@@ -415,7 +415,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 children: [
                   IconButton(
                     tooltip: post.isLiked ? 'Unlike' : 'Like',
-                    onPressed: () => widget.controller.toggleLike(post.id),
+                    onPressed: widget.controller.isLikePending(post.id)
+                        ? null
+                        : () => widget.controller.toggleLike(post.id),
                     icon: Icon(
                       post.isLiked ? Icons.favorite : Icons.favorite_border,
                       color: post.isLiked ? Colors.pink : null,
@@ -432,8 +434,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                       tooltip: post.isBookmarked
                           ? 'Remove bookmark'
                           : 'Bookmark',
-                      onPressed: () =>
-                          widget.controller.toggleBookmark(post.id),
+                      onPressed: widget.controller.isBookmarkPending(post.id)
+                          ? null
+                          : () => widget.controller.toggleBookmark(post.id),
                       icon: Icon(
                         post.isBookmarked
                             ? Icons.bookmark
