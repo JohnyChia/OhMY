@@ -35,7 +35,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _authService = AuthService();
   final _imagePicker = ImagePicker();
   late final TextEditingController _nameController;
-  late final TextEditingController _bioController;
   late List<String> _preferences;
   bool _isSaving = false;
   bool _isUploadingPhoto = false;
@@ -49,7 +48,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.profile.fullName);
-    _bioController = TextEditingController(text: widget.profile.bio);
     _preferences = widget.initialPreferences
         .where(culturalTravelPreferenceOptions.contains)
         .toList();
@@ -59,7 +57,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _bioController.dispose();
     super.dispose();
   }
 
@@ -140,7 +137,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       await _authService.updateProfile(
         fullName: _nameController.text,
-        bio: _bioController.text,
+        bio: widget.profile.bio,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -289,32 +286,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1,
                         ),
-                        floatingLabelBehavior: FloatingLabelBehavior.always,
-                        enabledBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: _blue),
-                        ),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: _blue, width: 2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _bioController,
-                      maxLength: 160,
-                      minLines: 2,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'BIO',
-                        labelStyle: TextStyle(
-                          color: _blue,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1,
-                        ),
-                        hintText:
-                            'Tell other travellers a little about yourself',
-                        hintStyle: TextStyle(color: Color(0xFF64789A)),
                         floatingLabelBehavior: FloatingLabelBehavior.always,
                         enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: _blue),
