@@ -97,6 +97,7 @@ class NovaVoiceController {
   static const wakePrompt = 'Hi! What can I help you with?';
 
   static final ValueNotifier<int> startRequests = ValueNotifier<int>(0);
+  static final ValueNotifier<int> cancelRequests = ValueNotifier<int>(0);
   static final ValueNotifier<NovaVoiceState> state =
       ValueNotifier<NovaVoiceState>(const NovaVoiceState());
   static NovaVoiceInvocation? _pendingInvocation;
@@ -177,5 +178,11 @@ class NovaVoiceController {
     _autoResetTimer?.cancel();
     _autoResetTimer = null;
     state.value = const NovaVoiceState();
+  }
+
+  static void dismiss() {
+    _pendingInvocation = null;
+    reset();
+    cancelRequests.value++;
   }
 }

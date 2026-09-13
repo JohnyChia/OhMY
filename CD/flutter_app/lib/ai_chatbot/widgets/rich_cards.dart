@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class RichCards {
   static Widget buildItineraryCard(
@@ -41,7 +40,7 @@ class RichCards {
                     const SizedBox(width: 8),
                     Text(
                       '$destination Itinerary',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: Colors.blueAccent,
@@ -60,7 +59,7 @@ class RichCards {
                   ),
                   child: Text(
                     duration,
-                    style: GoogleFonts.inter(
+                    style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: Colors.blueAccent,
@@ -85,7 +84,7 @@ class RichCards {
                     children: [
                       Text(
                         'Day ${dayObj['day']}: ${dayObj['title']}',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
                           color: const Color(0xFF1F2937),
@@ -103,7 +102,7 @@ class RichCards {
                           Expanded(
                             child: Text(
                               dayObj['location'] ?? '',
-                              style: GoogleFonts.inter(
+                              style: TextStyle(
                                 fontSize: 11,
                                 color: Colors.grey.shade600,
                               ),
@@ -116,7 +115,7 @@ class RichCards {
                       const SizedBox(height: 6),
                       Text(
                         dayObj['description'] ?? '',
-                        style: GoogleFonts.inter(
+                        style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade700,
                           height: 1.4,
@@ -170,7 +169,7 @@ class RichCards {
                     const SizedBox(width: 8),
                     Text(
                       'Nova recommendations',
-                      style: GoogleFonts.inter(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: Colors.blueAccent,
@@ -189,7 +188,7 @@ class RichCards {
                   ),
                   child: Text(
                     'Places',
-                    style: GoogleFonts.inter(
+                    style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
                       color: Colors.orange,
@@ -229,7 +228,7 @@ class RichCards {
                               children: [
                                 Text(
                                   recObj['name'] ?? recObj['title'] ?? 'Place',
-                                  style: GoogleFonts.inter(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
                                     color: const Color(0xFF1F2937),
@@ -244,7 +243,7 @@ class RichCards {
                                   Text(
                                     (recObj['address'] ?? recObj['description'])
                                         .toString(),
-                                    style: GoogleFonts.inter(
+                                    style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade600,
                                     ),
@@ -266,7 +265,7 @@ class RichCards {
                                 const SizedBox(width: 2),
                                 Text(
                                   recObj['rating'].toString(),
-                                  style: GoogleFonts.inter(
+                                  style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.orange,

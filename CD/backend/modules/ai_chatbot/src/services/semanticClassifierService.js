@@ -1,5 +1,8 @@
 const { createChatCompletionWithFailover } = require('../config/openai');
 const { generateGeminiText } = require('./geminiTextService');
+const tokenConfig = require('../config/tokenConfig');
+const { explicitNavigationRequest } = require('./explicitNavigationService');
+const { planSoloRequest, applySoloPolicy } = require('./soloRequestPlanner');
 
 const INTENT_TO_TOOL = Object.freeze({
   weather: 'weather',
@@ -25,6 +28,8 @@ const SEMANTIC_INTENTS = Object.freeze([
   'general_travel',
   'out_of_scope',
   'clarification',
+  'unintelligible',
+  'abusive',
 ]);
 
 const classificationTool = {
@@ -57,6 +62,7 @@ const classificationTool = {
         confidence: { type: 'number' },
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         draft_response: { type: 'string' },
+        corrected_input: { type: 'string' },
       },
       required: ['intent', 'language', 'location', 'domain', 'confidence', 'parameters', 'draft_response'],
     },
@@ -95,6 +101,8 @@ function validateClassification(value) {
       .filter(Boolean);
     parameters = {
       destination: parameters.destination,
+      ...(typeof parameters.search_query === 'string' && parameters.search_query.trim()
+        ? { search_query: parameters.search_query.trim().slice(0, 240) } : {}),
       requirements: [...new Set([
         ...asList(parameters.requirements),
         ...asList(parameters.preferences),
@@ -121,6 +129,9 @@ function validateClassification(value) {
     confidence,
     parameters,
     draftResponse: value.draft_response.trim(),
+    correctedInput: typeof value.corrected_input === 'string'
+      ? value.corrected_input.trim()
+      : '',
     toolName: actionConfidenceSatisfied && actionDomainSatisfied
       ? INTENT_TO_TOOL[value.intent] || null
       : null,
@@ -134,11 +145,12 @@ function parseClassificationResponse(response) {
   const call = response?.choices?.[0]?.message?.tool_calls?.find(
     (item) => item?.function?.name === 'classify_nova_request',
   );
-  if (!call?.function?.arguments) return null;
+  const source = call?.function?.arguments || response?.choices?.[0]?.message?.content;
+  if (!source) return null;
   try {
-    return validateClassification(JSON.parse(call.function.arguments));
+    return validateClassification(JSON.parse(source));
   } catch {
-    return null;
+    return validateClassification(parseJsonObject(source));
   }
 }
 
@@ -152,17 +164,29 @@ function parseJsonObject(value) {
   }
 }
 
+function buildClassificationMessages(messages) {
+  return [
+    ...messages,
+    {
+      role: 'user',
+      content: [
+        `Return one JSON object with this contract: ${JSON.stringify(classificationTool.function.parameters)}.`,
+        'Set corrected_input to a conservative correction of the latest user message.',
+        'For recommendation extract all explicit current-request requirements without relying on a fixed tag vocabulary. Set parameters.search_query to a concise English provider search preserving the requested cuisine, activity or venue, including unfamiliar requests. Example Arabian cuisine becomes Arabian restaurant; pottery classes becomes pottery classes. Do not add saved cultural preferences to this query. Broad personalized requests have no search_query or explicit requirements. Extract destination separately; near me uses GPS, not a historical destination. Category movement requests mean discovery, not navigation to an arbitrary venue. Never drop exclusions or restrictive conditions.',
+        'Correct obvious Malaysian place shorthand or spelling such as png to Penang, but preserve meaning, numbers, names and the original language.',
+        'For unintelligible input use intent unintelligible and ask the user to try again in the same language.',
+        'For harassment or profanity without a useful travel request use intent abusive and respond calmly without repeating the abuse.',
+        'Do not include markdown.',
+      ].join(' '),
+    },
+  ];
+}
+
 async function classifyWithGemini(messages, signal) {
   const content = await generateGeminiText({
-    messages: [
-      ...messages,
-      {
-        role: 'user',
-        content: `Return one JSON object with this contract: ${JSON.stringify(classificationTool.function.parameters)}. Do not include markdown.`,
-      },
-    ],
+    messages: buildClassificationMessages(messages),
     temperature: 0,
-    maxOutputTokens: 420,
+    maxOutputTokens: tokenConfig.classifierMaxOutputTokens,
     responseMimeType: 'application/json',
     signal,
     timeoutMs: 4000,
@@ -177,15 +201,51 @@ async function classifyWithGemini(messages, signal) {
 
 async function classifyRequest({
   messages,
+  currentMessage,
   model = process.env.GROQ_MODEL,
   signal,
   preferFallbackClient = false,
   completion = createChatCompletionWithFailover,
 }) {
+  const plan = planSoloRequest(currentMessage);
+  if (plan.groupAction || plan.discovery || (plan.simpleNearby && plan.requirements.length && !explicitNavigationRequest(currentMessage))) {
+    const classification = validateClassification({
+      intent: plan.groupAction ? 'out_of_scope' : 'recommendation',
+      language: { primary: plan.language, mixed: false,
+        style: plan.language === 'ms' ? 'malay' : plan.language === 'zh-CN' ? 'chinese' : 'english' },
+      location: { name: '', country: '' }, domain: 'malaysia_travel', confidence: 1,
+      parameters: { requirements: plan.requirements }, draft_response: plan.reply,
+    });
+    return { classification: applySoloPolicy(classification, currentMessage), response: { _fallbackUsed: false, _provider: 'deterministic', usage: null } };
+  }
+  const explicitNavigation = explicitNavigationRequest(currentMessage);
+  if (explicitNavigation) {
+    const classification = validateClassification({
+      intent: 'navigation',
+      language: {
+        primary: explicitNavigation.languageCode,
+        mixed: false,
+        style: explicitNavigation.style,
+      },
+      location: { name: explicitNavigation.destination, country: '' },
+      domain: 'malaysia_travel',
+      confidence: 1,
+      parameters: { destination: explicitNavigation.destination },
+      draft_response: '',
+      corrected_input: String(currentMessage || '').trim(),
+    });
+    return {
+      classification: applySoloPolicy(classification, currentMessage),
+      response: { _fallbackUsed: false, _provider: 'deterministic', usage: null },
+    };
+  }
+
   let geminiError = null;
   if (process.env.GEMINI_API_KEY) {
     try {
-      return await classifyWithGemini(messages, signal);
+      const result = await classifyWithGemini(messages, signal);
+      result.classification = applySoloPolicy(result.classification, currentMessage);
+      return result;
     } catch (error) {
       geminiError = error;
       console.warn('[Nova classifier] Gemini unavailable:', error.message);
@@ -198,17 +258,16 @@ async function classifyRequest({
     const response = await completion({
       model,
       temperature: 0,
-      messages,
-      tools: [classificationTool],
-      tool_choice: { type: 'function', function: { name: 'classify_nova_request' } },
-      parallel_tool_calls: false,
-      max_tokens: 320,
+      messages: buildClassificationMessages(messages),
+      response_format: { type: 'json_object' },
+      max_tokens: tokenConfig.classifierMaxOutputTokens,
       preferFallbackClient,
       signal: providerSignal,
     });
     const classification = parseClassificationResponse(response);
     if (!classification) throw new Error('Nova semantic classification was invalid.');
-    return { classification, response };
+    response._provider = 'groq';
+    return { classification: applySoloPolicy(classification, currentMessage), response };
   } catch (error) {
     if (geminiError) error.cause = geminiError;
     throw error;

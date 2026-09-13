@@ -22,6 +22,7 @@ async function chatController(req, res) {
       interaction_mode,
       attachment,
       input_language,
+      current_location,
     } = req.body;
     console.log(`[${reqId}] Chat request received.`);
 
@@ -123,6 +124,7 @@ async function chatController(req, res) {
       inputLanguage: ['en', 'ms', 'zh-CN'].includes(input_language)
         ? input_language
         : null,
+      currentLocation: current_location,
     });
 
     console.log(`[${reqId}] Entering agentService...`);
@@ -157,6 +159,7 @@ async function chatController(req, res) {
       tripState: updatedState,
       profile: updatedProfile,
       routing: agentResponse.routing,
+      corrected_input: agentResponse.correctedInput || null,
     });
     const action = validatePrimaryAction(buildPrimaryAction({
       intent: agentResponse.intent,

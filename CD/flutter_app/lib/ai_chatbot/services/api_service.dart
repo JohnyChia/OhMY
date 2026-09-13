@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -71,6 +72,42 @@ class ApiService {
     };
   }
 
+  static Future<Map<String, dynamic>?> _currentLocationContext() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return null;
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 6),
+          ),
+        );
+      } catch (_) {
+        final cached = await Geolocator.getLastKnownPosition();
+        if (cached != null &&
+            DateTime.now().difference(cached.timestamp).abs() <=
+                const Duration(minutes: 5)) {
+          position = cached;
+        }
+      }
+      if (position == null) return null;
+      return {
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'accuracy': position.accuracy,
+        'captured_at': position.timestamp.toUtc().toIso8601String(),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<Map<String, dynamic>> chat(
     String message, {
     bool isVoice = false,
@@ -78,6 +115,7 @@ class ApiService {
     String? inputLanguage,
   }) async {
     try {
+      final currentLocation = await _currentLocationContext();
       http.Response? response;
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
@@ -91,6 +129,7 @@ class ApiService {
                   'isVoice': isVoice,
                   'interaction_mode': isVoice ? 'driving_voice' : 'chat_text',
                   'attachment': ?attachment,
+                  'current_location': ?currentLocation,
                   if (inputLanguage?.isNotEmpty == true)
                     'input_language': inputLanguage,
                 }),

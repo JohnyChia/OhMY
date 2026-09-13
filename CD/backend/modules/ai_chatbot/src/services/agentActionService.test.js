@@ -114,3 +114,41 @@ test('map display requires an explicit map routing decision', () => {
     'show_place_results',
   );
 });
+
+test('starts a resolved specific place but only searches a broad area', () => {
+  const base = {
+    intent: 'create_trip',
+    tripState: { destination: 'Setapak Central', interest: [] },
+    profile: {},
+    routing: { intent: 'navigation', allowMap: true },
+  };
+  const place = buildPrimaryAction({
+    ...base,
+    toolResult: {
+      success: true,
+      resolution_metadata: {
+        destination_kind: 'place',
+        latitude: 3.2048773,
+        longitude: 101.7202996,
+        place_id: 'setapak-central-id',
+        address: 'Setapak, Kuala Lumpur',
+      },
+    },
+  });
+  assert.equal(place.type, 'start_journey');
+  assert.equal(place.parameters.destination_kind, 'place');
+  assert.equal(place.parameters.latitude, 3.2048773);
+
+  const area = buildPrimaryAction({
+    ...base,
+    toolResult: {
+      success: true,
+      search_only: true,
+      destination: 'Penang',
+      resolution_metadata: { destination_kind: 'area' },
+    },
+  });
+  assert.equal(area.type, 'show_place_results');
+  assert.equal(area.target, 'map');
+  assert.equal(area.parameters.destination, 'Penang');
+});

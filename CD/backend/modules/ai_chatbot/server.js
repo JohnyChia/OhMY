@@ -1,5 +1,7 @@
-require("dotenv").config();
 const path = require("path");
+const { loadEnvironment } = require('./src/config/loadEnvironment');
+
+loadEnvironment(__dirname);
 const express = require("express");
 const cors = require("cors");
 

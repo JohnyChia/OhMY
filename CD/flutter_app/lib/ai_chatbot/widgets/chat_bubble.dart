@@ -2,7 +2,6 @@ import 'dart:io' show File;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'rich_cards.dart';
 
@@ -25,6 +24,15 @@ class ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     bool isUser = message['role'] == 'user';
+    final toolResult = message['tool_result'];
+    final recommendations = toolResult is Map
+        ? toolResult['recommendations']
+        : null;
+    final cardsOnly =
+        !isUser &&
+        recommendations is List &&
+        recommendations.isNotEmpty &&
+        toolResult['success'] != false;
     final attachment = message['attachment'];
     final attachmentPath = attachment is Map
         ? attachment['path']?.toString()
@@ -47,7 +55,7 @@ class ChatBubble extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
             child: Text(
               isUser ? 'You' : 'Nova',
-              style: GoogleFonts.inter(
+              style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey.shade500,
                 fontWeight: FontWeight.w500,
@@ -56,72 +64,73 @@ class ChatBubble extends StatelessWidget {
           ),
 
           // Bubble
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isUser ? const Color(0xFF4285F4) : Colors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft: isUser
-                    ? const Radius.circular(16)
-                    : const Radius.circular(4),
-                bottomRight: isUser
-                    ? const Radius.circular(4)
-                    : const Radius.circular(16),
-              ),
-              boxShadow: isUser
-                  ? []
-                  : [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  message['text'] ?? '',
-                  style: GoogleFonts.inter(
-                    color: isUser ? Colors.white : const Color(0xFF1F2937),
-                    fontSize: 15,
-                    height: 1.5,
-                  ),
+          if (!cardsOnly)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isUser ? const Color(0xFF4285F4) : Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: isUser
+                      ? const Radius.circular(16)
+                      : const Radius.circular(4),
+                  bottomRight: isUser
+                      ? const Radius.circular(4)
+                      : const Radius.circular(16),
                 ),
-                if (message['voiceTranscript'] == true) ...[
-                  const SizedBox(height: 8),
+                boxShadow: isUser
+                    ? []
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    'Voice transcript',
-                    style: GoogleFonts.inter(
-                      color: Colors.white.withValues(alpha: 0.78),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                    message['text'] ?? '',
+                    style: TextStyle(
+                      color: isUser ? Colors.white : const Color(0xFF1F2937),
+                      fontSize: 15,
+                      height: 1.5,
                     ),
                   ),
-                ],
-                if (attachmentName != null) ...[
-                  const SizedBox(height: 10),
-                  if (isImageAttachment && !kIsWeb && attachmentPath != null)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(
-                        File(attachmentPath),
-                        height: 180,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) =>
-                            _attachmentLabel(attachmentName),
+                  if (message['voiceTranscript'] == true) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Voice transcript',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.78),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                       ),
-                    )
-                  else
-                    _attachmentLabel(attachmentName),
+                    ),
+                  ],
+                  if (attachmentName != null) ...[
+                    const SizedBox(height: 10),
+                    if (isImageAttachment && !kIsWeb && attachmentPath != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(
+                          File(attachmentPath),
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) =>
+                              _attachmentLabel(attachmentName),
+                        ),
+                      )
+                    else
+                      _attachmentLabel(attachmentName),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
 
           if (!isUser &&
               message['tool_result'] is Map &&
@@ -153,7 +162,7 @@ class ChatBubble extends StatelessWidget {
                 ),
                 child: Text(
                   'DETECTED ${message['language'].toString().toUpperCase()}',
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey.shade500,

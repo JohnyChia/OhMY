@@ -17,6 +17,31 @@ class NovaAction {
   final Map<String, dynamic> parameters;
   final bool requiresConfirmation;
 
+  static NovaAction? forRecommendedPlace(Map<String, dynamic> place) {
+    final location = place['location'];
+    if (location is! Map ||
+        location['latitude'] is! num ||
+        location['longitude'] is! num)
+      return null;
+    return fromJson({
+      'type': 'start_journey',
+      'target': 'trip',
+      'requires_confirmation': true,
+      'parameters': {
+        'destination': place['name'],
+        'interests': <String>[],
+        'budget': '',
+        'duration': null,
+        'trip_mode': 'solo',
+        'destination_kind': 'place',
+        'place_id': place['id']?.toString() ?? '',
+        'address': place['address']?.toString() ?? '',
+        'latitude': location['latitude'],
+        'longitude': location['longitude'],
+      },
+    });
+  }
+
   static NovaAction? fromJson(Object? value) {
     if (value is! Map) return null;
     final type = value['type'];
@@ -106,6 +131,11 @@ class NovaAction {
                 'budget',
                 'duration',
                 'trip_mode',
+                'destination_kind',
+                'place_id',
+                'address',
+                'latitude',
+                'longitude',
               },
             ) ||
             requiredString('destination') == null ||
@@ -124,6 +154,36 @@ class NovaAction {
         }
         final tripMode = safe['trip_mode'];
         if (tripMode != null && tripMode != 'solo') {
+          return null;
+        }
+        final destinationKind = safe['destination_kind'];
+        if (destinationKind != null &&
+            destinationKind != 'place' &&
+            destinationKind != 'area') {
+          return null;
+        }
+        if (safe['place_id'] != null &&
+            !optionalString('place_id', maxLength: 300)) {
+          return null;
+        }
+        if (safe['address'] != null &&
+            !optionalString('address', maxLength: 500)) {
+          return null;
+        }
+        final latitude = safe['latitude'];
+        final longitude = safe['longitude'];
+        if (latitude != null &&
+            (latitude is! num ||
+                !latitude.isFinite ||
+                latitude < -90 ||
+                latitude > 90)) {
+          return null;
+        }
+        if (longitude != null &&
+            (longitude is! num ||
+                !longitude.isFinite ||
+                longitude < -180 ||
+                longitude > 180)) {
           return null;
         }
         return safe;

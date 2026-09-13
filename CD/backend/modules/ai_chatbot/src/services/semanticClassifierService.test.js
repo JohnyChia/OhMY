@@ -2,10 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  classifyRequest,
   validateClassification,
   parseClassificationResponse,
   INTENT_TO_TOOL,
 } = require('./semanticClassifierService');
+
+test('explicit movement starts a trip without depending on model wording', async () => {
+  const result = await classifyRequest({
+    currentMessage: 'Go to Setapak Central',
+    messages: [],
+    completion: async () => { throw new Error('model should not be called'); },
+  });
+
+  assert.equal(result.response._provider, 'deterministic');
+  assert.equal(result.classification.intent, 'navigation');
+  assert.equal(result.classification.toolName, 'create_trip');
+  assert.equal(result.classification.parameters.destination, 'Setapak Central');
+});
 
 function classification(overrides = {}) {
   return {
@@ -100,4 +114,19 @@ test('parses only the forced semantic-classifier tool result', () => {
     }] } }],
   };
   assert.equal(parseClassificationResponse(response).toolName, INTENT_TO_TOOL.weather);
+});
+
+test('accepts validated JSON content when a fallback model does not emit a tool call', () => {
+  const response = {
+    choices: [{ message: { content: JSON.stringify(classification({
+      intent: 'navigation',
+      parameters: { destination: 'Penang' },
+      corrected_input: 'go to Penang',
+    })) } }],
+  };
+
+  const result = parseClassificationResponse(response);
+  assert.equal(result.intent, 'navigation');
+  assert.equal(result.toolName, 'create_trip');
+  assert.equal(result.correctedInput, 'go to Penang');
 });

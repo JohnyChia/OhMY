@@ -16,6 +16,7 @@ import '../ai_chatbot/services/nova_owner_action_dispatcher.dart';
 import '../ai_chatbot/services/nova_voice_controller.dart';
 import '../ai_chatbot/widgets/nova_bottom_assistant.dart';
 import '../preference_recommender/features/routes/native_navigation_map.dart';
+import '../preference_recommender/features/routes/route_feature.dart';
 import '../preference_recommender/pages/place_map_page.dart';
 import '../travel_group/features/travel_group/controllers/travel_group_controller.dart';
 import '../travel_group/features/travel_group/models/travel_group_models.dart';
@@ -83,6 +84,10 @@ class OhMyShell extends StatefulWidget {
 }
 
 class _OhMyShellState extends State<OhMyShell> {
+  static const _recommendationBackend = String.fromEnvironment(
+    'BACKEND_URL',
+    defaultValue: 'http://127.0.0.1:3000',
+  );
   int _selectedIndex = 0;
   final _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
   CommunityController? _communityController;
@@ -154,7 +159,15 @@ class _OhMyShellState extends State<OhMyShell> {
               onOpenCommunity: () => _selectTab(3),
               onOpenPost: _openCommunityPost,
             ),
-      (context) => const ChatScreen(showBottomNavigation: false),
+      (context) => AnimatedBuilder(
+        animation: _travelGroupController,
+        builder: (_, _) => ChatScreen(
+          showBottomNavigation: false,
+          composerRightInset: _travelGroupController.ongoingMemberGroup != null
+              ? 180
+              : 32,
+        ),
+      ),
       (context) => StartTripHubPage(controller: _travelGroupController),
       (context) => _communityController == null
           ? const ModuleSetupPage(
@@ -267,6 +280,40 @@ class _OhMyShellState extends State<OhMyShell> {
           message: 'Map navigation is not ready.',
         );
       }
+      final destinationKind = action.parameters['destination_kind'];
+      final latitude = action.parameters['latitude'];
+      final longitude = action.parameters['longitude'];
+      if (action.type == 'start_journey' &&
+          destinationKind == 'place' &&
+          latitude is num &&
+          longitude is num) {
+        unawaited(
+          _navigatorKeys[2].currentState!.push<void>(
+            MaterialPageRoute(
+              settings: const RouteSettings(name: '/start-trip/solo-route'),
+              builder: (_) => DirectionsSetupPage(
+                backend: _recommendationBackend,
+                destination: RouteLocation(
+                  id: action.parameters['place_id']?.toString(),
+                  name: query,
+                  address: action.parameters['address']?.toString() ?? '',
+                  latitude: latitude.toDouble(),
+                  longitude: longitude.toDouble(),
+                ),
+                autoStartJourney: !action.requiresConfirmation,
+                useCurrentLocationOnOpen: true,
+              ),
+            ),
+          ),
+        );
+        return NovaOwnerActionResult(
+          action: action,
+          status: NovaOwnerActionStatus.executed,
+          message: action.requiresConfirmation
+              ? 'Route preview opened for $query. Tap Start Journey when ready.'
+              : 'Starting navigation to $query from your current location.',
+        );
+      }
       unawaited(
         _navigatorKeys[2].currentState!.push<void>(
           MaterialPageRoute(
@@ -278,8 +325,9 @@ class _OhMyShellState extends State<OhMyShell> {
       return NovaOwnerActionResult(
         action: action,
         status: NovaOwnerActionStatus.executed,
-        message:
-            'Destination search opened. Select the place to start navigation.',
+        message: destinationKind == 'area'
+            ? 'Search opened for $query. Choose a specific place when ready.'
+            : 'Destination search opened. Select the place to start navigation.',
       );
     }
     _selectTab(action.target == 'community' ? 3 : 4);
@@ -455,7 +503,7 @@ class _OhMyShellState extends State<OhMyShell> {
                       ? const SizedBox.shrink()
                       : NovaBottomAssistant(
                           state: state,
-                          onDismiss: NovaVoiceController.reset,
+                          onDismiss: NovaVoiceController.dismiss,
                           compact: true,
                         ),
                 ),
@@ -465,9 +513,15 @@ class _OhMyShellState extends State<OhMyShell> {
               Positioned(
                 right: 14,
                 bottom: 12,
-                child: _ReturnToGroupButton(
-                  group: _travelGroupController.ongoingMemberGroup!,
-                  onPressed: _returnToGroup,
+                child: ValueListenableBuilder<NovaVoiceState>(
+                  valueListenable: NovaVoiceController.state,
+                  builder: (_, voiceState, _) =>
+                      voiceState.phase != NovaVoicePhase.idle
+                      ? const SizedBox.shrink()
+                      : _ReturnToGroupButton(
+                          group: _travelGroupController.ongoingMemberGroup!,
+                          onPressed: _returnToGroup,
+                        ),
                 ),
               ),
           ],

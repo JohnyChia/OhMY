@@ -1,6 +1,9 @@
 const openai =
 require("../config/openai");
 
+const { generateGeminiText } =
+require("./geminiTextService");
+
 
 const supabase =
 require("../config/supabase");
@@ -112,8 +115,7 @@ budget:trip.budget
 
 
 
-const result =
-await openai.chat.completions.create({
+const request = {
 
 
 model:
@@ -267,7 +269,23 @@ profile
 
 ]
 
-});
+};
+
+let itineraryText;
+if (process.env.GEMINI_API_KEY) {
+  itineraryText = await generateGeminiText({
+    messages: request.messages,
+    temperature: request.temperature,
+    maxOutputTokens: 900,
+    responseMimeType: 'application/json',
+    timeoutMs: 10000,
+  });
+} else if (openai.isConfigured) {
+  const result = await openai.chat.completions.create(request);
+  itineraryText = result.choices[0].message.content;
+} else {
+  throw new Error('No AI provider is configured for itinerary generation.');
+}
 
 
 
@@ -278,11 +296,7 @@ console.log(
 "AI RESPONSE:"
 );
 
-console.log(
-result.choices[0]
-.message
-.content
-);
+console.log(itineraryText);
 
 
 
@@ -297,14 +311,7 @@ let itinerary;
 try
 {
 
-itinerary =
-JSON.parse(
-
-result.choices[0]
-.message
-.content
-
-);
+itinerary = JSON.parse(itineraryText);
 
 }
 catch(error)

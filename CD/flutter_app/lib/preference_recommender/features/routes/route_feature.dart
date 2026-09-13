@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../../ai_chatbot/widgets/nova_solo_voice_button.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -178,9 +179,13 @@ class DirectionsSetupPage extends StatefulWidget {
     super.key,
     required this.backend,
     required this.destination,
+    this.autoStartJourney = false,
+    this.useCurrentLocationOnOpen = false,
   });
   final String backend;
   final RouteLocation destination;
+  final bool autoStartJourney;
+  final bool useCurrentLocationOnOpen;
 
   @override
   State<DirectionsSetupPage> createState() => _DirectionsSetupPageState();
@@ -216,6 +221,11 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
     savedLocationService.changes.addListener(_savedLocationsChanged);
     unawaited(_loadSavedLocations());
     unawaited(_loadRecommendedLocations());
+    if (widget.autoStartJourney || widget.useCurrentLocationOnOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(useCurrentLocation());
+      });
+    }
   }
 
   Future<void> _loadRecommendedLocations() async {
@@ -527,6 +537,7 @@ class _DirectionsSetupPageState extends State<DirectionsSetupPage> {
           backend: widget.backend,
           start: start!,
           destination: destination,
+          autoStartJourney: widget.autoStartJourney,
         ),
       ),
     );
@@ -761,9 +772,11 @@ class RoutePreviewPage extends StatefulWidget {
     required this.backend,
     required this.start,
     required this.destination,
+    this.autoStartJourney = false,
   });
   final String backend;
   final RouteLocation start, destination;
+  final bool autoStartJourney;
 
   @override
   State<RoutePreviewPage> createState() => _RoutePreviewPageState();
@@ -789,6 +802,7 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   Map<int, _RouteCalloutPlacement> routeCalloutPlacements = {};
   BitmapDescriptor? destinationMarkerIcon;
   bool positioningRouteCallouts = false;
+  bool autoJourneyOpened = false;
 
   @override
   void initState() {
@@ -843,6 +857,19 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => unawaited(refreshRoutePresentation()),
       );
+      if (widget.autoStartJourney && mounted && !autoJourneyOpened) {
+        autoJourneyOpened = true;
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => ActiveNavigationPage(
+              backend: widget.backend,
+              destination: widget.destination,
+              routes: routes,
+              initialRoute: selected,
+            ),
+          ),
+        );
+      }
     } catch (exception) {
       if (mounted) {
         setState(() {
@@ -2348,6 +2375,8 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                 bottom: _navigationPanelHeight + 10,
                 child: Column(
                   children: [
+                    const NovaSoloVoiceButton(),
+                    const SizedBox(height: 9),
                     navigationButton(
                       Icons.lightbulb_outline_rounded,
                       showRecommendationMode,
@@ -2359,6 +2388,12 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                     ),
                   ],
                 ),
+              ),
+            if (showRecommendationCarousel)
+              Positioned(
+                right: 14,
+                bottom: navigationPanelExpanded ? 476 : 334,
+                child: const NovaSoloVoiceButton(),
               ),
             if (locationError != null)
               Positioned(

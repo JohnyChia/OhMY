@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../ai_chatbot/widgets/nova_solo_voice_button.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -1128,6 +1129,11 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
         controls(),
         nearbyButton(),
         currentLocationButton(),
+        Positioned(
+          right: 16,
+          bottom: showCarousel ? recommendationPanelHeight + 132 : 140,
+          child: const NovaSoloVoiceButton(),
+        ),
         if (selected != null && !showCarousel) selectionPanel(),
         if (showCarousel) carousel(),
         if (loading)

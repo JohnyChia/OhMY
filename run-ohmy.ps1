@@ -266,10 +266,12 @@ Assert-ConfiguredValues $backendEnvironment @(
     'GOOGLE_PLACES_API_KEY',
     'SUPABASE_URL',
     'SUPABASE_ANON_KEY',
-    'SUPABASE_SERVICE_ROLE_KEY',
-    'GROQ_API_KEY_1',
-    'GROQ_MODEL'
+    'SUPABASE_SERVICE_ROLE_KEY'
 ) 'CD\backend\.env'
+if (-not (Test-ConfiguredValue $backendEnvironment['GEMINI_API_KEY']) -and
+    -not (Test-ConfiguredValue $backendEnvironment['GROQ_API_KEY_1'])) {
+    throw 'Configure GEMINI_API_KEY (recommended) or GROQ_API_KEY_1 in CD\backend\.env for Nova.'
+}
 $androidMapsKey = $androidProperties['MAPS_API_KEY']
 if (-not (Test-ConfiguredValue "$androidMapsKey")) {
     $androidMapsKey = $backendEnvironment['MAPS_API_KEY']
@@ -343,6 +345,10 @@ foreach ($key in @(
     'GROQ_API_KEY_1',
     'GROQ_API_KEY_2',
     'GROQ_MODEL',
+    'GEMINI_API_KEY',
+    'GEMINI_TEXT_MODEL',
+    'GEMINI_AUDIO_MODEL',
+    'PREFERENCE_RECOMMENDER_URL',
     'WHISPER_PROMPT',
     'SUPABASE_URL',
     'SUPABASE_SERVICE_ROLE_KEY'

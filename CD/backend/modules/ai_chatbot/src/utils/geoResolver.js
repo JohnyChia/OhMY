@@ -1,4 +1,17 @@
 const openai = require('../config/openai');
+const { generateGeminiText } = require('../services/geminiTextService');
+
+const MALAYSIAN_PLACE_ALIASES = Object.freeze({
+  png: 'Penang',
+  kl: 'Kuala Lumpur',
+  klcc: 'Kuala Lumpur City Centre',
+  jb: 'Johor Bahru',
+});
+
+function expandKnownPlaceAlias(value) {
+  const normalized = normalizeComparableName(value);
+  return MALAYSIAN_PLACE_ALIASES[normalized] || String(value || '').trim();
+}
 
 /**
  * Normalizes country strings to a common format.
@@ -24,13 +37,164 @@ function exactMalaysianCandidate(candidates, rawDestination) {
     ['malaysia', 'my'].includes(normalizeCountry(candidate.country)) &&
     normalizeComparableName(candidate.name) === requested,
   );
-  const unique = new Map(
-    exact.map((candidate) => [
-      `${normalizeComparableName(candidate.name)}|${normalizeComparableName(candidate.admin1)}`,
-      candidate,
-    ]),
-  );
+  const unique = new Map();
+  for (const candidate of exact) {
+    const key = `${normalizeComparableName(candidate.name)}|${normalizeComparableName(candidate.admin1)}`;
+    // Map-backend results are ordered first and carry the richest distinction
+    // between an administrative area and a selectable venue.
+    if (!unique.has(key)) unique.set(key, candidate);
+  }
   return unique.size === 1 ? unique.values().next().value : null;
+}
+
+function currentCoordinates(context) {
+  const value = context?.session_context?.device_location || {};
+  const latitude = Number(value.latitude);
+  const longitude = Number(value.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? { latitude, longitude }
+    : null;
+}
+
+function distanceKm(first, second) {
+  const radians = (degrees) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(second.latitude - first.latitude);
+  const longitudeDelta = radians(second.longitude - first.longitude);
+  const firstLatitude = radians(first.latitude);
+  const secondLatitude = radians(second.latitude);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(firstLatitude) * Math.cos(secondLatitude)
+      * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function sensibleNearbyCandidate(candidates, rawDestination, context) {
+  const origin = currentCoordinates(context);
+  const requested = normalizeComparableName(rawDestination);
+  if (!origin || !requested) return null;
+
+  return candidates
+    .filter((candidate) =>
+      ['malaysia', 'my'].includes(normalizeCountry(candidate.country))
+      && Number.isFinite(candidate.latitude)
+      && Number.isFinite(candidate.longitude),
+    )
+    .map((candidate) => {
+      const candidateName = normalizeComparableName(candidate.name);
+      const related = candidateName.includes(requested) || requested.includes(candidateName);
+      const kilometres = distanceKm(origin, candidate);
+      const lexicalScore = candidateName === requested ? 25 : related ? 18 : -100;
+      const providerScore = candidate.source === 'ohmy-map-backend' ? 6 : 0;
+      return {
+        candidate,
+        kilometres,
+        score: lexicalScore + providerScore - kilometres * 0.8,
+      };
+    })
+    .filter((entry) => entry.kilometres <= 80 && entry.score > 0)
+    .sort((left, right) => right.score - left.score)[0]?.candidate || null;
+}
+
+function googleAddressComponent(place, type) {
+  return (place?.addressComponents || []).find(
+    (component) => (component.types || []).includes(type),
+  );
+}
+
+function mapGooglePlaceCandidate(place, rawDestination) {
+  const location = place?.location || {};
+  const name = String(place?.displayName?.text || '').trim();
+  if (!name || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
+    return null;
+  }
+  const country = googleAddressComponent(place, 'country');
+  if (String(country?.shortText || '').toUpperCase() !== 'MY') return null;
+  const admin = googleAddressComponent(place, 'administrative_area_level_1');
+  return {
+    name,
+    admin1: String(admin?.longText || ''),
+    admin2: '',
+    country: 'Malaysia',
+    feature_code: String(place.primaryType || place.types?.[0] || 'place'),
+    is_area: place.isArea === true,
+    original_query: rawDestination,
+    source: 'ohmy-map-backend',
+    latitude: location.latitude,
+    longitude: location.longitude,
+    place_id: String(place.id || ''),
+    formatted_address: String(place.formattedAddress || ''),
+  };
+}
+
+const AREA_FEATURE_CODES = new Set([
+  'adm1',
+  'adm2',
+  'adm3',
+  'administrative',
+  'administrative_area_level_1',
+  'administrative_area_level_2',
+  'administrative_area_level_3',
+  'city',
+  'locality',
+  'municipality',
+  'neighbourhood',
+  'neighborhood',
+  'region',
+  'state',
+  'suburb',
+  'sublocality',
+  'sublocality_level_1',
+  'town',
+  'village',
+]);
+
+function destinationKind(candidate) {
+  if (candidate?.is_area === true) return 'area';
+  const featureCode = String(candidate?.feature_code || '').trim().toLowerCase();
+  return AREA_FEATURE_CODES.has(featureCode)
+      || featureCode.startsWith('adm')
+      || featureCode.startsWith('ppl')
+    ? 'area'
+    : 'place';
+}
+
+function resolvedDestination(candidate, originalInput) {
+  const canonicalName = candidate.name;
+  return {
+    status: 'RESOLVED',
+    canonical: canonicalName,
+    original_input: originalInput,
+    resolved_destination: canonicalName,
+    corrected: normalizeComparableName(canonicalName) !== normalizeComparableName(originalInput),
+    confidence: 1,
+    latitude: candidate.latitude,
+    longitude: candidate.longitude,
+    destination_kind: destinationKind(candidate),
+    place_id: candidate.place_id || '',
+    address: candidate.formatted_address || '',
+  };
+}
+
+async function fetchMapCandidates(rawDestination) {
+  const base = String(
+    process.env.PREFERENCE_RECOMMENDER_URL || 'http://127.0.0.1:3000',
+  ).replace(/\/+$/, '');
+  try {
+    const response = await fetch(`${base}/api/places/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: rawDestination }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) return [];
+    const payload = await response.json();
+    return (payload.places || [])
+      .map((place) => mapGooglePlaceCandidate(place, rawDestination))
+      .filter(Boolean);
+  } catch (error) {
+    console.warn('[GEO] OhMY map lookup unavailable:', error.message);
+    return [];
+  }
 }
 
 /**
@@ -101,7 +265,7 @@ async function fetchGeoCandidates(rawDest) {
  * Phonetic/Linguistic candidate generation
  */
 async function generatePhoneticCandidates(rawDest, context) {
-  if (!openai.isConfigured) {
+  if (!process.env.GEMINI_API_KEY && !openai.isConfigured) {
     return { candidates: [], status: "LLM_FAILURE" };
   }
 
@@ -119,14 +283,23 @@ Generate up to 3 likely REAL Malaysian geographic entities it could be a phoneti
 If it is complete gibberish, return nothing.
 DO NOT output explanations. Output ONLY a comma-separated list of names. Do not use JSON.`;
 
-    const response = await openai.chat.completions.create({
-      model: process.env.GROQ_MODEL,
-      temperature: 0.1,
-      messages: [{ role: "user", content: prompt }],
-      signal: AbortSignal.timeout(3500),
-    });
-
-    const content = response.choices[0].message.content;
+    let content;
+    if (process.env.GEMINI_API_KEY) {
+      content = await generateGeminiText({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0,
+        maxOutputTokens: 80,
+        timeoutMs: 3500,
+      });
+    } else {
+      const response = await openai.chat.completions.create({
+        model: process.env.GROQ_MODEL,
+        temperature: 0.1,
+        messages: [{ role: "user", content: prompt }],
+        signal: AbortSignal.timeout(3500),
+      });
+      content = response.choices[0].message.content;
+    }
     const parsedResult = parsePhoneticResponse(content);
     console.log(`[PHONETIC] status=${parsedResult.status} candidates=${parsedResult.candidates.length}`);
     return parsedResult;
@@ -233,7 +406,7 @@ async function rankCandidates(pool, rawDest, context) {
   }
 
   try {
-    if (!openai.isConfigured) {
+    if (!process.env.GEMINI_API_KEY && !openai.isConfigured) {
        return { candidate: pool[0], status: "RESOLVED", confidence: "LOW", margin: "No LLM, fallback to first" };
     }
 
@@ -279,14 +452,24 @@ Output shape:
 
 JSON OUTPUT ONLY:`;
 
-    const response = await openai.chat.completions.create({
-      model: process.env.GROQ_MODEL,
-      temperature: 0.1,
-      messages: [{ role: "user", content: prompt }],
-      signal: AbortSignal.timeout(3500),
-    });
-
-    const content = response.choices[0].message.content.trim();
+    let content;
+    if (process.env.GEMINI_API_KEY) {
+      content = await generateGeminiText({
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0,
+        maxOutputTokens: 180,
+        responseMimeType: 'application/json',
+        timeoutMs: 3500,
+      });
+    } else {
+      const response = await openai.chat.completions.create({
+        model: process.env.GROQ_MODEL,
+        temperature: 0.1,
+        messages: [{ role: "user", content: prompt }],
+        signal: AbortSignal.timeout(3500),
+      });
+      content = response.choices[0].message.content.trim();
+    }
     
     const start = content.indexOf('{');
     const end = content.lastIndexOf('}');
@@ -326,14 +509,29 @@ JSON OUTPUT ONLY:`;
 async function resolveDestination(rawDest, context) {
   if (!rawDest || typeof rawDest !== 'string') return { status: "AMBIGUOUS" };
   
-  const trimmedDest = rawDest.trim();
+  const originalInput = rawDest.trim();
+  const trimmedDest = expandKnownPlaceAlias(originalInput);
   if (trimmedDest.length === 0) return { status: "AMBIGUOUS" };
 
   console.log(`[GEO] destinationLength=${trimmedDest.length}`);
 
   // 1. Verbatim Stream
-  const verbatimResults = await fetchGeoCandidates(trimmedDest);
+  const [mapResults, geoResults] = await Promise.all([
+    fetchMapCandidates(trimmedDest),
+    fetchGeoCandidates(trimmedDest),
+  ]);
+  const verbatimResults = [...mapResults, ...geoResults];
   console.log(`[GEO] Provider candidates (verbatim):`, verbatimResults.length);
+
+  const nearbyCandidate = sensibleNearbyCandidate(
+    verbatimResults,
+    trimmedDest,
+    context,
+  );
+  if (nearbyCandidate) {
+    console.log(`[RESOLUTION] NEARBY_PROVIDER_MATCH: '${nearbyCandidate.name}'`);
+    return resolvedDestination(nearbyCandidate, originalInput);
+  }
 
   // A unique, exact provider result already verified as Malaysian needs no
   // phonetic generation or LLM ranking. This is data-driven and applies to
@@ -343,14 +541,7 @@ async function resolveDestination(rawDest, context) {
   if (exactCandidate) {
     const canonicalName = exactCandidate.name;
     console.log(`[RESOLUTION] EXACT_PROVIDER_MATCH: '${canonicalName}'`);
-    return {
-      status: 'RESOLVED',
-      canonical: canonicalName,
-      original_input: trimmedDest,
-      resolved_destination: canonicalName,
-      corrected: false,
-      confidence: 1,
-    };
+    return resolvedDestination(exactCandidate, originalInput);
   }
   
   // 2. Phonetic Stream
@@ -411,19 +602,28 @@ async function resolveDestination(rawDest, context) {
     return { 
       status: "RESOLVED", 
       canonical: canonicalName,
-      original_input: trimmedDest,
+      original_input: originalInput,
       resolved_destination: canonicalName,
-      corrected: canonicalName.toLowerCase() !== trimmedDest.toLowerCase(),
-      confidence: rankingResult.confidence
+      corrected: normalizeComparableName(canonicalName) !== normalizeComparableName(originalInput),
+      confidence: rankingResult.confidence,
+      latitude: rankingResult.candidate.latitude,
+      longitude: rankingResult.candidate.longitude,
+      destination_kind: destinationKind(rankingResult.candidate),
+      place_id: rankingResult.candidate.place_id || '',
+      address: rankingResult.candidate.formatted_address || '',
     };
   }
 
   console.log(`[RESOLUTION] ${rankingResult.status}`);
-  return { status: rankingResult.status, original_input: trimmedDest };
+  return { status: rankingResult.status, original_input: originalInput };
 }
 
 module.exports = {
   resolveDestination,
   parsePhoneticResponse, // Exported for testing
   exactMalaysianCandidate,
+  expandKnownPlaceAlias,
+  mapGooglePlaceCandidate,
+  destinationKind,
+  sensibleNearbyCandidate,
 };

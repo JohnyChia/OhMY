@@ -35,6 +35,7 @@ require("../tools/rerourteTool");
 const communityTool = require("../tools/communityTool");
 const savedTravelItemService = require("../services/savedTravelItemService");
 const linkAnalysisService = require("../services/linkAnalysisService");
+const { planSoloRequest } = require('../services/soloRequestPlanner');
 
 function applyContextDestination(intent, context) {
   if (intent.parameters.destination) return;
@@ -53,6 +54,11 @@ user_id,
 context
 )
 {
+
+const soloPlan = planSoloRequest(context?.current_message);
+if (soloPlan.groupAction) {
+  return { success: false, error: soloPlan.reply, code: 'SOLO_ONLY' };
+}
 
 
 switch(intent.tool)
@@ -128,11 +134,9 @@ case "weather":
 
 case "recommendation":
 {
-  applyContextDestination(intent, context);
-  if (!intent.parameters.destination) {
-    const state = await tripStateService.getTripState(user_id);
-    if (state && state.destination) intent.parameters.destination = state.destination;
-  }
+  // A destination-less recommendation means "near me". Never inherit an
+  // unrelated destination from a previous trip; recommendationTool anchors
+  // it to the fresh device coordinates carried in session context.
   return await recommendationTool.get(
     intent.parameters,
     context?.traveler_profile || {},

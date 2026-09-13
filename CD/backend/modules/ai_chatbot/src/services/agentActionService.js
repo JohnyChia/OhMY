@@ -83,6 +83,22 @@ function buildPrimaryAction({ intent, toolResult, tripState, profile, routing })
     budget: state.budget || "",
     duration: state.duration || null,
   };
+  const resolution = toolResult?.resolution_metadata || {};
+  if (['place', 'area'].includes(resolution.destination_kind)) {
+    journeyParameters.destination_kind = resolution.destination_kind;
+  }
+  if (resolution.destination_kind === 'place') {
+    if (typeof resolution.place_id === 'string' && resolution.place_id) {
+      journeyParameters.place_id = resolution.place_id;
+    }
+    if (typeof resolution.address === 'string') {
+      journeyParameters.address = resolution.address;
+    }
+    if (Number.isFinite(resolution.latitude) && Number.isFinite(resolution.longitude)) {
+      journeyParameters.latitude = resolution.latitude;
+      journeyParameters.longitude = resolution.longitude;
+    }
+  }
   // Nova-owned journeys are deliberately solo-only. The independent Travel
   // Group module is never a destination of this action contract.
   if (toolResult?.trip_mode === 'solo') {
@@ -91,6 +107,10 @@ function buildPrimaryAction({ intent, toolResult, tripState, profile, routing })
 
   switch (intent) {
     case "create_trip":
+      if (toolResult.search_only === true || resolution.destination_kind === 'area') {
+        journeyParameters.destination = toolResult.destination || journeyParameters.destination;
+        return validatePrimaryAction({ type: "show_place_results", target: "map", parameters: journeyParameters, requires_confirmation: false });
+      }
     case "update_trip":
     case "generate_itinerary":
       return validatePrimaryAction({ type: "start_journey", target: "trip", parameters: journeyParameters, requires_confirmation: false });
@@ -149,7 +169,7 @@ function validatePrimaryAction(action) {
   switch (action.type) {
     case "start_journey":
     case "show_place_results":
-      if (!hasOnly(["destination", "interests", "budget", "duration", "trip_mode"]) ||
+      if (!hasOnly(["destination", "interests", "budget", "duration", "trip_mode", "destination_kind", "place_id", "address", "latitude", "longitude"]) ||
           !validString(parameters.destination, { required: true }) ||
           !validStringList(parameters.interests) ||
           !validString(parameters.budget, { max: 80 }) ||
@@ -158,7 +178,16 @@ function validatePrimaryAction(action) {
               Number.isFinite(parameters.duration) &&
               parameters.duration > 0 && parameters.duration <= 365)) ||
           !(parameters.trip_mode === undefined ||
-            parameters.trip_mode === 'solo')) {
+            parameters.trip_mode === 'solo') ||
+          !(parameters.destination_kind === undefined ||
+            parameters.destination_kind === 'place' ||
+            parameters.destination_kind === 'area') ||
+          !(parameters.place_id === undefined || validString(parameters.place_id, { max: 300 })) ||
+          !(parameters.address === undefined || validString(parameters.address, { max: 500 })) ||
+          !(parameters.latitude === undefined ||
+            (typeof parameters.latitude === 'number' && Number.isFinite(parameters.latitude) && parameters.latitude >= -90 && parameters.latitude <= 90)) ||
+          !(parameters.longitude === undefined ||
+            (typeof parameters.longitude === 'number' && Number.isFinite(parameters.longitude) && parameters.longitude >= -180 && parameters.longitude <= 180))) {
         return null;
       }
       break;

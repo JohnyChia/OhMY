@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
+
 import 'package:record/record.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,9 +23,7 @@ import 'services/nova_owner_action_dispatcher.dart';
 import 'services/nova_conversation_context.dart';
 import 'models/nova_attachment.dart';
 import 'widgets/chat_bubble.dart';
-import 'widgets/nova_orb.dart';
 import 'widgets/nova_bottom_assistant.dart';
-import 'widgets/custom_app_bar.dart';
 import 'widgets/bottom_nav_bar.dart';
 
 void main() {
@@ -44,7 +42,7 @@ class NovaApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(
           0xFFEAF4FE,
         ), // Match prototype background
-        textTheme: GoogleFonts.interTextTheme(),
+        textTheme: ThemeData().textTheme,
       ),
       home: const ChatScreen(),
     );
@@ -52,9 +50,14 @@ class NovaApp extends StatelessWidget {
 }
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, this.showBottomNavigation = true});
+  const ChatScreen({
+    super.key,
+    this.showBottomNavigation = true,
+    this.composerRightInset = 32,
+  });
 
   final bool showBottomNavigation;
+  final double composerRightInset;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -91,6 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _initTts();
     unawaited(_initializeNova());
     NovaVoiceController.startRequests.addListener(_startRequestedVoiceSession);
+    NovaVoiceController.cancelRequests.addListener(_cancelVoiceSession);
   }
 
   Future<void> _initializeNova() async {
@@ -223,6 +227,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    NovaVoiceController.cancelRequests.removeListener(_cancelVoiceSession);
     _voiceGeneration++;
     _requestGeneration++;
     _silenceTimer?.cancel();
@@ -250,17 +255,38 @@ class _ChatScreenState extends State<ChatScreen> {
     unawaited(_beginVoiceSession(announce: invocation?.announce ?? false));
   }
 
+  void _cancelVoiceSession() {
+    _voiceGeneration++;
+    // Closing audio must not discard an already submitted chat answer.
+    // A pending transcription, however, must not create a new request.
+    if (!_isSending) _requestGeneration++;
+    _silenceTimer?.cancel();
+    _maximumRecordingTimer?.cancel();
+    unawaited(NovaBargeInService.stop());
+    unawaited(_flutterTts.stop());
+    unawaited(NovaInvocationManager.stopForegroundWakeListener());
+    if (_isRecording) unawaited(_stopRecording(discardRecording: true));
+    if (mounted) {
+      setState(() {
+        _voiceTurnActive = false;
+      });
+    }
+    NovaVoiceController.reset();
+  }
+
   Future<void> _beginVoiceSession({bool announce = false}) async {
     // A new invocation is authoritative: a late API/TTS callback from the
     // prior turn must never speak over it.
     _voiceGeneration++;
     _requestGeneration++;
+    final sessionGeneration = _voiceGeneration;
     await _flutterTts.stop();
+    if (!mounted || sessionGeneration != _voiceGeneration) return;
     if (_isRecording) {
       await _stopRecording(discardRecording: true);
     }
     if (announce) {
-      final voiceGeneration = ++_voiceGeneration;
+      final voiceGeneration = sessionGeneration;
       NovaVoiceController.update(
         phase: NovaVoicePhase.prompting,
         response: NovaVoiceController.wakePrompt,
@@ -276,17 +302,20 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       if (!mounted || voiceGeneration != _voiceGeneration) return;
     }
+    if (!mounted || sessionGeneration != _voiceGeneration) return;
     await _startRecording();
   }
 
   Future<void> _startRecording() async {
     if (_isRecording || _isStoppingRecording) return;
+    final sessionGeneration = _voiceGeneration;
     try {
       await NovaInvocationManager.stopForegroundWakeListener();
       await _flutterTts.stop();
       if (await _audioRecorder.hasPermission()) {
         final dir = await getTemporaryDirectory();
         _recordingPath = '${dir.path}/recording.m4a';
+        if (!mounted || sessionGeneration != _voiceGeneration) return;
 
         await _audioRecorder.start(
           const RecordConfig(
@@ -300,6 +329,10 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
           path: _recordingPath!,
         );
+        if (!mounted || sessionGeneration != _voiceGeneration) {
+          await _audioRecorder.stop();
+          return;
+        }
         _speechDetected = false;
         _recordingStartedAt = DateTime.now();
         _noiseFloorDb = null;
@@ -435,13 +468,11 @@ class _ChatScreenState extends State<ChatScreen> {
           unawaited(_rearmWakeListenerAfterVoiceFailure(requestGeneration));
           return;
         }
-        // A speech recognizer cannot promise a perfect written transcript.
-        // Keep the canonical transcript private to the Agent instead of
-        // displaying an incorrect sentence in the user's blue chat bubble.
+        // Show the recognized request so the traveller can check its meaning.
         await _sendMessage(
           transcript.correctedText,
           isVoice: true,
-          showUserMessage: false,
+          showUserMessage: true,
           inputLanguage: transcript.languageCode,
         );
       } else {
@@ -491,6 +522,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final selectedAttachment = _attachment;
     final requestText = textToUse.trim();
     if (requestText.isEmpty) return;
+    final submittedVoiceGeneration = _voiceGeneration;
     final requestGeneration = ++_requestGeneration;
     var attachment = selectedAttachment;
     if (attachment != null &&
@@ -606,6 +638,11 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted || requestGeneration != _requestGeneration) return;
 
       NovaOwnerActionResult? ownerActionResult;
+      // Audio dismissal does not cancel the answer. Render it normally but
+      // never resume speech/listening for the dismissed voice session.
+      if (isVoice && submittedVoiceGeneration != _voiceGeneration) {
+        isVoice = false;
+      }
       NovaAction? publishedAction;
       if (data['success'] == true) {
         NovaVoiceController.update(
@@ -772,18 +809,21 @@ class _ChatScreenState extends State<ChatScreen> {
               .where((value) => value.isNotEmpty)
               .toList()
         : <String>[];
-    final action = NovaAction(
-      type: 'start_journey',
-      target: 'trip',
-      parameters: <String, dynamic>{
-        'destination': destination,
-        'interests': interests,
-        'budget': _tripState?['budget']?.toString() ?? '',
-        'duration': _tripState?['duration'],
-        'trip_mode': 'solo',
-      },
-      requiresConfirmation: true,
-    );
+    final selectedPlaceAction = NovaAction.forRecommendedPlace(recommendation);
+    final action =
+        selectedPlaceAction ??
+        NovaAction(
+          type: 'start_journey',
+          target: 'trip',
+          parameters: <String, dynamic>{
+            'destination': destination,
+            'interests': interests,
+            'budget': _tripState?['budget']?.toString() ?? '',
+            'duration': _tripState?['duration'],
+            'trip_mode': 'solo',
+          },
+          requiresConfirmation: true,
+        );
     NovaActionBridge.lastAction.value = action;
     final result = await NovaOwnerActionDispatcher.dispatch(action);
     if (result?.executed == true) {
@@ -806,7 +846,18 @@ class _ChatScreenState extends State<ChatScreen> {
     final raw =
         error?.toString().replaceFirst(RegExp(r'^Exception:\s*'), '').trim() ??
         '';
-    return raw.isNotEmpty ? raw : fallback;
+    if (raw.isEmpty ||
+        raw == 'undefined' ||
+        raw == 'null' ||
+        RegExp(
+          r'failed to validate json|failed_generation|tool choice|400\b',
+          caseSensitive: false,
+        ).hasMatch(raw)) {
+      return fallback.isNotEmpty
+          ? fallback
+          : 'Nova could not process that request. Please try again.';
+    }
+    return raw;
   }
 
   Future<void> _speak(String text, int voiceGeneration, String language) async {
@@ -843,19 +894,19 @@ class _ChatScreenState extends State<ChatScreen> {
           if (spoken.split(' ').length >= 4 && response.contains(spoken)) {
             return;
           }
-          _voiceGeneration++;
+          final nextVoiceGeneration = ++_voiceGeneration;
           await NovaBargeInService.stop();
           await _flutterTts.stop();
-          if (!mounted) return;
+          if (!mounted || nextVoiceGeneration != _voiceGeneration) return;
           NovaVoiceController.update(
             phase: NovaVoicePhase.thinking,
             message: transcript,
           );
-          await _sendMessage(transcript, isVoice: true, showUserMessage: false);
+          await _sendMessage(transcript, isVoice: true, showUserMessage: true);
         },
       );
       await _flutterTts.setLanguage(language);
-      await _flutterTts.speak(text);
+      await _flutterTts.speak(text).timeout(const Duration(seconds: 30));
       if (userStartedSpeaking) return;
       await NovaBargeInService.stop();
       if (!mounted || voiceGeneration != _voiceGeneration) return;
@@ -863,12 +914,8 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       NovaVoiceController.update(phase: NovaVoicePhase.completed);
-      await Future<void>.delayed(const Duration(milliseconds: 250));
       if (mounted && voiceGeneration == _voiceGeneration) {
-        // A voice conversation remains hands-free: after Nova asks or answers,
-        // immediately listen for the user's next turn. This does not depend on
-        // the optional wake-word model being installed.
-        await _startRecording();
+        setState(() => _voiceTurnActive = false);
       }
     } catch (error) {
       await NovaBargeInService.stop();
@@ -902,7 +949,6 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _messages.isEmpty ? null : const CustomAppBar(),
       extendBody: widget.showBottomNavigation,
       bottomNavigationBar: widget.showBottomNavigation
           ? const BottomNavBar()
@@ -911,18 +957,16 @@ class _ChatScreenState extends State<ChatScreen> {
         bottom: false, // Custom bottom nav handles bottom inset
         child: Stack(
           children: [
-            if (_messages.isEmpty)
-              const Positioned.fill(child: ColoredBox(color: Colors.white)),
-            if (_messages.isEmpty)
-              Positioned.fill(
-                child: Opacity(
-                  opacity: 0.34,
-                  child: Image.asset(
-                    'assets/images/ai_chat/ai_bg.png',
-                    fit: BoxFit.cover,
-                  ),
+            const Positioned.fill(child: ColoredBox(color: Colors.white)),
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.34,
+                child: Image.asset(
+                  'assets/images/ai_chat/ai_bg.png',
+                  fit: BoxFit.cover,
                 ),
               ),
+            ),
             Column(
               children: [
                 Expanded(
@@ -1009,23 +1053,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
 
                 if (_voiceTurnActive)
-                  _LiveVoicePanel(
-                    onClose: () {
-                      unawaited(_flutterTts.stop());
-                      if (_isRecording) {
-                        unawaited(_stopRecording(discardRecording: true));
-                      }
-                      setState(() => _voiceTurnActive = false);
-                      NovaVoiceController.reset();
-                    },
-                  )
+                  _LiveVoicePanel(onClose: NovaVoiceController.dismiss)
                 else
                   // Input Area
                   Container(
                     padding: EdgeInsets.fromLTRB(
-                      _messages.isEmpty ? 28 : 16,
+                      16,
                       8,
-                      _messages.isEmpty ? 28 : 16,
+                      widget.composerRightInset,
                       14,
                     ),
                     color: Colors.transparent,
@@ -1047,7 +1082,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
-                        vertical: 8,
+                        vertical: 4,
                       ),
                       child: Row(
                         children: [
@@ -1060,21 +1095,15 @@ class _ChatScreenState extends State<ChatScreen> {
                               color: const Color(0xFF273D7C),
                               tooltip: 'Add photo or file',
                             ),
-                          if (_messages.isNotEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 8.0, right: 12.0),
-                              child: NovaOrb(isListening: false, size: 24),
-                            ),
                           Expanded(
                             child: ValueListenableBuilder<NovaVoiceState>(
                               valueListenable: NovaVoiceController.state,
                               builder: (_, voiceState, _) => TextField(
                                 controller: _textController,
                                 focusNode: _composerFocusNode,
-                                textAlign: _messages.isEmpty
-                                    ? TextAlign.center
-                                    : TextAlign.start,
-                                style: GoogleFonts.inter(fontSize: 14),
+                                textAlign: TextAlign.start,
+                                textAlignVertical: TextAlignVertical.center,
+                                style: TextStyle(fontSize: 14),
                                 decoration: InputDecoration(
                                   hintText: _isRecording
                                       ? "Listening..."
@@ -1086,7 +1115,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                                 NovaVoicePhase.prompting
                                       ? "Nova is speaking..."
                                       : "Message Nova...",
-                                  hintStyle: GoogleFonts.inter(
+                                  hintStyle: TextStyle(
                                     color: _isRecording
                                         ? Colors.red.shade400
                                         : Colors.grey.shade500,
@@ -1094,7 +1123,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ),
                                   border: InputBorder.none,
                                   isDense: true,
-                                  contentPadding: EdgeInsets.zero,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
                                 ),
                                 onSubmitted: (value) {
                                   _composerFocusNode.unfocus();
@@ -1212,7 +1244,7 @@ class _NovaLanding extends StatelessWidget {
                 Text(
                   'Your travel agent,\nready.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     fontSize: compact ? 30 : 36,
                     height: 1.06,
                     fontWeight: FontWeight.w800,
@@ -1234,7 +1266,7 @@ class _NovaLanding extends StatelessWidget {
                   'find local gems, check weather, routes\n'
                   'and itineraries.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
+                  style: TextStyle(
                     fontSize: compact ? 14 : 16,
                     height: 1.45,
                     fontWeight: FontWeight.w400,

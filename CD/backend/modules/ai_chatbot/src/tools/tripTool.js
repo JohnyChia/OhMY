@@ -57,6 +57,17 @@ async function createTrip(user_id, parameters, context) {
       };
     }
     parameters.destination = resolution.canonical;
+    if (resolution.destination_kind === 'area') {
+      return {
+        success: true,
+        status: 'success',
+        search_only: true,
+        destination: resolution.canonical,
+        resolution_metadata: resolution,
+        trip_state: old,
+        message: `Search opened for ${resolution.canonical}. Choose a specific place to start the journey.`,
+      };
+    }
   }
 
   const result = await tripStateService.updateTripState(
@@ -75,7 +86,9 @@ async function createTrip(user_id, parameters, context) {
   );
 
   return {
+    success: true,
     status: "success",
+    destination: parameters.destination || '',
     resolution_metadata: resolution,
     trip_state: result
   };
