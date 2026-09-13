@@ -18,6 +18,8 @@ attachment,
 savedItems
 ,
 inputLanguage
+,
+currentLocation
 
 })
 { 
@@ -51,6 +53,8 @@ profile || {},
 language,
 
 input_language: inputLanguage || null,
+
+current_location: currentLocation || null,
 
 interaction_mode: interactionMode || "chat_text",
 

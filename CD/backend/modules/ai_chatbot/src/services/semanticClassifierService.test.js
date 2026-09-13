@@ -28,6 +28,25 @@ test('maps structured semantic intent to an allowlisted tool and preserves locat
   assert.equal(result.allowMap, false);
 });
 
+test('executes a complete read-only weather intent despite conservative confidence', () => {
+  const result = validateClassification(classification({ confidence: 0.3 }));
+  assert.equal(result.intent, 'weather');
+  assert.equal(result.parameters.destination, 'Provider supplied region');
+  assert.equal(result.toolName, 'weather');
+  assert.equal(result.requiresClarification, false);
+});
+
+test('accepts semantic weather intent aliases without requiring a date', () => {
+  for (const intent of ['weather_check', 'check_weather', 'weather_forecast']) {
+    const result = validateClassification(classification({ intent, parameters: {} }));
+    assert.equal(result.intent, 'weather');
+    assert.equal(result.toolName, 'weather');
+    assert.equal(result.parameters.destination, 'Provider supplied region');
+    assert.equal(result.parameters.travel_date, undefined);
+    assert.equal(result.requiresClarification, false);
+  }
+});
+
 test('derives map permission only from navigation or map intent', () => {
   for (const intent of ['weather', 'recommendation', 'general_travel']) {
     assert.equal(validateClassification(classification({ intent })).allowMap, false);
@@ -56,6 +75,7 @@ test('normalizes model recommendation fields into the tool contract', () => {
 
   assert.deepEqual(result.parameters, {
     destination: 'Melaka',
+    open_nearest: false,
     requirements: ['makanan'],
     excluded_requirements: [],
   });

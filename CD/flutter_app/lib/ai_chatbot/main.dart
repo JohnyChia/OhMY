@@ -76,6 +76,9 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<Amplitude>? _amplitudeSubscription;
   Timer? _silenceTimer;
   Timer? _maximumRecordingTimer;
+  Timer? _quotaReminderTimer;
+  DateTime? _quotaRetryAt;
+  Timer? _mapVoiceTimer;
   bool _speechDetected = false;
   DateTime? _recordingStartedAt;
   double? _noiseFloorDb;
@@ -91,6 +94,20 @@ class _ChatScreenState extends State<ChatScreen> {
     _initTts();
     unawaited(_initializeNova());
     NovaVoiceController.startRequests.addListener(_startRequestedVoiceSession);
+    NovaVoiceController.state.addListener(_handleNovaVoiceState);
+  }
+
+  void _handleNovaVoiceState() {
+    if (NovaVoiceController.state.value.phase != NovaVoicePhase.interrupted) {
+      return;
+    }
+    _voiceGeneration++;
+    _mapVoiceTimer?.cancel();
+    unawaited(NovaBargeInService.stop());
+    unawaited(_flutterTts.stop());
+    if (mounted && _voiceTurnActive) {
+      setState(() => _voiceTurnActive = false);
+    }
   }
 
   Future<void> _initializeNova() async {
@@ -227,6 +244,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _requestGeneration++;
     _silenceTimer?.cancel();
     _maximumRecordingTimer?.cancel();
+    _quotaReminderTimer?.cancel();
+    _mapVoiceTimer?.cancel();
     _amplitudeSubscription?.cancel();
     _flutterTts.stop();
     _audioRecorder.dispose();
@@ -235,6 +254,7 @@ class _ChatScreenState extends State<ChatScreen> {
     NovaVoiceController.startRequests.removeListener(
       _startRequestedVoiceSession,
     );
+    NovaVoiceController.state.removeListener(_handleNovaVoiceState);
     NovaVoiceController.reset();
     super.dispose();
   }
@@ -407,8 +427,8 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       if (path != null) {
         NovaVoiceController.update(
-          phase: NovaVoicePhase.thinking,
-          message: 'Thinking…',
+          phase: NovaVoicePhase.processing,
+          message: 'Processing your voice…',
         );
         final snapshot = NovaConversationContext.snapshot.value;
         final transcript = await VoiceTextPipeline.processAudio(
@@ -474,6 +494,12 @@ class _ChatScreenState extends State<ChatScreen> {
     String? replaceAssistantMessageId,
     String? inputLanguage,
   }) async {
+    if (_quotaRetryAt != null && !DateTime.now().isBefore(_quotaRetryAt!)) {
+      _quotaReminderTimer?.cancel();
+      _quotaReminderTimer = null;
+      _quotaRetryAt = null;
+      if (mounted) ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+    }
     if (!isVoice && _voiceTurnActive) {
       // A manual answer always takes ownership of the conversation turn.
       // Stop every voice surface before dispatching it so TTS, barge-in ASR,
@@ -491,6 +517,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final selectedAttachment = _attachment;
     final requestText = textToUse.trim();
     if (requestText.isEmpty) return;
+    // The local variable owns the attachment for this request. Remove the
+    // composer preview immediately so it cannot look like a second pending
+    // upload while analysis and the agent response are running.
+    if (selectedAttachment != null && mounted) {
+      setState(() => _attachment = null);
+    }
     final requestGeneration = ++_requestGeneration;
     var attachment = selectedAttachment;
     if (attachment != null &&
@@ -511,12 +543,13 @@ class _ChatScreenState extends State<ChatScreen> {
           mimeType: analysis['mimeType']?.toString(),
           analysis: analysis,
         );
-        setState(() {
-          _attachment = attachment;
-        });
       } catch (error) {
         if (!mounted || requestGeneration != _requestGeneration) return;
-        final message = _friendlyNovaError(error, fallback: attachmentName);
+        final errorData = error is NovaApiException ? error.data : null;
+        if (errorData != null) _scheduleQuotaReminder(errorData);
+        final message = errorData != null
+            ? _friendlyNovaErrorResponse(errorData, fallback: attachmentName)
+            : _friendlyNovaError(error, fallback: attachmentName);
         setState(() {
           _isSending = false;
           _attachment = null;
@@ -608,6 +641,10 @@ class _ChatScreenState extends State<ChatScreen> {
       NovaOwnerActionResult? ownerActionResult;
       NovaAction? publishedAction;
       if (data['success'] == true) {
+        _quotaReminderTimer?.cancel();
+        _quotaReminderTimer = null;
+        _quotaRetryAt = null;
+        ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
         NovaVoiceController.update(
           languageCode: data['languageCode']?.toString() ?? 'en',
         );
@@ -624,6 +661,12 @@ class _ChatScreenState extends State<ChatScreen> {
         if (!mounted || requestGeneration != _requestGeneration) return;
       }
 
+      final recommendationPresentation =
+          data['success'] == true &&
+          data['presentation'] == 'map_only';
+      final recommendationMovedToMap =
+          recommendationPresentation && ownerActionResult?.executed == true;
+
       setState(() {
         if (data['success'] == true) {
           _tripState = data['trip_state'];
@@ -632,7 +675,9 @@ class _ChatScreenState extends State<ChatScreen> {
               NovaActionBridge.lastAction.value,
             );
           }
-          NovaConversationContext.recordAssistantTurn(data['reply'].toString());
+          if (!recommendationMovedToMap) {
+            NovaConversationContext.recordAssistantTurn(data['reply'].toString());
+          }
           final Map<String, dynamic> responseMessage = {
             'id': (DateTime.now().millisecondsSinceEpoch + 1).toString(),
             'role': 'assistant',
@@ -642,7 +687,14 @@ class _ChatScreenState extends State<ChatScreen> {
             'language': data['language'],
             'agent_actions': data['agent_actions'],
           };
-          if (replaceAssistantMessageId != null) {
+          if (recommendationMovedToMap && replaceAssistantMessageId != null) {
+            _messages.removeWhere(
+              (message) => message['id'] == replaceAssistantMessageId,
+            );
+          } else if (recommendationMovedToMap) {
+            // Recommendation content belongs to the map's markers, carousel,
+            // reviews and directions flow, not to a duplicate chat bubble.
+          } else if (replaceAssistantMessageId != null) {
             _replaceAssistantMessage(
               replaceAssistantMessageId,
               data['reply'].toString(),
@@ -660,11 +712,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
           final routePageOwnsVoice =
               ownerActionResult?.executed == true &&
-              publishedAction?.type == 'start_journey';
-          if (isVoice && routePageOwnsVoice) {
+              (publishedAction?.type == 'start_journey' ||
+                  recommendationMovedToMap);
+          if (recommendationMovedToMap) {
             // The route owner speaks verified alternatives after they load,
             // then opens a fresh hands-free confirmation session. Speaking
             // the chat handoff here would overlap that route narration.
+            _beginMapNarrationBargeIn(
+              data['reply']?.toString() ?? '',
+              publishedAction,
+            );
+          } else if (isVoice && routePageOwnsVoice) {
             _voiceTurnActive = false;
           } else if (isVoice && data['reply'] != null) {
             if (!kIsWeb && Platform.isWindows) {
@@ -710,7 +768,8 @@ class _ChatScreenState extends State<ChatScreen> {
             unawaited(_rearmWakeListenerAfterVoiceFailure(requestGeneration));
           }
         } else {
-          final errorMessage = _friendlyNovaError(data['error'], fallback: '');
+          _scheduleQuotaReminder(data);
+          final errorMessage = _friendlyNovaErrorResponse(data, fallback: '');
           if (replaceAssistantMessageId != null) {
             _replaceAssistantMessage(replaceAssistantMessageId, errorMessage);
           } else {
@@ -802,11 +861,209 @@ class _ChatScreenState extends State<ChatScreen> {
     return value?.toString() ?? '';
   }
 
+  Future<void> _takeManualInputControl() async {
+    if (!_voiceTurnActive &&
+        NovaVoiceController.state.value.phase != NovaVoicePhase.speaking) {
+      return;
+    }
+    _voiceGeneration++;
+    _mapVoiceTimer?.cancel();
+    NovaVoiceController.update(
+      phase: NovaVoicePhase.listening,
+      message: 'Manual input selected',
+      clearResponse: true,
+    );
+    await NovaBargeInService.stop();
+    await _flutterTts.stop();
+    if (_isRecording) await _stopRecording(discardRecording: true);
+    if (!mounted) return;
+    setState(() => _voiceTurnActive = false);
+    NovaVoiceController.reset();
+  }
+
+  void _beginMapNarrationBargeIn(String response, NovaAction? action) {
+    _mapVoiceTimer?.cancel();
+    final recommendations = action?.parameters['recommendations'] as List?;
+    final narrationCorpus = [
+      response,
+      ...?recommendations?.whereType<Map>().expand((item) {
+        final place = item['place'];
+        if (place is! Map) return const <String>[];
+        return <String>[
+          place['displayName'] is Map
+              ? place['displayName']['text']?.toString() ?? ''
+              : '',
+          place['formattedAddress']?.toString() ?? '',
+        ];
+      }),
+    ].join(' ').toLowerCase().replaceAll(
+      RegExp(r'[^\p{L}\p{N}]+', unicode: true),
+      ' ',
+    );
+    final listeningWindow = Duration(
+      seconds: ((recommendations?.length ?? 1) * 6).clamp(8, 36).toInt(),
+    );
+    _voiceTurnActive = true;
+    NovaVoiceController.update(
+      phase: NovaVoicePhase.speaking,
+      response: response,
+      message: 'Speaking through your matches…',
+      amplitude: 0.45,
+    );
+    unawaited(NovaBargeInService.start(
+      languageCode: NovaVoiceController.state.value.languageCode,
+      onSpeechStarted: () async {
+        // The recognizer also hears Nova's loudspeaker. Wait for transcript
+        // evidence before interrupting map narration so every recommendation
+        // can finish and the carousel can advance.
+      },
+      onTranscript: (transcript, isFinal) async {
+        if (!mounted) return;
+        final normalizedTranscript = transcript.toLowerCase().replaceAll(
+          RegExp(r'[^\p{L}\p{N}]+', unicode: true),
+          ' ',
+        ).trim();
+        if (normalizedTranscript.isEmpty) return;
+        final isNarrationEcho = normalizedTranscript.split(' ').length >= 3 &&
+            narrationCorpus.contains(normalizedTranscript);
+        if (isNarrationEcho) {
+          return;
+        }
+        _mapVoiceTimer?.cancel();
+        if (!isFinal) {
+          NovaVoiceController.update(
+            phase: NovaVoicePhase.listening,
+            message: transcript,
+            clearResponse: true,
+          );
+          return;
+        }
+        _mapVoiceTimer?.cancel();
+        NovaVoiceController.update(
+          phase: NovaVoicePhase.listening,
+          message: transcript,
+          clearResponse: true,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+        await NovaBargeInService.stop();
+        NovaVoiceController.update(
+          phase: NovaVoicePhase.thinking,
+          message: transcript,
+        );
+        await _sendMessage(
+          transcript,
+          isVoice: true,
+          showUserMessage: false,
+        );
+      },
+    ));
+    _mapVoiceTimer = Timer(listeningWindow, () async {
+      await NovaBargeInService.stop();
+      if (!mounted) return;
+      _voiceTurnActive = false;
+      NovaVoiceController.update(phase: NovaVoicePhase.completed);
+    });
+  }
+
   String _friendlyNovaError(Object? error, {required String fallback}) {
     final raw =
         error?.toString().replaceFirst(RegExp(r'^Exception:\s*'), '').trim() ??
         '';
     return raw.isNotEmpty ? raw : fallback;
+  }
+
+  String _friendlyNovaErrorResponse(
+    Map<String, dynamic> data, {
+    required String fallback,
+  }) {
+    final nextRetry = DateTime.tryParse(data['next_retry_at']?.toString() ?? '')
+        ?.toLocal();
+    if (nextRetry != null) {
+      return 'Nova will be available again ${_retryTimeLabel(nextRetry)}.';
+    }
+    return _friendlyNovaError(data['error'], fallback: fallback);
+  }
+
+  void _scheduleQuotaReminder(Map<String, dynamic> data) {
+    final seconds = (data['retry_after_seconds'] as num?)?.toInt();
+    final nextRetry = DateTime.tryParse(data['next_retry_at']?.toString() ?? '')
+        ?.toLocal();
+    final delay = nextRetry != null
+        ? nextRetry.difference(DateTime.now())
+        : Duration(seconds: seconds ?? 0);
+    if (delay <= Duration.zero) return;
+    _quotaReminderTimer?.cancel();
+    _quotaRetryAt = nextRetry ?? DateTime.now().add(delay);
+    _quotaReminderTimer = Timer(delay + const Duration(seconds: 1), () {
+      if (!mounted) return;
+      _quotaRetryAt = null;
+      _showTopNotice(
+        'Nova retry window is ready',
+        'You can resend your request now.',
+        Icons.auto_awesome_rounded,
+      );
+    });
+    if (nextRetry != null && mounted) {
+      _showTopNotice(
+        'Nova is temporarily unavailable',
+        'Next retry ${_retryTimeLabel(nextRetry)}',
+        Icons.schedule_rounded,
+      );
+    }
+  }
+
+  String _retryTimeLabel(DateTime nextRetry) {
+    final remainingSeconds = nextRetry
+        .difference(DateTime.now())
+        .inSeconds
+        .clamp(0, 86400);
+    final minutes = remainingSeconds ~/ 60;
+    final seconds = remainingSeconds % 60;
+    final hour = nextRetry.hour % 12 == 0 ? 12 : nextRetry.hour % 12;
+    final clockMinute = nextRetry.minute.toString().padLeft(2, '0');
+    final clockSecond = nextRetry.second.toString().padLeft(2, '0');
+    final period = nextRetry.hour < 12 ? 'AM' : 'PM';
+    return 'in $minutes min ${seconds.toString().padLeft(2, '0')} sec '
+        '($hour:$clockMinute:$clockSecond $period)';
+  }
+
+  void _showTopNotice(String title, String detail, IconData icon) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentMaterialBanner();
+    messenger.showMaterialBanner(MaterialBanner(
+      elevation: 6,
+      backgroundColor: const Color(0xFF172554),
+      leading: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: const Color(0xFF6366F1).withValues(alpha: 0.22),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(icon, color: const Color(0xFFC7D2FE)),
+      ),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title, style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          )),
+          const SizedBox(height: 2),
+          Text(detail, style: const TextStyle(color: Color(0xFFE0E7FF))),
+        ],
+      ),
+      actions: [
+        IconButton(
+          onPressed: messenger.hideCurrentMaterialBanner,
+          icon: const Icon(Icons.close_rounded, color: Colors.white70),
+        ),
+      ],
+    ));
+    Future<void>.delayed(const Duration(seconds: 5), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   Future<void> _speak(String text, int voiceGeneration, String language) async {
@@ -1020,13 +1277,6 @@ class _ChatScreenState extends State<ChatScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          const Text(
-                            'Add a message or use voice, then send',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.black54,
-                            ),
-                          ),
                         ],
                       ),
                     ),
@@ -1060,10 +1310,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   setState(() => _voiceTurnActive = false);
                   NovaVoiceController.reset();
                 },
-              )
-            else
-              // Input Area
-              Container(
+              ),
+            // Keep manual input available while Nova is speaking. Tapping it
+            // immediately takes ownership from TTS/barge-in.
+            Container(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
                 color: Colors.transparent,
                 child: Container(
@@ -1122,6 +1372,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               isDense: true,
                               contentPadding: EdgeInsets.zero,
                             ),
+                            onTap: () => unawaited(_takeManualInputControl()),
                             onSubmitted: (value) {
                               _composerFocusNode.unfocus();
                               unawaited(_sendMessage(value));
@@ -1143,14 +1394,16 @@ class _ChatScreenState extends State<ChatScreen> {
                           return GestureDetector(
                             onTap: _isSending
                                 ? null
-                                : () {
+                                : () async {
+                                    if (!_isRecording) {
+                                      await _takeManualInputControl();
+                                    }
+                                    if (!mounted) return;
                                     if (canSend) {
                                       _composerFocusNode.unfocus();
-                                      unawaited(
-                                        _sendMessage(_textController.text),
-                                      );
+                                      await _sendMessage(_textController.text);
                                     } else if (_isRecording) {
-                                      unawaited(_stopRecording());
+                                      await _stopRecording();
                                     } else {
                                       NovaVoiceController.requestVoiceSession(
                                         source: NovaInvocationSource
