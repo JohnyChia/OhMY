@@ -218,6 +218,9 @@ class _OhMyShellState extends State<OhMyShell> {
           builder: (_) => PostDetailScreen(
             postId: post.id,
             controller: _communityController!,
+            integrationCallbacks: CommunityIntegrationCallbacks(
+              onStartJourney: _openCommunityLocationInStartTrip,
+            ),
           ),
         ),
       );

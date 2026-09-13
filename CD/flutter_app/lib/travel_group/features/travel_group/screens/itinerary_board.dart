@@ -206,14 +206,20 @@ class ItineraryBoard extends StatelessWidget {
               if (controller.itinerary.isNotEmpty)
                 SliverReorderableList(
                   itemCount: controller.itinerary.length,
-                  onReorderItem: controller.isCreator
+                  onReorder: controller.isCreator
                       ? (oldIndex, newIndex) async {
+                          final targetIndex = newIndex > oldIndex
+                              ? newIndex - 1
+                              : newIndex;
                           if (!controller.canReorderStop(oldIndex) ||
-                              !controller.canReorderStop(newIndex)) {
+                              !controller.canReorderStop(targetIndex)) {
                             return;
                           }
                           try {
-                            await controller.reorderStops(oldIndex, newIndex);
+                            await controller.reorderStops(
+                              oldIndex,
+                              targetIndex,
+                            );
                           } on TravelGroupException catch (error) {
                             if (context.mounted) {
                               showTravelGroupMessage(
