@@ -1,5 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
 
 class TravelGroupScaffold extends StatelessWidget {
@@ -18,13 +21,47 @@ class TravelGroupScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: child,
-      floatingActionButton: floatingActionButton,
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      bottomNavigationBar: showBottomNavigation
-          ? const _PrototypeNavigation()
-          : null,
+    return Theme(
+      data: AppTheme.light,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FBFF),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [const _GroupTripBackground(), child],
+        ),
+        floatingActionButton: floatingActionButton,
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        bottomNavigationBar: showBottomNavigation
+            ? const _PrototypeNavigation()
+            : null,
+      ),
+    );
+  }
+}
+
+class _GroupTripBackground extends StatelessWidget {
+  const _GroupTripBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5),
+            child: Opacity(
+              opacity: .30,
+              child: Image.asset(
+                'assets/images/start_trip_selection/startTripSelectionBg.png',
+                fit: BoxFit.cover,
+                alignment: Alignment.bottomCenter,
+              ),
+            ),
+          ),
+          const ColoredBox(color: Color(0x99F8FBFF)),
+        ],
+      ),
     );
   }
 }

@@ -138,7 +138,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
         .lastOrNull;
     if (group?.status == GroupStatus.completed) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Travel Group ended')),
+        appBar: AppBar(title: const Text('Group Trip ended')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -149,8 +149,8 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
                 const SizedBox(height: 16),
                 Text(
                   widget.controller.isCreator
-                      ? 'Your Travel Group session has ended.'
-                      : '${group!.creatorName} ended the Travel Group session.',
+                      ? 'Your Group Trip session has ended.'
+                      : '${group!.creatorName} ended the Group Trip session.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
@@ -167,7 +167,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     }
     if (stop == null || stop.latitude == null || stop.longitude == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Travel Group')),
+        appBar: AppBar(title: const Text('Group Trip')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -391,7 +391,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     final shouldEnd = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('End this Travel Group?'),
+        title: const Text('End this Group Trip?'),
         content: const Text(
           'This ends the trip for everyone and saves it to each traveller\'s history. It cannot be resumed.',
         ),
@@ -402,7 +402,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('End Travel Group'),
+            child: const Text('End Group Trip'),
           ),
         ],
       ),
@@ -411,7 +411,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
     try {
       await widget.controller.endTrip();
       if (mounted) {
-        showTravelGroupMessage(context, 'Travel Group saved to your history.');
+        showTravelGroupMessage(context, 'Group Trip saved to your history.');
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } on TravelGroupException catch (error) {
@@ -531,7 +531,7 @@ class _JourneyCard extends StatelessWidget {
                 side: const BorderSide(color: Color(0xFFB3261E)),
               ),
               icon: const Icon(Icons.stop_circle_outlined),
-              label: const Text('End Travel Group'),
+              label: const Text('End Group Trip'),
             ),
           ),
         ],

@@ -147,6 +147,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                                         .titleLarge
                                         ?.copyWith(
                                           color: _communityNavy,
+                                          fontSize: 26,
                                           fontWeight: FontWeight.w800,
                                         ),
                                   ),

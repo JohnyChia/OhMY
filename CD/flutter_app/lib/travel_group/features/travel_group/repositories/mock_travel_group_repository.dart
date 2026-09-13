@@ -54,7 +54,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     return _groups.firstWhere(
       (group) => group.id == id,
       orElse: () => throw const TravelGroupException(
-        'Travel group not found.',
+        'Group trip not found.',
         'not_found',
       ),
     );
@@ -184,7 +184,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     final group = _requireGroup(groupId);
     if (userId == group.creatorId) {
       throw const TravelGroupException(
-        'Creators must end or delete their Travel Group.',
+        'Creators must end or delete their Group Trip.',
         'creator_cannot_leave',
       );
     }
@@ -245,7 +245,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     }
     if (updated.maxMembers < 2 || updated.maxMembers > 4) {
       throw const TravelGroupException(
-        'A travel group allows 2 to 4 travellers.',
+        'A group trip allows 2 to 4 travellers.',
         'invalid_capacity',
       );
     }
@@ -300,7 +300,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     if (group.memberIds.contains(travellerId)) return;
     if (group.isFull) {
       throw const TravelGroupException(
-        'This travel group is currently full.',
+        'This group trip is currently full.',
         'group_full',
       );
     }
@@ -324,7 +324,7 @@ class MockTravelGroupRepository implements TravelGroupRepository {
     }
     if (group.isFull) {
       throw const TravelGroupException(
-        'This travel group is currently full.',
+        'This group trip is currently full.',
         'group_full',
       );
     }

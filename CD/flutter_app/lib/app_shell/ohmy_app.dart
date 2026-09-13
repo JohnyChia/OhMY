@@ -186,7 +186,7 @@ class _OhMyShellState extends State<OhMyShell> {
       ScaffoldMessenger.of(context).showSnackBar(
         const OhMySnackBar(
           content: Text(
-            'Leave or finish your Travel Group before starting a solo trip.',
+            'Leave or finish your Group Trip before starting a solo trip.',
           ),
         ),
       );
@@ -253,8 +253,7 @@ class _OhMyShellState extends State<OhMyShell> {
         return NovaOwnerActionResult(
           action: action,
           status: NovaOwnerActionStatus.rejected,
-          message:
-              'Return to your travel group before starting another journey.',
+          message: 'Return to your group trip before starting another journey.',
           errorCode: 'ACTIVE_TRAVEL_GROUP',
         );
       }
@@ -328,7 +327,7 @@ class _OhMyShellState extends State<OhMyShell> {
       final navigator = _navigatorKeys[2].currentState;
       if (navigator == null) {
         throw const TravelGroupException(
-          'The Travel Group screen is not ready. Please try again.',
+          'The Group Trip screen is not ready. Please try again.',
           'group_navigation_not_ready',
         );
       }
@@ -1309,55 +1308,32 @@ class StartTripHubPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  height: 74,
-                  child: Stack(
-                    children: [
-                      const Positioned(
-                        left: 0,
-                        top: 0,
-                        child: Text(
-                          'Start Trip',
-                          style: TextStyle(
-                            color: Color(0xff121a3a),
-                            fontSize: 24,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: IgnorePointer(
-                          child: Image.asset(
-                            'assets/images/start_trip_selection/startTripSelectionTopRight.png',
-                            width: 74,
-                            height: 74,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
-                    ],
+                const Text(
+                  'Start Trip',
+                  style: TextStyle(
+                    color: Color(0xFF123A78),
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 28),
                 const Text(
                   'How would you like\nto travel?',
                   style: TextStyle(
-                    color: Color(0xff10183b),
+                    color: Color(0xFF123A78),
                     fontSize: 34,
                     height: 1.06,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -1,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -.7,
                   ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Explore Malaysia your way.\nChoose a travel style to get started.',
+                  'Choose how you want to explore Malaysia.',
                   style: TextStyle(
-                    color: Color(0xff6f758b),
-                    fontSize: 17,
-                    height: 1.45,
+                    color: Color(0xFF536A8E),
+                    fontSize: 16,
+                    height: 1.35,
                   ),
                 ),
                 if (controller.ongoingMemberGroup != null) ...[
@@ -1385,8 +1361,7 @@ class StartTripHubPage extends StatelessWidget {
                       'assets/images/start_trip_selection/startTripSelectionSolo.png',
                   accent: const Color(0xffe7f2ff),
                   title: 'Solo trip',
-                  subtitle:
-                      'Search places, receive recommendations, check weather and traffic, then build your route.',
+                  subtitle: 'Explore with personalised recommendations.',
                   onTap: () => _openSoloTrip(context),
                 ),
                 const SizedBox(height: 18),
@@ -1395,8 +1370,7 @@ class StartTripHubPage extends StatelessWidget {
                       'assets/images/start_trip_selection/startTripSelectionGroup.png',
                   accent: const Color(0xffffeee1),
                   title: 'Group trip',
-                  subtitle:
-                      'Discover or create a travel group, vote on stops and manage a shared itinerary.',
+                  subtitle: 'Plan and explore with other travellers.',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       settings: const RouteSettings(
@@ -1421,9 +1395,9 @@ class StartTripHubPage extends StatelessWidget {
       final openGroup = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Travel Group already active'),
+          title: const Text('Group Trip already active'),
           content: Text(
-            'You are in ${ownedGroup.name}. Leave or finish that Travel Group before starting a solo trip.',
+            'You are in ${ownedGroup.name}. Leave or finish that Group Trip before starting a solo trip.',
           ),
           actions: [
             TextButton(
@@ -1433,7 +1407,7 @@ class StartTripHubPage extends StatelessWidget {
             FilledButton.icon(
               onPressed: () => Navigator.pop(dialogContext, true),
               icon: const Icon(Icons.groups_rounded),
-              label: const Text('Open Travel Group'),
+              label: const Text('Open Group Trip'),
             ),
           ],
         ),
@@ -1540,14 +1514,17 @@ class _TripModeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      elevation: 5,
-      shadowColor: Colors.black.withValues(alpha: .16),
+      elevation: 2,
+      shadowColor: const Color(0x2924476F),
       color: Colors.white.withValues(alpha: .94),
-      borderRadius: BorderRadius.circular(24),
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFB8D1FA)),
+        borderRadius: BorderRadius.circular(20),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 18, 14, 18),
           child: Row(
@@ -1571,16 +1548,16 @@ class _TripModeCard extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: const Color(0xff10183b),
+                        color: const Color(0xFF123A78),
                         fontSize: 25,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        color: Color(0xff626a83),
+                        color: Color(0xFF536A8E),
                         fontSize: 14,
                         height: 1.32,
                       ),
@@ -1598,7 +1575,7 @@ class _TripModeCard extends StatelessWidget {
                 ),
                 child: const Icon(
                   Icons.chevron_right_rounded,
-                  color: Color(0xff10183b),
+                  color: Color(0xFF123A78),
                   size: 29,
                 ),
               ),

@@ -543,27 +543,27 @@ class _TripCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 13,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isGroup
-                            ? const Color(0xFFF0ECFF)
-                            : const Color(0xFFE8F1FF),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        isGroup ? 'Travel Group' : 'Solo Trip',
-                        style: TextStyle(
-                          color: isGroup ? const Color(0xFF7656C9) : _blue,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
+                    if (isGroup) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0ECFF),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Text(
+                          'Group Trip',
+                          style: TextStyle(
+                            color: Color(0xFF7656C9),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
+                      const SizedBox(height: 6),
+                    ],
                     Text(
                       trip.title,
                       maxLines: 2,
@@ -729,7 +729,6 @@ class _InformationPanel extends StatelessWidget {
               'Started  •  ${_time(trip.startedAt.toLocal())}'
               '     Completed  •  ${_time(trip.completedAt.toLocal())}',
             ),
-            const Text('Recorded automatically from the completed journey'),
           ],
         ),
       ),

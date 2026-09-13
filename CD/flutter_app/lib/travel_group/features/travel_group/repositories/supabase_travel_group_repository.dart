@@ -12,7 +12,7 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
     final user = _client.auth.currentUser;
     if (user == null) {
       throw const TravelGroupException(
-        'Please sign in before using Travel Groups.',
+        'Please sign in before using Group Trips.',
         'authentication_required',
       );
     }
@@ -824,7 +824,7 @@ class SupabaseTravelGroupRepository implements TravelGroupRepository {
                   ) ??
                   false))) {
         return const TravelGroupException(
-          'End your current Travel Group before creating another one.',
+          'End your current Group Trip before creating another one.',
           'ongoing_group_exists',
         );
       }

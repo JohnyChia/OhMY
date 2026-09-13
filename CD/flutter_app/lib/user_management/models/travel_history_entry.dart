@@ -57,13 +57,18 @@ class TravelHistoryEntry {
       return TravelHistoryEntry.fromLegacyGroup(row);
     }
     final rawStops = row['itinerary'];
+    final type = row['source_type'] == 'group'
+        ? TravelHistoryType.group
+        : TravelHistoryType.solo;
+    final destination = row['destination']?.toString() ?? 'Unknown destination';
+    final storedTitle = row['title']?.toString() ?? 'Completed trip';
     return TravelHistoryEntry(
       id: row['id'].toString(),
-      type: row['source_type'] == 'group'
-          ? TravelHistoryType.group
-          : TravelHistoryType.solo,
-      title: row['title']?.toString() ?? 'Completed trip',
-      destination: row['destination']?.toString() ?? 'Unknown destination',
+      type: type,
+      title: type == TravelHistoryType.solo
+          ? _withoutSoloTripSuffix(storedTitle, destination)
+          : storedTitle,
+      destination: destination,
       startedAt: DateTime.parse(row['started_at'].toString()),
       completedAt: DateTime.parse(row['ended_at'].toString()),
       stops: rawStops is List
@@ -88,6 +93,16 @@ class TravelHistoryEntry {
     );
   }
 
+  static String _withoutSoloTripSuffix(String title, String destination) {
+    final cleaned = title
+        .replaceFirst(
+          RegExp(r'(?:^|\s+)solo trip\s*$', caseSensitive: false),
+          '',
+        )
+        .trim();
+    return cleaned.isEmpty ? destination : cleaned;
+  }
+
   factory TravelHistoryEntry.fromLegacyGroup(Map<String, dynamic> row) {
     final group = row['travel_groups'];
     final groupData = group is Map
@@ -98,7 +113,7 @@ class TravelHistoryEntry {
     return TravelHistoryEntry(
       id: row['id'].toString(),
       type: TravelHistoryType.group,
-      title: groupData['name']?.toString() ?? 'Travel Group',
+      title: groupData['name']?.toString() ?? 'Group Trip',
       destination:
           groupData['destination']?.toString() ?? 'Unknown destination',
       startedAt: startedAt,
@@ -111,7 +126,7 @@ class TravelHistoryEntry {
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const [],
-      travelMode: 'Travel Group',
+      travelMode: 'Group Trip',
       isPersisted: false,
     );
   }

@@ -39,6 +39,7 @@ void main() {
     });
 
     expect(entry.type, TravelHistoryType.solo);
+    expect(entry.title, 'Batu Caves');
     expect(entry.stops.single.name, 'Batu Caves');
     expect(entry.distanceKm, 12.4);
     expect(entry.durationMinutes, 75);

@@ -102,7 +102,7 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Edit travel group',
+                      'Edit group trip',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -173,6 +173,15 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
               ),
               const SizedBox(height: 14),
               SegmentedButton<JoinMode>(
+                style: SegmentedButton.styleFrom(
+                  backgroundColor: const Color(0xF2FFFFFF),
+                  foregroundColor: AppColors.primaryDark,
+                  selectedBackgroundColor: AppColors.primary,
+                  selectedForegroundColor: Colors.white,
+                  side: const BorderSide(color: AppColors.border),
+                  shape: const StadiumBorder(),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                ),
                 segments: const [
                   ButtonSegment(
                     value: JoinMode.open,

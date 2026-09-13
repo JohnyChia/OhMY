@@ -121,7 +121,7 @@ void main() {
     final size = tester.getSize(
       find.byKey(const Key('nearby_lobbies_back_button')),
     );
-    expect(size.height, 44);
+    expect(size.height, 48);
     expect(size.width, greaterThan(140));
     expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
   });
@@ -265,7 +265,7 @@ void main() {
     expect(find.byType(GroupLobbyScreen), findsNothing);
     expect(find.text('Nearby lobbies'), findsOneWidget);
     expect(
-      find.textContaining('$creator ended the Travel Group'),
+      find.textContaining('$creator ended the Group Trip'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -277,7 +277,7 @@ void main() {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
-    expect(find.text('Travel Groups'), findsOneWidget);
+    expect(find.text('Group Trips'), findsOneWidget);
     expect(find.text('Petaling Street'), findsOneWidget);
     expect(find.text('Petaling Street Food Hunt'), findsOneWidget);
     expect(find.textContaining('km away'), findsNothing);
@@ -413,7 +413,7 @@ void main() {
     expect(controller.activeGroup?.meetupPoint, isEmpty);
     expect(find.text('KL Sunset Walk'), findsWidgets);
     expect(find.text('1 of 4 members'), findsOneWidget);
-    expect(find.text('Create Travel Group'), findsNothing);
+    expect(find.text('Create Group Trip'), findsNothing);
     expect(find.text('Group successfully created'), findsOneWidget);
   });
 

@@ -35,10 +35,21 @@ abstract final class AppTheme {
         headlineMedium: TextStyle(
           fontSize: 25,
           height: 1.15,
-          color: AppColors.ink,
+          color: AppColors.primaryDark,
+          fontWeight: FontWeight.w700,
         ),
-        titleLarge: TextStyle(fontSize: 21, height: 1.2, color: AppColors.ink),
-        titleMedium: TextStyle(fontSize: 16, height: 1.2, color: AppColors.ink),
+        titleLarge: TextStyle(
+          fontSize: 21,
+          height: 1.2,
+          color: AppColors.primaryDark,
+          fontWeight: FontWeight.w700,
+        ),
+        titleMedium: TextStyle(
+          fontSize: 16,
+          height: 1.2,
+          color: AppColors.primaryDark,
+          fontWeight: FontWeight.w700,
+        ),
         bodyMedium: TextStyle(fontSize: 13, height: 1.35, color: AppColors.ink),
         bodySmall: TextStyle(
           fontSize: 11,
@@ -55,11 +66,9 @@ abstract final class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size(0, 44),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          minimumSize: const Size(0, 50),
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(

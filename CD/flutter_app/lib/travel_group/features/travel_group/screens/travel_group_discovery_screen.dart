@@ -88,7 +88,7 @@ class _TravelGroupDiscoveryScreenState
       controller: controller,
       floatingActionButton: FloatingActionButton(
         key: const Key('create_group_fab'),
-        tooltip: 'Create travel group',
+        tooltip: 'Create group trip',
         onPressed: _openCreateGroup,
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
@@ -103,7 +103,7 @@ class _TravelGroupDiscoveryScreenState
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 92),
             children: [
               Text(
-                'Travel Groups',
+                'Group Trip',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
@@ -202,9 +202,18 @@ class _TravelGroupDiscoveryScreenState
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      builder: (sheetContext) =>
-          _AreaPickerSheet(placeSearch: _placeSearch, controller: controller),
+      backgroundColor: const Color(0xFFF8FBFF),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      builder: (sheetContext) => Theme(
+        data: AppTheme.light,
+        child: _AreaPickerSheet(
+          placeSearch: _placeSearch,
+          controller: controller,
+        ),
+      ),
     );
     if (mounted) setState(() {});
   }
@@ -240,10 +249,17 @@ class _TravelGroupDiscoveryScreenState
       useRootNavigator: true,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.white,
-      builder: (_) => CreateGroupSheet(
-        controller: controller,
-        placeSearchService: _placeSearch,
+      backgroundColor: const Color(0xFFF8FBFF),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      builder: (_) => Theme(
+        data: AppTheme.light,
+        child: CreateGroupSheet(
+          controller: controller,
+          placeSearchService: _placeSearch,
+        ),
       ),
     );
     if (!mounted || created == null) return;
@@ -495,7 +511,7 @@ class _EmptyGroups extends StatelessWidget {
       children: [
         Icon(Icons.groups_outlined, size: 42, color: AppColors.primary),
         SizedBox(height: 10),
-        Text('No travel groups in this area yet.'),
+        Text('No group trips in this area yet.'),
         SizedBox(height: 4),
         Text(
           'Tap + to start one.',
@@ -819,6 +835,15 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
                   .map(
                     (location) => ActionChip(
                       label: Text(location),
+                      backgroundColor: const Color(0xF2FFFFFF),
+                      side: const BorderSide(color: AppColors.border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      labelStyle: const TextStyle(
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w600,
+                      ),
                       onPressed: _resolving
                           ? null
                           : () => _selectQuickLocation(location),

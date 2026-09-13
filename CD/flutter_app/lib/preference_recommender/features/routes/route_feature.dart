@@ -1768,7 +1768,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
         CompletedTravelDraft(
           type: TravelHistoryType.solo,
           sourceReference: 'solo-${journeyStartedAt.microsecondsSinceEpoch}',
-          title: '${activeDestination.name} Solo Trip',
+          title: activeDestination.name,
           destination: activeDestination.name,
           startedAt: journeyStartedAt,
           completedAt: completedAt,

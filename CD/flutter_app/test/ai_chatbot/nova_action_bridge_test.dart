@@ -54,7 +54,7 @@ void main() {
     expect(action, isNull);
   });
 
-  test('rejects Travel Group handoff from Nova', () {
+  test('rejects Group Trip handoff from Nova', () {
     final action = NovaAction.fromJson({
       'type': 'start_journey',
       'target': 'trip',

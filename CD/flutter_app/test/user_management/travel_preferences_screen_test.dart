@@ -12,9 +12,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: TravelPreferencesScreen(onSaved: (_) {}),
-      ),
+      MaterialApp(home: TravelPreferencesScreen(onSaved: (_) {})),
     );
 
     final continueButton = find.widgetWithText(FilledButton, 'Continue');

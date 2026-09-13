@@ -891,7 +891,7 @@ class _PlacesNearYou extends StatelessWidget {
                   child: Text(
                     'Places Near You',
                     style: TextStyle(
-                      color: Color(0xFF151D31),
+                      color: Color(0xFF123A78),
                       fontSize: 20,
                       fontWeight: FontWeight.w800,
                     ),
@@ -978,10 +978,14 @@ class _NearbyPlaceCard extends StatelessWidget {
     width: width,
     child: Card(
       margin: EdgeInsets.zero,
-      elevation: 2,
-      color: Colors.white,
+      elevation: 1,
+      shadowColor: const Color(0x220D2F69),
+      color: Colors.white.withValues(alpha: .94),
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFB8D1FA), width: 1.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -1026,7 +1030,7 @@ class _NearbyPlaceCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Color(0xFF151D31),
+                        color: Color(0xFF123A78),
                         fontSize: 13,
                         height: 1.1,
                         fontWeight: FontWeight.w800,
@@ -1096,7 +1100,9 @@ class _TagChip extends StatelessWidget {
           ? Colors.black.withValues(alpha: .28)
           : const Color(0xFFEAF1FF),
       borderRadius: BorderRadius.circular(999),
-      border: dark ? Border.all(color: Colors.white38) : null,
+      border: dark
+          ? Border.all(color: Colors.white38)
+          : Border.all(color: const Color(0xFFB8D1FA)),
     ),
     child: Text(
       label,
@@ -1139,7 +1145,7 @@ class _CommunityPreview extends StatelessWidget {
                     'Discover Posts by Other Travellers',
                     maxLines: 2,
                     style: TextStyle(
-                      color: Color(0xFF151D31),
+                      color: Color(0xFF123A78),
                       fontSize: 19,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1147,6 +1153,9 @@ class _CommunityPreview extends StatelessWidget {
                 ),
                 TextButton.icon(
                   onPressed: onSeeMore,
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF28599F),
+                  ),
                   iconAlignment: IconAlignment.end,
                   icon: const Icon(Icons.arrow_forward_rounded, size: 18),
                   label: const Text('See More'),
@@ -1170,7 +1179,8 @@ class _CommunityPreview extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(22),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEAF1FF),
+                    color: Colors.white.withValues(alpha: .94),
+                    border: Border.all(color: const Color(0xFFB8D1FA)),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: const Text(
@@ -1216,9 +1226,14 @@ class _CommunityPostPreviewCard extends StatelessWidget {
     width: 246,
     child: Card(
       margin: EdgeInsets.zero,
-      elevation: 2,
+      elevation: 1,
+      shadowColor: const Color(0x220D2F69),
+      color: Colors.white.withValues(alpha: .94),
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFB8D1FA), width: 1.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: InkWell(
         onTap: onTap,
         child: Column(
@@ -1269,6 +1284,7 @@ class _CommunityPostPreviewCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
+                            color: Color(0xFF123A78),
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                           ),

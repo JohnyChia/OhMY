@@ -189,7 +189,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'My Profile',
           style: TextStyle(
             color: Color(0xFF123A78),
-            fontSize: 22,
+            fontSize: 26,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -373,7 +373,7 @@ class _VerificationCard extends StatelessWidget {
                     Text(
                       verified
                           ? 'Identity and selfie approved • Linked to this account only'
-                          : 'Verify to unlock Travel Groups. One identity can be linked to one account only.',
+                          : 'Verify to unlock Group Trips. One identity can be linked to one account only.',
                       style: TextStyle(
                         color: verified
                             ? const Color(0xFF536A8E)

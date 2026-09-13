@@ -85,7 +85,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Create Travel Group',
+                      'Create Group Trip',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -134,7 +134,12 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
                         selected: _tags.contains(tag),
                         showCheckmark: false,
                         visualDensity: VisualDensity.compact,
+                        backgroundColor: const Color(0xF2FFFFFF),
                         selectedColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                         labelStyle: TextStyle(
                           fontSize: 11,
                           color: _tags.contains(tag)
@@ -164,6 +169,15 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
               ),
               const SizedBox(height: 14),
               SegmentedButton<JoinMode>(
+                style: SegmentedButton.styleFrom(
+                  backgroundColor: const Color(0xF2FFFFFF),
+                  foregroundColor: AppColors.primaryDark,
+                  selectedBackgroundColor: AppColors.primary,
+                  selectedForegroundColor: Colors.white,
+                  side: const BorderSide(color: AppColors.border),
+                  shape: const StadiumBorder(),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                ),
                 segments: const [
                   ButtonSegment(
                     value: JoinMode.open,
@@ -180,10 +194,7 @@ class _CreateGroupSheetState extends State<CreateGroupSheet> {
               ),
               if (_submitError != null) ...[
                 const SizedBox(height: 12),
-                _InlineFormError(
-                  key: _submitErrorKey,
-                  message: _submitError!,
-                ),
+                _InlineFormError(key: _submitErrorKey, message: _submitError!),
               ],
               const SizedBox(height: 22),
               FilledButton(

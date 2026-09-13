@@ -55,7 +55,8 @@ class TravelerProfileService {
 
   Future<List<String>> requireCurrentPreferences() async {
     final profile = await fetchCurrentProfile();
-    final preferences = profile?.favoriteCategories
+    final preferences =
+        profile?.favoriteCategories
             .map((category) => category.trim())
             .where((category) => category.isNotEmpty)
             .toSet()

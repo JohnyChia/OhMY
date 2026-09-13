@@ -192,7 +192,7 @@ class TravelGroupController extends ChangeNotifier {
     final group = activeGroup;
     if (group == null) {
       throw const TravelGroupException(
-        'Open a travel group before starting live location.',
+        'Open a group trip before starting live location.',
         'no_active_group',
       );
     }
@@ -301,7 +301,7 @@ class TravelGroupController extends ChangeNotifier {
     if (activeGroup?.id != groupId) stopMeetupSimulation();
     activeGroup = await repository.getGroup(groupId);
     if (activeGroup == null) {
-      throw const TravelGroupException('Travel group not found.', 'not_found');
+      throw const TravelGroupException('Group trip not found.', 'not_found');
     }
     await refreshWorkspace();
   }
@@ -406,7 +406,7 @@ class TravelGroupController extends ChangeNotifier {
     if (maxMembers < minTravellersPerGroup ||
         maxMembers > maxTravellersPerGroup) {
       throw const TravelGroupException(
-        'A travel group allows 2 to 4 travellers.',
+        'A group trip allows 2 to 4 travellers.',
         'invalid_capacity',
       );
     }
@@ -424,7 +424,7 @@ class TravelGroupController extends ChangeNotifier {
     _requireVerified();
     if (ongoingMemberGroup != null) {
       throw const TravelGroupException(
-        'End your current Travel Group before creating another one.',
+        'End your current Group Trip before creating another one.',
         'ongoing_group_exists',
       );
     }
@@ -614,7 +614,7 @@ class TravelGroupController extends ChangeNotifier {
     final ownedGroup = ownedOngoingGroup;
     if (ownedGroup != null && ownedGroup.id != group.id) {
       throw TravelGroupException(
-        'End ${ownedGroup.name} before joining another travel group.',
+        'End ${ownedGroup.name} before joining another group trip.',
         'creator_already_in_group',
       );
     }
@@ -713,7 +713,7 @@ class TravelGroupController extends ChangeNotifier {
     }
     if (isCreator) {
       throw const TravelGroupException(
-        'Creators must end or delete their Travel Group.',
+        'Creators must end or delete their Group Trip.',
         'creator_cannot_leave',
       );
     }

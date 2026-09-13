@@ -51,25 +51,37 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   Widget build(BuildContext context) {
     return TravelGroupScaffold(
       controller: controller,
-      child: AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) {
-          final group = controller.activeGroup;
-          if (group == null) return const SizedBox.shrink();
-          final canSeeMeetup = controller.isMember && group.isConfirmed;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
-            children: [
-              _TopBar(
-                isCreator: controller.isCreator,
-                onBack: () => Navigator.pop(context),
-                onEdit: () => _openEditSheet(context),
-                onDelete: () => _deleteGroup(context),
-              ),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: SizedBox(
+      child: SafeArea(
+        bottom: false,
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) {
+            final group = controller.activeGroup;
+            if (group == null) return const SizedBox.shrink();
+            final canSeeMeetup = controller.isMember && group.isConfirmed;
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 28),
+              children: [
+                _TopBar(
+                  isCreator: controller.isCreator,
+                  onBack: () => Navigator.pop(context),
+                  onEdit: () => _openEditSheet(context),
+                  onDelete: () => _deleteGroup(context),
+                ),
+                Container(
                   height: 176,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.border),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x1F24476F),
+                        blurRadius: 10,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
                   child: _DestinationPhoto(
                     photoUrl: _placeSearch.photoForDestination(
                       group.destination,
@@ -78,107 +90,131 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
                     destination: group.destination,
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                group.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 5),
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppColors.success,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    group.joinMode == JoinMode.open
-                        ? 'Open group  ·  Join instantly'
-                        : 'Approval required',
-                    style: const TextStyle(color: AppColors.secondaryText),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                group.description,
-                style: const TextStyle(fontSize: 14, height: 1.4),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 7,
-                runSpacing: 7,
-                children: group.tags
-                    .map(
-                      (tag) =>
-                          AppPill(tag, backgroundColor: AppColors.paleBlue),
-                    )
-                    .toList(),
-              ),
-              const SizedBox(height: 18),
-              const Divider(height: 1),
-              if (canSeeMeetup) ...[
-                _DetailsRow(
-                  icon: Icons.location_on_rounded,
-                  eyebrow: 'MEETUP POINT',
-                  title: group.meetupPoint.isEmpty
-                      ? 'Not set yet'
-                      : group.meetupPoint,
-                  subtitle: group.meetupPoint.isEmpty
-                      ? 'The creator will choose it with the group.'
-                      : 'Visible only to confirmed group members',
-                ),
-                const Divider(height: 1),
-              ],
-              _DetailsRow(
-                icon: Icons.group_rounded,
-                eyebrow: 'MEMBERS',
-                title: '${group.memberCount} of ${group.maxMembers} travellers',
-                subtitle: 'Hosted by ${group.creatorName}',
-                trailing: _AvatarStack(controller: controller),
-              ),
-              const Divider(height: 1),
-              _DetailsRow(
-                icon: Icons.place_outlined,
-                eyebrow: 'FIRST DESTINATION',
-                title: group.destination,
-                subtitle: group.destinationAddress.isEmpty
-                    ? 'The group’s first confirmed stop'
-                    : group.destinationAddress,
-              ),
-              if (!canSeeMeetup && !controller.isMember) ...[
                 const SizedBox(height: 12),
-                const AppPanel(
-                  color: AppColors.paleBlue,
-                  child: Row(
+                AppPanel(
+                  color: const Color(0xF2FFFFFF),
+                  padding: const EdgeInsets.fromLTRB(16, 15, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.shield_outlined, color: AppColors.primary),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Meetup and live locations stay private until you join and the creator confirms the group.',
-                          style: TextStyle(fontSize: 11),
-                        ),
+                      Text(
+                        group.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.headlineMedium,
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: AppColors.success,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              group.joinMode == JoinMode.open
+                                  ? 'Open Group Trip - Join instantly'
+                                  : 'Approval required',
+                              style: const TextStyle(
+                                color: AppColors.secondaryText,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        group.description,
+                        style: const TextStyle(fontSize: 14, height: 1.4),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 7,
+                        runSpacing: 7,
+                        children: group.tags
+                            .map(
+                              (tag) => AppPill(
+                                tag,
+                                backgroundColor: AppColors.paleBlue,
+                              ),
+                            )
+                            .toList(),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(height: 10),
+                if (canSeeMeetup) ...[
+                  AppPanel(
+                    color: const Color(0xF2FFFFFF),
+                    child: _DetailsRow(
+                      icon: Icons.location_on_rounded,
+                      eyebrow: 'MEETUP POINT',
+                      title: group.meetupPoint.isEmpty
+                          ? 'Not set yet'
+                          : group.meetupPoint,
+                      subtitle: group.meetupPoint.isEmpty
+                          ? 'The creator will choose it with the group.'
+                          : 'Visible only to confirmed group members',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                AppPanel(
+                  color: const Color(0xF2FFFFFF),
+                  child: _DetailsRow(
+                    icon: Icons.group_rounded,
+                    eyebrow: 'MEMBERS',
+                    title:
+                        '${group.memberCount} of ${group.maxMembers} travellers',
+                    subtitle: 'Hosted by ${group.creatorName}',
+                    trailing: _AvatarStack(controller: controller),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                AppPanel(
+                  color: const Color(0xF2FFFFFF),
+                  child: _DetailsRow(
+                    icon: Icons.place_outlined,
+                    eyebrow: 'FIRST DESTINATION',
+                    title: group.destination,
+                    subtitle: group.destinationAddress.isEmpty
+                        ? "The Group Trip's first confirmed stop"
+                        : group.destinationAddress,
+                  ),
+                ),
+                if (!canSeeMeetup && !controller.isMember) ...[
+                  const SizedBox(height: 10),
+                  const AppPanel(
+                    color: Color(0xF2F0F6FF),
+                    child: Row(
+                      children: [
+                        Icon(Icons.shield_outlined, color: AppColors.primary),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Meetup and live locations stay private until you join and the creator confirms the group.',
+                            style: TextStyle(fontSize: 11),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: _actionButton(context, group),
+                ),
               ],
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: _actionButton(context, group),
-              ),
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -221,8 +257,15 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
       useRootNavigator: true,
       isScrollControlled: true,
       useSafeArea: true,
-      backgroundColor: Colors.white,
-      builder: (_) => EditGroupSheet(controller: controller),
+      backgroundColor: const Color(0xFFF8FBFF),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      builder: (_) => Theme(
+        data: AppTheme.light,
+        child: EditGroupSheet(controller: controller),
+      ),
     );
   }
 
@@ -264,7 +307,7 @@ class _GroupDetailsScreenState extends State<GroupDetailsScreen> {
   Future<GeoCoordinate> _joinLocation() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const TravelGroupException(
-        'Turn on precise location before joining a travel group.',
+        'Turn on precise location before joining a group trip.',
         'location_disabled',
       );
     }
@@ -345,36 +388,42 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onDelete;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      IconButton(
-        tooltip: 'Nearby lobbies',
-        onPressed: onBack,
-        icon: const Icon(Icons.arrow_back_rounded),
-      ),
-      const Expanded(
-        child: Text(
-          'Nearby lobbies',
-          style: TextStyle(
-            color: AppColors.primary,
-            fontWeight: FontWeight.w600,
+  Widget build(BuildContext context) => SizedBox(
+    height: 52,
+    child: Row(
+      children: [
+        IconButton(
+          tooltip: 'Nearby lobbies',
+          onPressed: onBack,
+          color: AppColors.primaryDark,
+          icon: const Icon(Icons.arrow_back_rounded),
+        ),
+        const Expanded(
+          child: Text(
+            'Nearby lobbies',
+            style: TextStyle(
+              color: AppColors.primaryDark,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-      ),
-      if (isCreator)
-        PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'edit') onEdit();
-            if (value == 'delete') onDelete();
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'edit', child: Text('Edit group')),
-            PopupMenuItem(value: 'delete', child: Text('Delete group')),
-          ],
-        )
-      else
-        const SizedBox(width: 48),
-    ],
+        if (isCreator)
+          PopupMenuButton<String>(
+            color: Colors.white,
+            onSelected: (value) {
+              if (value == 'edit') onEdit();
+              if (value == 'delete') onDelete();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'edit', child: Text('Edit group')),
+              PopupMenuItem(value: 'delete', child: Text('Delete group')),
+            ],
+          )
+        else
+          const SizedBox(width: 48),
+      ],
+    ),
   );
 }
 
@@ -458,55 +507,49 @@ class _DetailsRow extends StatelessWidget {
   final Widget? trailing;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 15),
-    child: Row(
-      children: [
-        Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: AppColors.paleBlue,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: AppColors.primary),
+  Widget build(BuildContext context) => Row(
+    children: [
+      Container(
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          color: AppColors.paleBlue,
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                eyebrow,
-                style: const TextStyle(
-                  fontSize: 9,
-                  color: AppColors.secondaryText,
-                ),
+        child: Icon(icon, color: AppColors.primary),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              eyebrow,
+              style: const TextStyle(
+                fontSize: 9,
+                color: AppColors.secondaryText,
               ),
-              Text(
-                title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
+            ),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppColors.secondaryText,
               ),
-              Text(
-                subtitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: AppColors.secondaryText,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-        if (trailing != null) ...[const SizedBox(width: 8), trailing!],
-      ],
-    ),
+      ),
+      if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+    ],
   );
 }
 

@@ -157,8 +157,8 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     if (_terminalExitScheduled) return;
     _terminalExitScheduled = true;
     final message = group.status == GroupStatus.completed
-        ? '${group.creatorName} ended the Travel Group. Your completed journey was saved.'
-        : '${group.creatorName} closed the Travel Group.';
+        ? '${group.creatorName} ended the Group Trip. Your completed journey was saved.'
+        : '${group.creatorName} closed the Group Trip.';
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final navigator = Navigator.of(context);
@@ -343,124 +343,128 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
               ),
             );
           }
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InkWell(
-                      key: const Key('nearby_lobbies_back_button'),
-                      onTap: () => Navigator.pop(context),
-                      borderRadius: BorderRadius.circular(12),
-                      child: const SizedBox(
-                        height: 44,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.arrow_back_rounded,
-                              color: AppColors.primary,
-                              size: 24,
-                            ),
-                            SizedBox(width: 8),
-                            Text(
-                              'Nearby lobbies',
-                              style: TextStyle(
-                                fontSize: 14,
+          return SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      InkWell(
+                        key: const Key('nearby_lobbies_back_button'),
+                        onTap: () => Navigator.pop(context),
+                        borderRadius: BorderRadius.circular(12),
+                        child: const SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.arrow_back_rounded,
                                 color: AppColors.primary,
-                                fontWeight: FontWeight.w600,
+                                size: 24,
                               ),
-                            ),
-                            SizedBox(width: 12),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            group.name,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Refresh lobby',
-                          onPressed: _refresh,
-                          icon: const Icon(Icons.refresh_rounded),
-                        ),
-                        if (controller.isCreator)
-                          PopupMenuButton<String>(
-                            key: const Key('group_actions_menu'),
-                            tooltip: 'Group actions',
-                            onSelected: (value) {
-                              if (value == 'delete') {
-                                unawaited(_deleteGroup());
-                              }
-                            },
-                            itemBuilder: (_) => const [
-                              PopupMenuItem<String>(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.delete_outline_rounded,
-                                      color: Color(0xFFB3261E),
-                                    ),
-                                    SizedBox(width: 10),
-                                    Text('Delete group'),
-                                  ],
+                              SizedBox(width: 8),
+                              Text(
+                                'Nearby lobbies',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
+                              SizedBox(width: 12),
                             ],
                           ),
-                        _StatusBadge(group: group),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      group.tags.join('  •  '),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.secondaryText,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    GroupTabs(
-                      index: _tabIndex,
-                      onChanged: (index) => setState(() => _tabIndex = index),
-                    ),
-                  ],
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              group.name,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Refresh lobby',
+                            onPressed: _refresh,
+                            icon: const Icon(Icons.refresh_rounded),
+                          ),
+                          if (controller.isCreator)
+                            PopupMenuButton<String>(
+                              key: const Key('group_actions_menu'),
+                              tooltip: 'Group actions',
+                              onSelected: (value) {
+                                if (value == 'delete') {
+                                  unawaited(_deleteGroup());
+                                }
+                              },
+                              itemBuilder: (_) => const [
+                                PopupMenuItem<String>(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: Color(0xFFB3261E),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Text('Delete group'),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          _StatusBadge(group: group),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        group.tags.join('  •  '),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.secondaryText,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      GroupTabs(
+                        index: _tabIndex,
+                        onChanged: (index) => setState(() => _tabIndex = index),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: IndexedStack(
-                  key: const Key('group_lobby_tabs'),
-                  index: _tabIndex,
-                  children: [
-                    _LobbyTab(
-                      controller: controller,
-                      locationSharingError: _locationSharingError,
-                      liveMembers: _liveMembers,
-                      onSuggest: () => setState(() => _tabIndex = 1),
-                      onLeave: _leaveTravelGroup,
-                    ),
-                    SuggestionBoard(
-                      controller: controller,
-                      placeSearchService: _placeSearchService,
-                    ),
-                    ItineraryBoard(
-                      controller: controller,
-                      placeSearchService: _placeSearchService,
-                      onChooseNext: () => setState(() => _tabIndex = 1),
-                    ),
-                  ],
+                Expanded(
+                  child: IndexedStack(
+                    key: const Key('group_lobby_tabs'),
+                    index: _tabIndex,
+                    children: [
+                      _LobbyTab(
+                        controller: controller,
+                        locationSharingError: _locationSharingError,
+                        liveMembers: _liveMembers,
+                        onSuggest: () => setState(() => _tabIndex = 1),
+                        onLeave: _leaveTravelGroup,
+                      ),
+                      SuggestionBoard(
+                        controller: controller,
+                        placeSearchService: _placeSearchService,
+                      ),
+                      ItineraryBoard(
+                        controller: controller,
+                        placeSearchService: _placeSearchService,
+                        onChooseNext: () => setState(() => _tabIndex = 1),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           );
         },
       ),
@@ -506,7 +510,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Leave this Travel Group?'),
+        title: const Text('Leave this Group Trip?'),
         content: const Text(
           'You will stop sharing your live location and must join again to return.',
         ),
@@ -538,7 +542,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
       if (!mounted) return;
       navigator.popUntil((route) => route.isFirst);
       messenger.showSnackBar(
-        const SnackBar(content: Text('You left the Travel Group.')),
+        const SnackBar(content: Text('You left the Group Trip.')),
       );
     } on TravelGroupException catch (error) {
       if (mounted) {
@@ -680,8 +684,8 @@ class _LobbyTab extends StatelessWidget {
             color: AppColors.successSurface,
             child: Text(
               controller.isCreator
-                  ? 'Travel Group ended. Your trip history has been saved.'
-                  : '${group.creatorName} ended this Travel Group session. Your trip history has been saved.',
+                  ? 'Group Trip ended. Your trip history has been saved.'
+                  : '${group.creatorName} ended this Group Trip session. Your trip history has been saved.',
             ),
           ),
         if (locationSharingError != null) ...[
@@ -1064,7 +1068,7 @@ class _LobbyTab extends StatelessWidget {
               side: const BorderSide(color: Color(0xFFB3261E)),
             ),
             icon: const Icon(Icons.stop_circle_outlined),
-            label: const Text('End Travel Group'),
+            label: const Text('End Group Trip'),
           ),
         ],
         const SizedBox(height: 8),
@@ -1089,7 +1093,7 @@ class _LobbyTab extends StatelessWidget {
               minimumSize: const Size.fromHeight(48),
             ),
             icon: const Icon(Icons.exit_to_app_rounded),
-            label: const Text('Leave Travel Group'),
+            label: const Text('Leave Group Trip'),
           ),
         ],
       ],
@@ -1191,7 +1195,7 @@ class _LobbyTab extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('End this Travel Group?'),
+        title: const Text('End this Group Trip?'),
         content: const Text(
           'This ends the trip for everyone and saves it to each traveller\'s history. It cannot be resumed.',
         ),
@@ -1202,7 +1206,7 @@ class _LobbyTab extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('End Travel Group'),
+            child: const Text('End Group Trip'),
           ),
         ],
       ),
@@ -1211,7 +1215,7 @@ class _LobbyTab extends StatelessWidget {
     try {
       await controller.endTrip();
       if (!context.mounted) return;
-      showTravelGroupMessage(context, 'Travel Group saved to your history.');
+      showTravelGroupMessage(context, 'Group Trip saved to your history.');
       Navigator.of(context).popUntil((route) => route.isFirst);
     } on TravelGroupException catch (error) {
       if (context.mounted) {

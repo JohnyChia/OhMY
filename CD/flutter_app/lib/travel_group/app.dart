@@ -12,7 +12,7 @@ class TravelGroupApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Travel Group Prototype',
+      title: 'Group Trip Prototype',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       home: TravelGroupDiscoveryScreen(controller: controller),

@@ -17,10 +17,7 @@ class VerificationRequiredScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 22, 16, 24),
         children: [
-          Text(
-            'Travel Group',
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
+          Text('Group Trip', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 4),
           const Text('Meet safely with verified travellers'),
           const SizedBox(height: 22),
