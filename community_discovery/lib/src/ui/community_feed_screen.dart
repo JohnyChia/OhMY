@@ -13,6 +13,8 @@ import 'widgets/post_card.dart';
 
 enum _PostSort { latest, mostLiked }
 
+const _communityNavy = Color(0xFF123A78);
+
 class CommunityFeedScreen extends StatefulWidget {
   const CommunityFeedScreen({
     super.key,
@@ -144,7 +146,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                                         .textTheme
                                         .titleLarge
                                         ?.copyWith(
-                                          color: const Color(0xFF123A78),
+                                          color: _communityNavy,
                                           fontWeight: FontWeight.w800,
                                         ),
                                   ),
@@ -431,13 +433,16 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                     child: Text(
                       'Discover posts',
                       style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                          ?.copyWith(
+                            color: _communityNavy,
+                            fontWeight: FontWeight.w800,
+                          ),
                     ),
                   ),
                   IconButton(
                     tooltip: 'Close filters',
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(Icons.close, color: _communityNavy),
                   ),
                 ],
               ),
@@ -450,9 +455,10 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
               const SizedBox(height: 22),
               Text(
                 'Sort by',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: _communityNavy,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 10),
               SizedBox(
@@ -467,7 +473,7 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                     foregroundColor: WidgetStateProperty.resolveWith(
                       (states) => states.contains(WidgetState.selected)
                           ? Colors.white
-                          : CommunityColors.ink,
+                          : _communityNavy,
                     ),
                     side: WidgetStateProperty.resolveWith(
                       (states) => BorderSide(
@@ -501,6 +507,7 @@ class _TagFilterSheetState extends State<_TagFilterSheet> {
                     child: Text(
                       'Filter by interest',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: _communityNavy,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -622,7 +629,7 @@ class _InterestFilterChip extends StatelessWidget {
           : CommunityColors.primary.withValues(alpha: 0.35),
     ),
     labelStyle: TextStyle(
-      color: selected ? Colors.white : CommunityColors.ink,
+      color: selected ? Colors.white : _communityNavy,
       fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
     ),
     onSelected: onSelected,

@@ -486,7 +486,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         textStyle: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
-                          fontFamily: 'serif',
+                          fontFamily: 'sans-serif',
                         ),
                       ),
                       onPressed: _isSaving ? null : _save,
