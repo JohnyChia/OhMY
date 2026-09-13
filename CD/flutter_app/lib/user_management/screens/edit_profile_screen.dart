@@ -182,34 +182,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           shadowColor: Colors.transparent,
           elevation: 0,
           scrolledUnderElevation: 0,
-          toolbarHeight: 68,
-          leadingWidth: 68,
-          leading: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-            child: Material(
-              color: const Color(0xF7FFFFFF),
-              elevation: 3,
-              shadowColor: const Color(0x33000000),
-              shape: const CircleBorder(
-                side: BorderSide(color: Color(0xFFBFD3F2)),
-              ),
-              child: IconButton(
-                tooltip: 'Back',
-                onPressed: _closeScreen,
-                icon: const Icon(Icons.arrow_back, color: _blue, size: 25),
-              ),
-            ),
+          leading: IconButton(
+            tooltip: 'Back',
+            onPressed: _closeScreen,
+            icon: const Icon(Icons.arrow_back),
           ),
           title: const Text(
             'Edit profile',
             style: TextStyle(
-              color: _ink,
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
-              fontFamily: 'serif',
+              color: Color(0xFF123A78),
+              fontWeight: FontWeight.w700,
             ),
           ),
-          centerTitle: true,
+          centerTitle: false,
         ),
         body: Stack(
           fit: StackFit.expand,
@@ -278,7 +263,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                         textStyle: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
-                          fontFamily: 'serif',
                         ),
                       ),
                       onPressed: _isUploadingPhoto ? null : _pickProfilePhoto,

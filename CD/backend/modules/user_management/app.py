@@ -27,6 +27,15 @@ class EmailLookup(BaseModel):
     email: StrictStr
 
 
+def canonical_email(value):
+    """Apply the same account identity rule as the Flutter client."""
+    normalized = value.strip().lower()
+    local, separator, domain = normalized.rpartition("@")
+    if separator and domain in {"gmail.com", "googlemail.com"}:
+        return f"{local.replace('.', '')}@gmail.com"
+    return normalized
+
+
 class LookupLimiter:
     """In-memory limits for this single-process laptop prototype."""
     def __init__(self):
@@ -89,7 +98,8 @@ def email_registered(body: EmailLookup, request: Request):
         # an indexed, server-only lookup before scaling to large user counts.
         for page in range(1, 101):
             users = admin_client().auth.admin.list_users(page=page, per_page=200)
-            if any((user.email or "").lower() == email for user in users):
+            if any(canonical_email(user.email or "") == canonical_email(email)
+                   for user in users):
                 return {"registered": True}
             if len(users) < 200:
                 return {"registered": False}
