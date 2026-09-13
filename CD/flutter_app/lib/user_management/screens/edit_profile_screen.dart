@@ -1,14 +1,13 @@
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:flutter_app/shared/widgets/ohmy_snack_bar.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../config/travel_preference_options.dart';
 import '../models/app_user_profile.dart';
 import '../services/auth_service.dart';
+import '../services/traveler_profile_service.dart';
 import '../utils/auth_validators.dart';
 import 'change_password_screen.dart';
 import 'travel_preferences_screen.dart';
@@ -33,16 +32,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   final _formKey = GlobalKey<FormState>();
   final _authService = AuthService();
-  final _imagePicker = ImagePicker();
+  final _travelerProfileService = TravelerProfileService();
   late final TextEditingController _nameController;
   late List<String> _preferences;
   bool _isSaving = false;
-  bool _isUploadingPhoto = false;
   bool _preferencesChanged = false;
   bool _hasSavedChanges = false;
   bool _allowPop = false;
-  String? _avatarUrl;
-  String? _localAvatarPath;
 
   @override
   void initState() {
@@ -51,7 +47,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _preferences = widget.initialPreferences
         .where(culturalTravelPreferenceOptions.contains)
         .toList();
-    _avatarUrl = widget.profile.avatarUrl;
   }
 
   @override
@@ -67,57 +62,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           initialSelections: _preferences,
           isEditing: true,
           onSaved: (savedPreferences) {
+            if (!mounted) return;
             setState(() {
               _preferences = List.of(savedPreferences);
               _preferencesChanged = true;
             });
-            Navigator.of(context).pop();
           },
         ),
       ),
     );
-    if (!_preferencesChanged) return;
-  }
-
-  Future<void> _pickProfilePhoto() async {
-    if (_isUploadingPhoto) return;
-    final image = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
-      requestFullMetadata: false,
-    );
-    if (image == null || !mounted) return;
-
-    setState(() {
-      _isUploadingPhoto = true;
-      _localAvatarPath = image.path;
-    });
-    try {
-      final extension = _extensionOf(image.path);
-      final profile = await _authService.uploadProfilePhoto(
-        bytes: await image.readAsBytes(),
-        extension: extension,
-        contentType: _contentTypeFor(extension),
-      );
-      if (!mounted) return;
-      setState(() {
-        _avatarUrl = profile.avatarUrl;
-        _hasSavedChanges = true;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const OhMySnackBar(content: Text('Profile photo updated successfully')),
-      );
-    } on AuthFailure catch (error) {
-      if (!mounted) return;
-      setState(() => _localAvatarPath = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        OhMySnackBar(content: Text(error.message), backgroundColor: Colors.red),
-      );
-    } finally {
-      if (mounted) setState(() => _isUploadingPhoto = false);
-    }
   }
 
   Future<void> _openChangePassword() async {
@@ -132,18 +85,36 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _save() async {
+    if (_isSaving) return;
     if (!_formKey.currentState!.validate()) return;
+    if (_preferences.length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const OhMySnackBar(
+          content: Text('Please select at least 3 interests.'),
+        ),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     try {
       await _authService.updateProfile(
         fullName: _nameController.text,
         bio: widget.profile.bio,
       );
+      if (_preferencesChanged) {
+        await _travelerProfileService.saveFavoriteCategories(_preferences);
+        _preferencesChanged = false;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const OhMySnackBar(content: Text('Profile updated successfully')),
       );
       setState(() => _hasSavedChanges = true);
+    } on TravelerProfileFailure catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        OhMySnackBar(content: Text(error.message), backgroundColor: Colors.red),
+      );
     } on AuthFailure catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -213,67 +184,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               child: Form(
                 key: _formKey,
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 68, 18, 32),
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 32),
                   children: [
-                    Center(
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          _EditableAvatar(
-                            localPath: _localAvatarPath,
-                            networkUrl: _avatarUrl,
-                            initial: _initial,
-                          ),
-                          Positioned(
-                            right: -7,
-                            bottom: -4,
-                            child: IconButton.filled(
-                              style: IconButton.styleFrom(
-                                backgroundColor: _blue,
-                                foregroundColor: Colors.white,
-                                disabledBackgroundColor: const Color(
-                                  0xFF9AAAC4,
-                                ),
-                              ),
-                              tooltip: 'Upload profile photo',
-                              onPressed: _isUploadingPhoto
-                                  ? null
-                                  : _pickProfilePhoto,
-                              icon: _isUploadingPhoto
-                                  ? const SizedBox.square(
-                                      dimension: 18,
-                                      child: WauLoadingIndicator(size: 18),
-                                    )
-                                  : const Icon(
-                                      Icons.photo_camera_outlined,
-                                      size: 20,
-                                    ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: _blue,
-                        textStyle: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      onPressed: _isUploadingPhoto ? null : _pickProfilePhoto,
-                      icon: const Icon(Icons.upload_outlined, size: 18),
-                      label: const Text('Upload profile photo'),
-                    ),
-                    const Text(
-                      'JPG, PNG or WebP • Maximum 5 MB',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xFF71809A), fontSize: 11),
-                    ),
+                    Center(child: _EditableAvatar(initial: _initial)),
                     const SizedBox(height: 24),
                     TextFormField(
                       controller: _nameController,
+                      onChanged: (_) => setState(() {}),
                       inputFormatters: AuthValidators.usernameInputFormatters,
                       validator: AuthValidators.username,
                       textCapitalization: TextCapitalization.none,
@@ -514,17 +431,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         ? widget.profile.email[0].toUpperCase()
         : '?';
   }
-
-  String _extensionOf(String path) {
-    final extension = path.split('.').last.toLowerCase();
-    return extension == 'jpeg' ? 'jpg' : extension;
-  }
-
-  String _contentTypeFor(String extension) => switch (extension) {
-    'png' => 'image/png',
-    'webp' => 'image/webp',
-    _ => 'image/jpeg',
-  };
 }
 
 class _EditProfileIcon extends StatelessWidget {
@@ -547,21 +453,15 @@ class _EditProfileIcon extends StatelessWidget {
 }
 
 class _EditableAvatar extends StatelessWidget {
-  const _EditableAvatar({
-    required this.localPath,
-    required this.networkUrl,
-    required this.initial,
-  });
+  const _EditableAvatar({required this.initial});
 
-  final String? localPath;
-  final String? networkUrl;
   final String initial;
 
   @override
   Widget build(BuildContext context) {
-    final fallback = Container(
-      color: const Color(0xFFD9E8FF),
-      alignment: Alignment.center,
+    return CircleAvatar(
+      radius: 54,
+      backgroundColor: const Color(0xFFD9E8FF),
       child: Text(
         initial,
         style: const TextStyle(
@@ -570,38 +470,6 @@ class _EditableAvatar extends StatelessWidget {
           fontWeight: FontWeight.w600,
         ),
       ),
-    );
-    Widget image = fallback;
-    if (localPath != null) {
-      image = Image.file(
-        File(localPath!),
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => fallback,
-      );
-    } else if (networkUrl != null && networkUrl!.isNotEmpty) {
-      image = Image.network(
-        networkUrl!,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => fallback,
-      );
-    }
-    return Container(
-      width: 108,
-      height: 108,
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-        color: const Color(0xEFFFFFFF),
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFC9DBF6), width: 2),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x22000000),
-            blurRadius: 14,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipOval(child: image),
     );
   }
 }

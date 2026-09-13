@@ -309,6 +309,7 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
   final _service = VerificationService();
   CameraController? _camera;
   bool _busy = false;
+  String? _capturedSelfiePath;
   String? _cameraError;
 
   @override
@@ -355,6 +356,7 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
     try {
       final image = await camera.takePicture();
       if (!mounted) return;
+      setState(() => _capturedSelfiePath = image.path);
       final result = await _service.submit(
         documentType: widget.documentType,
         documentFrontPath: widget.documentFrontPath,
@@ -381,7 +383,12 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
     } on VerificationFailure catch (error) {
       _showMessage(error.message);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _capturedSelfiePath = null;
+        });
+      }
     }
   }
 
@@ -411,14 +418,18 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
                 onBack: () => Navigator.of(context).pop(),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Take a live selfie',
+              Text(
+                _capturedSelfiePath != null
+                    ? 'Selfie captured'
+                    : 'Take a selfie',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF17243D), fontSize: 28),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Look straight at the camera. Your selfie will be submitted immediately after capture.',
+              Text(
+                _capturedSelfiePath != null
+                    ? 'You can move now. We are checking your captured photo.'
+                    : 'Look straight at the camera and tap Take selfie. Only one photo is captured.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF62708A), fontSize: 13),
               ),
@@ -426,9 +437,11 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
               Expanded(
                 child: _SelfieCameraPanel(
                   controller: _camera,
-                  capturedPath: null,
+                  capturedPath: _capturedSelfiePath,
                   error: _cameraError,
-                  instruction: 'Keep your face centred and look straight ahead',
+                  instruction: _capturedSelfiePath != null
+                      ? 'Photo captured — no need to hold your pose'
+                      : 'Centre your face, then tap Take selfie',
                 ),
               ),
               const SizedBox(height: 16),
@@ -449,7 +462,7 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
                     ? null
                     : _captureAndVerify,
                 icon: const Icon(Icons.camera_alt_outlined),
-                label: Text(_busy ? 'Verifying…' : 'Capture and verify'),
+                label: Text(_busy ? 'Checking photo…' : 'Take selfie'),
               ),
             ],
           ),

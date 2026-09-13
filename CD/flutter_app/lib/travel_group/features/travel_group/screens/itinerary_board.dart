@@ -206,8 +206,10 @@ class ItineraryBoard extends StatelessWidget {
               if (controller.itinerary.isNotEmpty)
                 SliverReorderableList(
                   itemCount: controller.itinerary.length,
-                  onReorderItem: controller.isCreator
+                  onReorder: controller.isCreator
                       ? (oldIndex, newIndex) async {
+                          // onReorder uses the insertion index before removal.
+                          if (newIndex > oldIndex) newIndex -= 1;
                           if (!controller.canReorderStop(oldIndex) ||
                               !controller.canReorderStop(newIndex)) {
                             return;
