@@ -536,7 +536,10 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
       try {
-        final analysis = await ApiService.analyzeAttachment(attachment.path);
+        final analysis = await ApiService.analyzeAttachment(
+          attachment.path,
+          query: requestText,
+        );
         if (!mounted || requestGeneration != _requestGeneration) return;
         attachment = attachment.copyWith(
           analysisStatus: NovaAttachmentAnalysisStatus.ready,
@@ -889,19 +892,34 @@ class _ChatScreenState extends State<ChatScreen> {
       ...?recommendations?.whereType<Map>().expand((item) {
         final place = item['place'];
         if (place is! Map) return const <String>[];
+        final analysis = item['analysis'];
+        final tags = analysis is Map
+            ? <String>[
+                ...?((analysis['generalTags'] as List?)
+                    ?.map((tag) => tag.toString())),
+                ...?((analysis['culturalTags'] as List?)
+                    ?.map((tag) => tag.toString())),
+              ]
+            : const <String>[];
         return <String>[
           place['displayName'] is Map
               ? place['displayName']['text']?.toString() ?? ''
               : '',
           place['formattedAddress']?.toString() ?? '',
+          ...tags,
         ];
       }),
     ].join(' ').toLowerCase().replaceAll(
       RegExp(r'[^\p{L}\p{N}]+', unicode: true),
       ' ',
     );
+    // Size the recognizer lifetime from the actual narration corpus. This
+    // keeps it alive through long names/addresses/tags without tying behavior
+    // to a fixed number of recommendations or a particular destination.
+    final estimatedNarrationSeconds =
+        (narrationCorpus.runes.length / 12).ceil();
     final listeningWindow = Duration(
-      seconds: ((recommendations?.length ?? 1) * 6).clamp(8, 36).toInt(),
+      seconds: (estimatedNarrationSeconds + 20).clamp(20, 180).toInt(),
     );
     _voiceTurnActive = true;
     NovaVoiceController.update(

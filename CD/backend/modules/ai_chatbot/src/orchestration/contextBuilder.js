@@ -19,7 +19,8 @@ savedItems
 ,
 inputLanguage
 ,
-currentLocation
+currentLocation,
+recommendationContext
 
 })
 { 
@@ -36,7 +37,7 @@ userMessage,
 
 
 conversation_history:
-(shortMemory || []).slice(-6),
+(shortMemory || []).slice(-require('../config/tokenConfig').maxRecentHistoryMessages),
 
 
 
@@ -73,6 +74,10 @@ session_context: {
 attachment: attachment || null,
 
 saved_travel_items: Array.isArray(savedItems) ? savedItems.slice(0, 5) : []
+
+,recommendation_context: Array.isArray(recommendationContext)
+  ? recommendationContext.slice(0, 20)
+  : []
 
 
 

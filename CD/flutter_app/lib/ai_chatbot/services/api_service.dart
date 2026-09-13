@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'nova_conversation_context.dart';
 
 class VoiceTranscript {
   const VoiceTranscript({
@@ -109,6 +110,28 @@ class ApiService {
         // Location-dependent requests will receive a normal clarification.
       }
       http.Response? response;
+      final lastAction = NovaConversationContext.snapshot.value.lastAction;
+      final recommendationContext = lastAction?.type == 'show_place_results'
+          ? (lastAction?.parameters['recommendations'] as List?)
+              ?.whereType<Map>()
+              .take(20)
+              .map((item) {
+                final place = item['place'];
+                if (place is! Map) return null;
+                final displayName = place['displayName'];
+                final name = displayName is Map
+                    ? displayName['text']?.toString()
+                    : null;
+                if (name?.trim().isEmpty != false) return null;
+                return <String, dynamic>{
+                  'place_id': place['id']?.toString(),
+                  'name': name,
+                  'address': place['formattedAddress']?.toString(),
+                };
+              })
+              .whereType<Map<String, dynamic>>()
+              .toList()
+          : null;
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
           response = await http
@@ -125,6 +148,8 @@ class ApiService {
                     'current_location': currentLocation,
                   if (inputLanguage?.isNotEmpty == true)
                     'input_language': inputLanguage,
+                  if (recommendationContext?.isNotEmpty == true)
+                    'recommendation_context': recommendationContext,
                 }),
               )
               .timeout(_requestTimeout);
@@ -274,8 +299,9 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> analyzeAttachment(
-    String attachmentPath,
-  ) async {
+    String attachmentPath, {
+    String? query,
+  }) async {
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('$apiUrl/api/analyze-attachment'),
@@ -285,6 +311,9 @@ class ApiService {
     request.files.add(
       await http.MultipartFile.fromPath('attachment', attachmentPath),
     );
+    if (query?.trim().isNotEmpty == true) {
+      request.fields['query'] = query!.trim();
+    }
     final streamed = await request.send().timeout(_requestTimeout);
     final response = await http.Response.fromStream(
       streamed,

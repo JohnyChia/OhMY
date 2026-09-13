@@ -41,6 +41,7 @@ async function chatController(req, res) {
       attachment,
       input_language,
       current_location,
+      recommendation_context,
     } = req.body;
     console.log(`[${reqId}] Chat request received.`);
 
@@ -64,6 +65,9 @@ async function chatController(req, res) {
             ? {
                 type: String(attachment.analysis.type || '').slice(0, 32),
                 filename: String(attachment.analysis.filename || '').slice(0, 160),
+                contentHash: /^[a-f0-9]{64}$/i.test(String(attachment.analysis.contentHash || ''))
+                  ? String(attachment.analysis.contentHash).toLowerCase()
+                  : '',
                 travelTags: Array.isArray(attachment.analysis.travelTags)
                   ? attachment.analysis.travelTags.slice(0, 21).map((tag) => String(tag).slice(0, 80))
                   : [],
@@ -138,7 +142,13 @@ async function chatController(req, res) {
       ,attachment: normalizedAttachment,
       savedItems: relevantSavedItems.length
         ? relevantSavedItems
-        : (savedItemResult.items || []).slice(0, 5),
+        : (savedItemResult.items || []).slice(0, 5).map((item) => ({
+            id: item.id,
+            title: item.title,
+            location_hint: item.location_hint,
+            travel_tags: Array.isArray(item.travel_tags) ? item.travel_tags.slice(0, 8) : [],
+            source_type: item.source_type,
+          })),
       inputLanguage: ['en', 'ms', 'zh-CN'].includes(input_language)
         ? input_language
         : null,
@@ -152,6 +162,14 @@ async function chatController(req, res) {
             longitude: Number(current_location.longitude),
           }
         : null,
+      recommendationContext: Array.isArray(recommendation_context)
+        ? recommendation_context.slice(0, 20).map((item, index) => ({
+            ordinal: index + 1,
+            place_id: String(item?.place_id || '').slice(0, 200),
+            name: String(item?.name || '').slice(0, 200),
+            address: String(item?.address || '').slice(0, 300),
+          })).filter((item) => item.name)
+        : [],
     });
 
     console.log(`[${reqId}] Entering agentService...`);
@@ -255,6 +273,7 @@ async function chatController(req, res) {
     const actualQuotaRetry = Math.max(
       retryAfter || 0,
       providerResetSeconds || 0,
+      Number(error?.novaRetryAfterSeconds) || 0,
     );
     const retrySeconds = quotaLimited
       ? Math.max(

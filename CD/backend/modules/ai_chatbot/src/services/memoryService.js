@@ -1,4 +1,5 @@
 const supabase = require("../config/supabase");
+const tokenConfig = require('../config/tokenConfig');
 
 const memoryMessages = [];
 const MAX_FALLBACK_MESSAGES = 500;
@@ -55,7 +56,7 @@ async function getShortMemory(user_id, session_id) {
       .eq("user_id", user_id)
       .eq("session_id", session_id)
       .order("created_at", { ascending: false })
-      .limit(6);
+      .limit(tokenConfig.maxRecentHistoryMessages);
 
     if (!error && data) {
       return data.reverse();
@@ -67,7 +68,7 @@ async function getShortMemory(user_id, session_id) {
   const filtered = memoryMessages.filter(
     (m) => m.user_id === user_id && m.session_id === session_id
   );
-  return filtered.slice(-6);
+  return filtered.slice(-tokenConfig.maxRecentHistoryMessages);
 }
 
 async function getLongMemory(user_id) {

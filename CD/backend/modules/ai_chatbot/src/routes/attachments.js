@@ -30,7 +30,7 @@ router.post('/analyze-attachment', requireNovaUser, upload.single('attachment'),
   const cleanup = () => { if (req.file?.path) fs.unlink(req.file.path, () => {}); };
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'No attachment provided.' });
-    const analysis = await analyzeAttachment(req.file);
+    const analysis = await analyzeAttachment(req.file, { query: String(req.body?.query || '').slice(0, 1000) });
     cleanup();
     return res.json({ success: true, analysis });
   } catch (error) {

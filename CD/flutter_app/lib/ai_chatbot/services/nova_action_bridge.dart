@@ -151,7 +151,7 @@ class NovaAction {
           return null;
         }
         final duration = safe['duration'];
-        if (duration != null || !safe.containsKey('duration')) {
+        if (duration != null) {
           if (duration is! num ||
               !duration.isFinite ||
               duration <= 0 ||

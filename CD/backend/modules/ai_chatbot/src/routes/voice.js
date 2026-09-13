@@ -3,7 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const openai = require('../config/openai');
-const { generateGeminiText } = require('../services/geminiTextService');
+const { generateGeminiText, logGeminiUsage } = require('../services/geminiTextService');
 const { preserveTranscriptMeaning } = require('../services/transcriptSafetyService');
 const requireNovaUser = require('../middleware/requireNovaUser');
 
@@ -25,7 +25,10 @@ function transcriptQuality(text, provider) {
   const value = String(text || '').trim();
   if (!value) return -1000;
   const words = value.split(/\s+/).filter(Boolean);
-  return Math.min(words.length, 24) + Math.min(value.length, 160) / 40;
+  const multilingualSignal = /\p{Script=Han}/u.test(value) ||
+    /\b(?:saya|nak|mahu|tahu|cuaca|esok|pergi|tempat|makan)\b/iu.test(value);
+  return Math.min(words.length, 24) + Math.min(value.length, 160) / 40 +
+    (multilingualSignal ? 8 : 0);
 }
 
 function chooseTranscript(completed) {
@@ -56,6 +59,7 @@ async function chooseTranscriptSemantically(completed, contextHint = '') {
       raw = await generateGeminiText({
         messages, temperature: 0, maxOutputTokens: 40,
         responseMimeType: 'application/json', timeoutMs: 2500,
+        requestType: 'transcript_candidate_selection',
       });
     } else if (openai.isConfigured) {
       const response = await within(openai.chat.completions.create({
@@ -134,7 +138,7 @@ function uploadAudio(req, res, next) {
 async function polishWithGemini(original) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash';
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -150,6 +154,7 @@ async function polishWithGemini(original) {
     },
   );
   const payload = await response.json();
+  logGeminiUsage({ type: 'transcript_polish', model, payload });
   if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
   return payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim() || null;
 }
@@ -157,7 +162,7 @@ async function polishWithGemini(original) {
 async function transcribeWithGemini(audioPath, mimeType, contextHint = '') {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
-  const model = process.env.GEMINI_AUDIO_MODEL || process.env.GEMINI_TEXT_MODEL || 'gemini-2.0-flash';
+  const model = process.env.GEMINI_AUDIO_MODEL || process.env.GEMINI_TEXT_MODEL || 'gemini-3.6-flash';
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -184,6 +189,7 @@ async function transcribeWithGemini(audioPath, mimeType, contextHint = '') {
     },
   );
   const payload = await response.json();
+  logGeminiUsage({ type: 'audio_transcription', model, payload });
   if (!response.ok) throw new Error(payload.error?.message || `HTTP ${response.status}`);
   return payload.candidates?.[0]?.content?.parts
     ?.map((part) => part.text || '').join('').trim() || null;
@@ -273,25 +279,10 @@ router.post('/transcribe', requireNovaUser, uploadAudio, async (req, res) => {
       '.mp3': 'audio/mpeg',
       '.ogg': 'audio/ogg',
     };
-    const attempts = [];
-    if (process.env.GEMINI_API_KEY) {
-      attempts.push({
-        provider: 'gemini_audio',
-        promise: within(
-          transcribeWithGemini(
-            newPath,
-            mimeTypeByExtension[extension] || 'audio/mp4',
-            contextHint,
-          ),
-          12000,
-          'Gemini audio transcription',
-        ),
-      });
-    }
+    let preferred = null;
     if (openai.isConfigured) {
-      attempts.push({
-        provider: 'groq_whisper',
-        promise: within(
+      try {
+        const response = await within(
           openai.audio.transcriptions.create({
             file: fs.createReadStream(newPath),
             model: 'whisper-large-v3-turbo',
@@ -302,32 +293,53 @@ router.post('/transcribe', requireNovaUser, uploadAudio, async (req, res) => {
               'Transcribe the complete request exactly. The speaker may use Mandarin Chinese, Bahasa Malaysia, English, Malaysian rojak, or Manglish in one sentence. Preserve every requirement, negation, place name, date, number, budget, and preference.',
               contextHint ? `Use this current context only to disambiguate acoustically plausible words: ${contextHint}` : '',
             ].filter(Boolean).join(' '),
-          }).then((response) => ({
-            text: response.text,
-            language: response.language,
-          })),
+          }),
           12000,
           'Groq Whisper transcription',
-        ),
-      });
+        );
+        preferred = {
+          provider: 'groq_whisper',
+          text: String(response?.text || '').trim(),
+          languageCode: normalizeProviderLanguage(response?.language),
+        };
+      } catch (error) {
+        console.warn('[VOICE-BACKEND] groq_whisper unavailable:', error.message);
+      }
     }
-    // Return shortly after the first useful provider while allowing a small
-    // grace window for the second provider to contribute a stronger Malay,
-    // rojak, or Mandarin candidate. Do not wait for a slow provider's full
-    // timeout when another accurate transcript is already available.
-    const completed = await collectTranscriptCandidates(attempts);
-    // Prefer the candidate that preserves actual Mandarin/Malay/rojak signal;
-    // do not blindly choose a provider that may have translated it to English.
-    const preferred = await chooseTranscriptSemantically(completed, contextHint);
+    // Gemini receives audio only as a fallback. Sending the same recording to
+    // two providers on every turn doubled cost and then required another model
+    // call merely to choose between transcripts.
+    if (!preferred?.text && process.env.GEMINI_API_KEY) {
+      try {
+        preferred = {
+          provider: 'gemini_audio',
+          text: String(await within(
+            transcribeWithGemini(
+              newPath,
+              mimeTypeByExtension[extension] || 'audio/mp4',
+              contextHint,
+            ),
+            12000,
+            'Gemini audio transcription',
+          ) || '').trim(),
+          languageCode: null,
+        };
+      } catch (error) {
+        console.warn('[VOICE-BACKEND] gemini_audio unavailable:', error.message);
+      }
+    }
     const rawText = preferred?.text || '';
     const transcriptionProvider = preferred?.provider || '';
     // This remains a provider hint only. The shared chat pipeline performs
     // final semantic language and style classification for speech and text.
     const languageCode = preferred?.languageCode || null;
     if (!rawText) throw new Error('Nova could not detect speech in that recording.');
-    // Apply the conservative multilingual correction pass on every turn. Its
-    // safety guard retains the original whenever meaning-bearing text changes.
-    const correction = await polishTranscript(rawText);
+    // LLM transcript polishing is opt-in. The semantic Agent already handles
+    // natural ASR noise, so polishing every successful transcript was a
+    // redundant Gemini request and could alter names or numeric facts.
+    const correction = process.env.NOVA_ENABLE_LLM_TRANSCRIPT_POLISH === 'true'
+      ? await polishTranscript(rawText)
+      : { text: rawText, accepted: false, reason: 'polish_bypassed' };
     const text = correction.text;
     console.log(
       `[VOICE-BACKEND] transcript rawLength=${rawText.length} ` +
@@ -401,6 +413,7 @@ router.post('/voice-choice', requireNovaUser, express.json({ limit: '32kb' }), a
         maxOutputTokens: 100,
         responseMimeType: 'application/json',
         timeoutMs: 2800,
+        requestType: 'voice_choice_resolution',
       });
     } catch (geminiError) {
       console.warn('[VOICE-BACKEND] Gemini choice resolution unavailable:', geminiError.message);

@@ -11,11 +11,13 @@ const disruptionRoute = require("./src/routes/disruption");
 const tripStateService = require("./src/services/tripStateService");
 const profileService = require("./src/services/profileService");
 const requireNovaUser = require('./src/middleware/requireNovaUser');
+const { usageMiddleware } = require('./src/services/requestUsageService');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use(usageMiddleware);
 
 app.use(express.static(path.join(__dirname, "public")));
 

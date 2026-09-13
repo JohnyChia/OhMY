@@ -250,20 +250,48 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     final generation = ++_narrationGeneration;
     for (var index = 0; index < items.length; index++) {
       if (!mounted || generation != _narrationGeneration) return;
-      _selectCarouselPlace(index);
+      await _selectCarouselPlace(index, animateCarousel: true);
+      if (!mounted || generation != _narrationGeneration) return;
       final place = items[index]['place'] as Map? ?? const {};
       final title = name(place);
       final address = place['formattedAddress']?.toString() ?? '';
-      final spoken = address.isEmpty ? title : '$title. $address';
+      final spoken = <String>[
+        title,
+        if (address.isNotEmpty) address,
+        ...tags(items[index]).where((tag) => tag.trim().isNotEmpty),
+      ].join('. ');
       await _mapNarrator.speak(spoken);
     }
+    if (!mounted || generation != _narrationGeneration || items.isEmpty) return;
+    final language = NovaVoiceController.state.value.languageCode.toLowerCase();
+    final selectionPrompt = language.startsWith('zh')
+        ? '这些推荐已经介绍完了。请选择想去的地点，你可以说序号或地点名称。'
+        : language.startsWith('ms')
+        ? 'Semua cadangan sudah diterangkan. Pilih destinasi dengan menyebut nombor atau nama tempat.'
+        : 'Those are your recommendations. Choose a destination by saying its number or place name.';
+    NovaVoiceController.update(
+      phase: NovaVoicePhase.speaking,
+      response: selectionPrompt,
+      message: 'Choose a destination…',
+    );
+    await _mapNarrator.speak(selectionPrompt);
+    if (!mounted || generation != _narrationGeneration) return;
+    // The chatbot already owns one bounded barge-in recognizer for the map
+    // handoff. Reuse it instead of opening a second recorder, which could
+    // leave the first recording active and prevent the answer being sent.
+    NovaVoiceController.update(
+      phase: NovaVoicePhase.listening,
+      message: 'Choose a destination',
+      clearResponse: true,
+    );
   }
 
   void _interruptNarrationForNova() {
     final phase = NovaVoiceController.state.value.phase;
     if (phase == NovaVoicePhase.listening ||
         phase == NovaVoicePhase.processing ||
-        phase == NovaVoicePhase.thinking) {
+        phase == NovaVoicePhase.thinking ||
+        phase == NovaVoicePhase.interrupted) {
       _narrationGeneration++;
       unawaited(_mapNarrator.stop());
     }
@@ -771,7 +799,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     });
   }
 
-  void _selectCarouselPlace(int index) {
+  Future<void> _selectCarouselPlace(
+    int index, {
+    required bool animateCarousel,
+  }) async {
     if (index < 0 || index >= recommendations.length) return;
     final item = recommendations[index];
     final place = item['place'];
@@ -780,12 +811,20 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     if (mounted) {
       setState(() => highlightedRecommendationId = placeId);
     }
+    if (animateCarousel && recommendationPage.hasClients) {
+      await recommendationPage.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    if (!mounted) return;
     if (location is! Map ||
         location['latitude'] is! num ||
         location['longitude'] is! num) {
       return;
     }
-    unawaited(
+    await (
       controller?.animateCamera(
             CameraUpdate.newLatLngZoom(
               LatLng(
@@ -795,7 +834,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               15,
             ),
           ) ??
-          Future<void>.value(),
+          Future<void>.value()
     );
   }
 
@@ -1398,7 +1437,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               child: PageView.builder(
                 controller: recommendationPage,
                 itemCount: recommendations.length,
-                onPageChanged: _selectCarouselPlace,
+                onPageChanged: (index) => unawaited(
+                  _selectCarouselPlace(index, animateCarousel: false),
+                ),
                 itemBuilder: (_, i) => Padding(
                   padding: const EdgeInsets.only(right: 10),
                   child: recommendationCard(recommendations[i]),

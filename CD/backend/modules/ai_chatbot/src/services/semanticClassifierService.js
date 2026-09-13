@@ -1,6 +1,8 @@
 const { createChatCompletionWithFailover } = require('../config/openai');
 const { generateGeminiText } = require('./geminiTextService');
 const { ATTRACTION_TAGS } = require('../config/attractionTags');
+const tokenConfig = require('../config/tokenConfig');
+const { generateStructured } = require('./aiProviderRouter');
 
 const INTENT_TO_TOOL = Object.freeze({
   weather: 'weather',
@@ -344,20 +346,18 @@ function unavailableClassification(messages) {
   };
 }
 
-async function classifyWithGemini(messages, signal) {
+async function classifyWithGemini(messages, signal, usageContext, cacheScope) {
   const content = await generateGeminiText({
-    messages: [
-      ...messages,
-      {
-        role: 'user',
-        content: `Return one JSON object with this contract: ${JSON.stringify(classificationTool.function.parameters)}. Do not include markdown.`,
-      },
-    ],
+    messages,
     temperature: 0,
-    maxOutputTokens: 700,
+    maxOutputTokens: tokenConfig.classifierMaxOutputTokens,
     responseMimeType: 'application/json',
+    responseSchema: classificationTool.function.parameters,
+    requestType: 'semantic_classifier',
+    usageContext,
+    cacheScope,
     signal,
-    timeoutMs: 2200,
+    timeoutMs: tokenConfig.classifierProviderTimeoutMs,
   });
   const classification = validateClassification(parseJsonObject(content));
   if (!classification) throw new Error('Gemini semantic classification was invalid.');
@@ -369,48 +369,20 @@ async function classifyWithGemini(messages, signal) {
 
 async function classifyWithGroq({ messages, model, signal, preferFallbackClient, completion }) {
     const providerSignal = signal && typeof AbortSignal.any === 'function'
-      ? AbortSignal.any([signal, AbortSignal.timeout(4800)])
-      : AbortSignal.timeout(4800);
-    const request = {
+      ? AbortSignal.any([signal, AbortSignal.timeout(tokenConfig.classifierProviderTimeoutMs)])
+      : AbortSignal.timeout(tokenConfig.classifierProviderTimeoutMs);
+    const response = await completion({
       model,
       temperature: 0,
-      messages: [...messages, {
-        role: 'user',
-        content: `Return exactly one JSON object matching this schema: ${JSON.stringify(classificationTool.function.parameters)}. Do not call a tool and do not include markdown.`,
-      }],
-      max_tokens: 700,
+      messages,
+      tools: [classificationTool],
+      tool_choice: { type: 'function', function: { name: 'classify_nova_request' } },
+      parallel_tool_calls: false,
+      max_tokens: tokenConfig.classifierMaxOutputTokens,
       preferFallbackClient,
       signal: providerSignal,
-    };
-    let response;
-    try {
-      response = await completion({
-        ...request,
-        response_format: { type: 'json_object' },
-      });
-    } catch (structuredError) {
-      const canRetryPlainJson = Number(structuredError?.status) === 400 &&
-        /failed_generation|validate json|json/i.test(String(structuredError?.message || ''));
-      if (!canRetryPlainJson) throw structuredError;
-      console.warn('[Nova classifier] Structured JSON generation failed; retrying parseable JSON output.');
-      response = await completion(request);
-    }
-    let classification = parseClassificationResponse(response);
-    if (!classification) {
-      const repairResponse = await completion({
-        model,
-        temperature: 0,
-        messages,
-        tools: [classificationTool],
-        tool_choice: { type: 'function', function: { name: 'classify_nova_request' } },
-        parallel_tool_calls: false,
-        max_tokens: 700,
-        preferFallbackClient: true,
-        signal: providerSignal,
-      });
-      classification = parseClassificationResponse(repairResponse);
-      if (classification) response = repairResponse;
-    }
+    });
+    const classification = parseClassificationResponse(response);
     if (!classification) {
       throw new Error('Semantic classifier returned unusable output.');
     }
@@ -423,25 +395,81 @@ async function classifyRequest({
   signal,
   preferFallbackClient = false,
   completion = createChatCompletionWithFailover,
+  usageContext = {},
+  cacheScope = 'public',
 }) {
-  const providers = [
-    classifyWithGroq({ messages, model, signal, preferFallbackClient, completion }),
-  ];
-  if (process.env.GEMINI_API_KEY) providers.push(classifyWithGemini(messages, signal));
-  try {
-    return await Promise.any(providers);
-  } catch (aggregateError) {
-    const errors = Array.isArray(aggregateError?.errors) ? aggregateError.errors : [aggregateError];
-    const capacityError = errors.find((error) =>
-      Number(error?.status) === 429 ||
-      /rate limit|tokens per minute/i.test(String(error?.message || '')),
-    );
-    if (capacityError) throw capacityError;
-    const unavailable = new Error('Nova semantic classification is temporarily unavailable.');
-    unavailable.code = 'NOVA_CLASSIFIER_UNAVAILABLE';
-    unavailable.causes = errors.map((error) => error?.message).filter(Boolean);
-    throw unavailable;
+  if (completion === createChatCompletionWithFailover && !preferFallbackClient) {
+    try {
+      const value = await generateStructured({
+        messages,
+        name: classificationTool.function.name,
+        description: classificationTool.function.description,
+        schema: classificationTool.function.parameters,
+        maxOutputTokens: tokenConfig.classifierMaxOutputTokens,
+        requestType: 'semantic_classifier',
+        usageContext,
+        cacheScope,
+        signal,
+        timeoutMs: tokenConfig.classifierProviderTimeoutMs,
+      });
+      const classification = validateClassification(value);
+      if (!classification) throw new Error('Semantic classifier returned unusable output.');
+      return { classification, response: { _fallbackUsed: false, _provider: 'router', usage: null } };
+    } catch (cause) {
+      const unavailable = new Error('Nova semantic classification is temporarily unavailable.');
+      unavailable.code = 'NOVA_CLASSIFIER_UNAVAILABLE';
+      unavailable.status = cause?.status;
+      unavailable.headers = cause?.headers;
+      unavailable.novaRetryAfterSeconds = cause?.novaRetryAfterSeconds;
+      unavailable.cause = cause;
+      throw unavailable;
+    }
   }
+  const geminiProvider = () => classifyWithGemini(
+    messages,
+    signal,
+    usageContext,
+    cacheScope,
+  );
+  const groqProvider = () => classifyWithGroq({
+    messages,
+    model,
+    signal,
+    preferFallbackClient,
+    completion,
+  });
+  const classifierPrimary = String(
+    process.env.NOVA_CLASSIFIER_PRIMARY || 'groq',
+  ).trim().toLowerCase();
+  const providers = classifierPrimary === 'gemini'
+    ? [
+        ...(process.env.GEMINI_API_KEY ? [geminiProvider] : []),
+        groqProvider,
+      ]
+    : [
+        groqProvider,
+        ...(process.env.GEMINI_API_KEY ? [geminiProvider] : []),
+      ];
+
+  const errors = [];
+  for (const request of providers) {
+    try {
+      return await request();
+    } catch (error) {
+      errors.push(error);
+      console.warn('[Nova classifier] Provider unavailable; trying fallback:', error?.message);
+    }
+  }
+
+  const capacityError = errors.find((error) =>
+    Number(error?.status) === 429 ||
+    /rate limit|tokens per minute/i.test(String(error?.message || '')),
+  );
+  if (capacityError) throw capacityError;
+  const unavailable = new Error('Nova semantic classification is temporarily unavailable.');
+  unavailable.code = 'NOVA_CLASSIFIER_UNAVAILABLE';
+  unavailable.causes = errors.map((error) => error?.message).filter(Boolean);
+  throw unavailable;
 }
 
 module.exports = {
