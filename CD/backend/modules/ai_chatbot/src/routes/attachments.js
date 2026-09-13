@@ -8,24 +8,6 @@ const supabase = require('../config/supabase');
 const router = express.Router();
 const upload = multer({ dest: 'uploads/attachments/', limits: { fileSize: MAX_FILE_BYTES, files: 1 } });
 
-function retryMetadata(error) {
-  const headers = error?.headers;
-  const header = (name) => typeof headers?.get === 'function'
-    ? headers.get(name)
-    : headers?.[name];
-  const rawRetry = Number(header('retry-after'));
-  const retrySeconds = Math.max(
-    1,
-    Number.isFinite(rawRetry) && rawRetry > 0
-      ? Math.ceil(rawRetry)
-      : Number(process.env.NOVA_ATTACHMENT_RETRY_SECONDS) || 60,
-  );
-  return {
-    retry_after_seconds: retrySeconds,
-    next_retry_at: new Date(Date.now() + retrySeconds * 1000).toISOString(),
-  };
-}
-
 router.post('/analyze-attachment', requireNovaUser, upload.single('attachment'), async (req, res) => {
   const cleanup = () => { if (req.file?.path) fs.unlink(req.file.path, () => {}); };
   try {
@@ -35,16 +17,7 @@ router.post('/analyze-attachment', requireNovaUser, upload.single('attachment'),
     return res.json({ success: true, analysis });
   } catch (error) {
     cleanup();
-    const unavailable = /timed out|timeout|rate limit|temporarily unavailable/i
-      .test(String(error?.message || '')) || Number(error?.status) === 429;
-    const retry = unavailable ? retryMetadata(error) : {};
-    return res.status(unavailable ? 503 : 400).json({
-      success: false,
-      error: unavailable
-        ? `Attachment analysis is temporarily unavailable. Available again at ${retry.next_retry_at}.`
-        : error.message || 'Attachment analysis failed.',
-      ...retry,
-    });
+    return res.status(400).json({ success: false, error: error.message || 'Attachment analysis failed.' });
   }
 });
 

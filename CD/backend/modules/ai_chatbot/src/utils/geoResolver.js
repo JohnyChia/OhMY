@@ -350,8 +350,6 @@ async function resolveDestination(rawDest, context) {
       resolved_destination: canonicalName,
       corrected: false,
       confidence: 1,
-      latitude: exactCandidate.latitude,
-      longitude: exactCandidate.longitude,
     };
   }
   
@@ -416,9 +414,7 @@ async function resolveDestination(rawDest, context) {
       original_input: trimmedDest,
       resolved_destination: canonicalName,
       corrected: canonicalName.toLowerCase() !== trimmedDest.toLowerCase(),
-      confidence: rankingResult.confidence,
-      latitude: rankingResult.candidate.latitude,
-      longitude: rankingResult.candidate.longitude,
+      confidence: rankingResult.confidence
     };
   }
 

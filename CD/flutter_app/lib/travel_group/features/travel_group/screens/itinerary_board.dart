@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -72,7 +72,7 @@ class ItineraryBoard extends StatelessWidget {
                         group.status != GroupStatus.completed &&
                         group.status != GroupStatus.cancelled)
                       const Text(
-                        'â‹®â‹®  Drag cards to reorder the itinerary',
+                        '⋮⋮  Drag cards to reorder the itinerary',
                         style: TextStyle(
                           fontSize: 11,
                           color: AppColors.secondaryText,
@@ -109,7 +109,7 @@ class ItineraryBoard extends StatelessWidget {
               if (controller.itinerary.isNotEmpty)
                 SliverReorderableList(
                   itemCount: controller.itinerary.length,
-                  onReorder: controller.isCreator
+                  onReorderItem: controller.isCreator
                       ? (oldIndex, newIndex) async {
                           if (!controller.canReorderStop(oldIndex) ||
                               !controller.canReorderStop(newIndex)) {
@@ -209,7 +209,7 @@ class ItineraryBoard extends StatelessWidget {
                           borderColor: Color(0xFFA8DEB8),
                           child: Center(
                             child: Text(
-                              'âœ“ Group itinerary completed',
+                              '✓ Group itinerary completed',
                               style: TextStyle(color: AppColors.success),
                             ),
                           ),
@@ -436,7 +436,7 @@ class _ItineraryStopCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  '${stop.travelTimeFromPreviousMinutes} min travel  â€¢  ${stop.travelDistanceFromPreviousKm.toStringAsFixed(1)} km',
+                  '${stop.travelTimeFromPreviousMinutes} min travel  •  ${stop.travelDistanceFromPreviousKm.toStringAsFixed(1)} km',
                   style: const TextStyle(fontSize: 11),
                 ),
                 const SizedBox(height: 6),
@@ -457,7 +457,7 @@ class _ItineraryStopCard extends StatelessWidget {
                     completed
                         ? 'Travel time recalculated for the next stop'
                         : index == 0
-                        ? 'Initial destination Â· stays first'
+                        ? 'Initial destination · stays first'
                         : 'Confirmed by the group creator',
                     style: const TextStyle(
                       fontSize: 10,
@@ -475,4 +475,3 @@ class _ItineraryStopCard extends StatelessWidget {
         : card;
   }
 }
-

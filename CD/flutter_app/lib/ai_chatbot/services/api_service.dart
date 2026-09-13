@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:geolocator/geolocator.dart';
 
 class VoiceTranscript {
   const VoiceTranscript({
@@ -15,15 +14,6 @@ class VoiceTranscript {
   final String rawText;
   final String correctedText;
   final String? languageCode;
-}
-
-class NovaApiException implements Exception {
-  const NovaApiException(this.data);
-
-  final Map<String, dynamic> data;
-
-  @override
-  String toString() => data['error']?.toString() ?? 'Nova request failed.';
 }
 
 class ApiService {
@@ -88,26 +78,6 @@ class ApiService {
     String? inputLanguage,
   }) async {
     try {
-      Map<String, double>? currentLocation;
-      try {
-        final permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.always ||
-            permission == LocationPermission.whileInUse) {
-          final position = await Geolocator.getLastKnownPosition() ??
-              await Geolocator.getCurrentPosition(
-                locationSettings: const LocationSettings(
-                  accuracy: LocationAccuracy.medium,
-                  timeLimit: Duration(seconds: 3),
-                ),
-              );
-          currentLocation = {
-            'latitude': position.latitude,
-            'longitude': position.longitude,
-          };
-        }
-      } catch (_) {
-        // Location-dependent requests will receive a normal clarification.
-      }
       http.Response? response;
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
@@ -121,8 +91,6 @@ class ApiService {
                   'isVoice': isVoice,
                   'interaction_mode': isVoice ? 'driving_voice' : 'chat_text',
                   'attachment': ?attachment,
-                  if (currentLocation != null)
-                    'current_location': currentLocation,
                   if (inputLanguage?.isNotEmpty == true)
                     'input_language': inputLanguage,
                 }),
@@ -163,10 +131,9 @@ class ApiService {
         return data;
       }
       return {
-        ...data,
         'success': false,
-        'error': data['error']?.toString() ??
-            'Server error: ${response.statusCode}',
+        'error':
+            data['error']?.toString() ?? 'Server error: ${response.statusCode}',
       };
     } catch (e) {
       debugPrint("API Chat Error: $e");
@@ -302,10 +269,12 @@ class ApiService {
       );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw NovaApiException(data);
+      throw Exception(
+        data['error'] ?? 'Nova could not analyse this attachment.',
+      );
     }
     if (data['success'] != true) {
-      throw NovaApiException(data);
+      throw Exception(data['error'] ?? 'Attachment analysis failed.');
     }
     return Map<String, dynamic>.from(data['analysis'] as Map);
   }

@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
 Starts the complete ohMY Android development stack.
 
@@ -87,7 +87,7 @@ function Read-EnvFile([string]$Path) {
 
 function Test-ConfiguredValue([string]$Value) {
     return -not [string]::IsNullOrWhiteSpace($Value) -and
-    $Value -notmatch '^(YOUR_|your_|replace-with)'
+        $Value -notmatch '^(YOUR_|your_|replace-with)'
 }
 
 function Assert-ConfiguredValues(
@@ -129,8 +129,7 @@ function Get-AdbDeviceState([string]$TargetDevice) {
     $ErrorActionPreference = 'SilentlyContinue'
     try {
         return "$(& $adbExe -s $TargetDevice get-state 2>$null)".Trim()
-    }
-    finally {
+    } finally {
         $ErrorActionPreference = $previousPreference
     }
 }
@@ -143,14 +142,12 @@ function Start-BackgroundService(
     [string]$WorkingDirectory,
     [hashtable]$Environment = @{}
 ) {
-    if ($UseExistingServices -and (Test-PortListening $Port)) {
+    if ($UseExistingServices) {
+        if (-not (Wait-Port $Port)) {
+            throw "$Name is not running on port $Port. Start the first launcher before this device."
+        }
         Write-Host "[shared] Reusing $Name on port $Port" -ForegroundColor Green
         return
-    }
-
-    if ($UseExistingServices) {
-        Write-Host "[auto] $Name is not running on port $Port; starting it now..." `
-            -ForegroundColor Cyan
     }
     if (Test-PortListening $Port) {
         Write-Host "[skip] $Name is already listening on port $Port" `
@@ -172,8 +169,7 @@ function Start-BackgroundService(
             -WindowStyle Hidden `
             -PassThru
         $script:startedProcesses += $serviceProcess
-    }
-    finally {
+    } finally {
         foreach ($key in $originalEnvironment.Keys) {
             [Environment]::SetEnvironmentVariable(
                 $key,
@@ -228,310 +224,275 @@ function Stop-StartedServices {
 $launcherLockPath = Join-Path $projectRoot '.run-ohmy.lock'
 $launcherLockStream = $null
 try {
-    if (-not $UseExistingServices) {
-        try {
-            $launcherLockStream = [IO.File]::Open(
-                $launcherLockPath,
-                [IO.FileMode]::OpenOrCreate,
-                [IO.FileAccess]::ReadWrite,
-                [IO.FileShare]::None
-            )
-        }
-        catch [IO.IOException] {
-            throw 'Another OhMY launcher is already running. Stop it with q before launching a second device.'
-        }
-    }
-    else {
-        Write-Host '[shared] Keep the first launcher running; it owns the backend services.' -ForegroundColor Yellow
-    }
-    if (-not (Test-Path -LiteralPath $adbExe)) {
-        throw "adb was not found at $adbExe. Install Android SDK Platform-Tools."
-    }
-    if (-not (Test-Path -LiteralPath $emulatorExe)) {
-        throw "Android Emulator was not found at $emulatorExe."
-    }
-
-    $flutterExe = Resolve-CommandPath 'flutter'
-    $nodeExe = Resolve-CommandPath 'node'
-    $npmExe = Resolve-CommandPath 'npm.cmd'
-
-    if (-not (Test-Path -LiteralPath $backendEnvFile)) {
-        Copy-Item (Join-Path $backendRoot '.env.example') $backendEnvFile
-        throw "Created $backendEnvFile. Add the required keys, then run this script again."
-    }
-    if (-not (Test-Path -LiteralPath $androidLocalProperties)) {
-        Copy-Item `
-        (Join-Path $flutterApp 'android\local.properties.example') `
-            $androidLocalProperties
-        throw "Created $androidLocalProperties. Add MAPS_API_KEY and SDK paths, then run again."
-    }
-
-    $backendEnvironment = Read-EnvFile $backendEnvFile
-    $androidProperties = Read-EnvFile $androidLocalProperties
-    Assert-ConfiguredValues $backendEnvironment @(
-        'GOOGLE_PLACES_API_KEY',
-        'SUPABASE_URL',
-        'SUPABASE_ANON_KEY',
-        'SUPABASE_SERVICE_ROLE_KEY',
-        'GROQ_API_KEY_1',
-        'GROQ_MODEL'
-    ) 'CD\backend\.env'
-    $androidMapsKey = $androidProperties['MAPS_API_KEY']
-    if (-not (Test-ConfiguredValue "$androidMapsKey")) {
-        $androidMapsKey = $backendEnvironment['MAPS_API_KEY']
-    }
-    if (-not (Test-ConfiguredValue "$androidMapsKey")) {
-        throw 'MAPS_API_KEY is missing from both Android local.properties and backend .env.'
-    }
-
-    Install-NodeDependencies 'recommendation backend' $backendRoot $npmExe
-    Install-NodeDependencies 'AI chatbot' $chatbotRoot $npmExe
-    Install-NodeDependencies 'Community validation service' $communityRoot $npmExe
-    if ($InstallDependencies -or
-        -not (Test-Path -LiteralPath (Join-Path $communityRoot 'dist\index.js'))) {
-        Write-Host '[setup] Building Community validation service' -ForegroundColor Cyan
-        Push-Location $communityRoot
-        try { & $npmExe run build } finally { Pop-Location }
-    }
-    if ($InstallDependencies -or
-        -not (Test-Path -LiteralPath (Join-Path $flutterApp '.dart_tool\package_config.json'))) {
-        Write-Host '[setup] Installing Flutter dependencies' -ForegroundColor Cyan
-        Push-Location $flutterApp
-        try { & $flutterExe pub get } finally { Pop-Location }
-    }
-
-    Write-Host '=== ohMY launcher ===' -ForegroundColor Magenta
-
-    $isEmulator = $Device -like 'emulator-*'
-    if ($isEmulator) {
-        $deviceState = Get-AdbDeviceState $Device
-        if ($ColdBoot -and $deviceState -eq 'device') {
-            Write-Host "[boot] Stopping $Device for a cold boot" -ForegroundColor Cyan
-            & $adbExe -s $Device emu kill | Out-Null
-            Start-Sleep -Seconds 3
-            $deviceState = ''
-        }
-
-        if ($deviceState -ne 'device') {
-            $availableAvds = @(& $emulatorExe -list-avds)
-            if ($Emulator -notin $availableAvds) {
-                throw "AVD '$Emulator' was not found. Available: $($availableAvds -join ', ')"
-            }
-            $emulatorArguments = @('-avd', $Emulator)
-            if ($ColdBoot) { $emulatorArguments += '-no-snapshot-load' }
-            Write-Host "[boot] Launching $Emulator" -ForegroundColor Cyan
-            Start-Process -FilePath $emulatorExe -ArgumentList $emulatorArguments
-        }
-        else {
-            Write-Host "[ok]   $Device is already running" -ForegroundColor Green
-        }
-    }
-
-    Write-Host "[wait] Waiting for $Device to finish booting" -ForegroundColor Cyan
-    if (-not (Wait-AndroidBoot $Device)) {
-        throw "$Device did not become ready within 180 seconds."
-    }
-    Write-Host "[ok]   $Device is ready" -ForegroundColor Green
-    if ($isEmulator) {
-        & $adbExe -s $Device emu geo fix $EmulatorLongitude $EmulatorLatitude | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not set the emulator test location."
-        }
-        Write-Host '[ok]   Emulator GPS set to Setia Alam' -ForegroundColor Green
-    }
-
-    Start-BackgroundService `
-        'Recommendation and Maps backend' 3000 $nodeExe @('server.js') `
-        $backendRoot
-
-    $chatbotEnvironment = @{}
-    foreach ($key in @(
-            'PORT',
-            'GROQ_API_KEY_1',
-            'GROQ_API_KEY_2',
-            'GROQ_MODEL',
-            'GROQ_VISION_MODEL',
-            'GEMINI_API_KEY',
-            'GEMINI_TEXT_MODEL',
-            'GEMINI_VISION_MODEL',
-            'GOOGLE_PLACES_API_KEY',
-            'GOOGLE_CLOUD_VISION_API_KEY',
-            'GOOGLE_WEATHER_API_KEY',
-            'GOOGLE_ROUTES_API_KEY',
-            'MAPS_API_KEY',
-            'NOVA_OCR_LANGS',
-            'WHISPER_PROMPT',
-            'SUPABASE_URL',
-            'SUPABASE_SERVICE_ROLE_KEY'
-        )) {
-        if ($backendEnvironment.ContainsKey($key)) {
-            $chatbotEnvironment[$key] = $backendEnvironment[$key]
-        }
-    }
-    $chatbotEnvironment['PORT'] = '3001'
-    if (Test-Path -LiteralPath $chatbotEnvFile) {
-        foreach ($entry in (Read-EnvFile $chatbotEnvFile).GetEnumerator()) {
-            $chatbotEnvironment[$entry.Key] = $entry.Value
-        }
-    }
-    if (-not $chatbotEnvironment.ContainsKey('RECOMMENDATION_BACKEND_URL')) {
-        $chatbotEnvironment['RECOMMENDATION_BACKEND_URL'] = 'http://127.0.0.1:3000'
-    }
-    Start-BackgroundService `
-        'Nova AI chatbot and voice transcription' 3001 $nodeExe @('server.js') `
-        $chatbotRoot $chatbotEnvironment
-
-    $communityEnvironment = @{
-        'PORT'                      = '3002'
-        'SUPABASE_URL'              = $backendEnvironment['SUPABASE_URL']
-        'SUPABASE_SERVICE_ROLE_KEY' = $backendEnvironment['SUPABASE_SERVICE_ROLE_KEY']
-    }
-    if ($backendEnvironment.ContainsKey('GOOGLE_PLACES_API_KEY')) {
-        $communityEnvironment['GOOGLE_PLACES_API_KEY'] =
-        $backendEnvironment['GOOGLE_PLACES_API_KEY']
-    }
-    Start-BackgroundService `
-        'Community validation service' 3002 $nodeExe @('dist/index.js') `
-        $communityRoot $communityEnvironment
-
-    $verificationStarted = $false
-    if ($true) {
-        $venvPython = Join-Path $verifiedRoot '.venv\Scripts\python.exe'
-        if ($InstallDependencies -and -not (Test-Path -LiteralPath $venvPython)) {
-            Write-Host '[setup] Creating Verified Traveller Python environment' `
-                -ForegroundColor Cyan
-            $pythonLauncher = Resolve-CommandPath 'python'
-            & $pythonLauncher -m venv (Join-Path $verifiedRoot '.venv')
-            & $venvPython -m pip install -r (Join-Path $verifiedRoot 'requirements.txt')
-            & $venvPython (Join-Path $verifiedRoot 'setup_models.py')
-        }
-
-        if (Test-Path -LiteralPath $venvPython) {
-            if (-not (Test-Path -LiteralPath $verificationSecretFile)) {
-                $secretBytes = New-Object byte[] 48
-                $randomNumberGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
-                $randomNumberGenerator.GetBytes($secretBytes)
-                $randomNumberGenerator.Dispose()
-                [IO.File]::WriteAllText(
-                    $verificationSecretFile,
-                    [Convert]::ToBase64String($secretBytes)
-                )
-            }
-            $verificationEnvironment = @{
-                'SUPABASE_URL'              = $backendEnvironment['SUPABASE_URL']
-                'SUPABASE_ANON_KEY'         = $backendEnvironment['SUPABASE_ANON_KEY']
-                'SUPABASE_SERVICE_ROLE_KEY' = $backendEnvironment['SUPABASE_SERVICE_ROLE_KEY']
-                'DOCUMENT_HMAC_SECRET'      = (Get-Content $verificationSecretFile -Raw).Trim()
-            }
-            $verificationSettings = Read-EnvFile $verifiedEnvFile
-            $tesseractCommand = $verificationSettings['TESSERACT_CMD']
-            if (-not $tesseractCommand) {
-                $installedTesseract = Get-Command 'tesseract' -ErrorAction SilentlyContinue
-                if ($installedTesseract) {
-                    $tesseractCommand = $installedTesseract.Source
-                }
-                elseif (Test-Path -LiteralPath 'C:\Program Files\Tesseract-OCR\tesseract.exe') {
-                    $tesseractCommand = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
-                }
-                else {
-                    $localTesseract = Join-Path $projectRoot '.local-tools\Tesseract-OCR\tesseract.exe'
-                    if (Test-Path -LiteralPath $localTesseract) {
-                        $tesseractCommand = $localTesseract
-                    }
-                }
-            }
-            if ($tesseractCommand -and (Test-Path -LiteralPath $tesseractCommand)) {
-                $verificationEnvironment['TESSERACT_CMD'] = $tesseractCommand
-            }
-            else {
-                Write-Warning 'Tesseract OCR is missing. Identity verification cannot process documents.'
-            }
-            Start-BackgroundService `
-                'Verified Traveller backend' 8000 $venvPython `
-            @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
-                $verifiedRoot $verificationEnvironment
-            $verificationStarted = $true
-        }
-        else {
-            Write-Host `
-                '[skip] Verified Traveller is not installed. Run again with -InstallDependencies.' `
-                -ForegroundColor DarkYellow
-        }
-    }
-
-    $requiredPorts = @(3000, 3001, 3002)
-
-    if ($verificationStarted -or (Test-PortListening 8000)) {
-        $requiredPorts += 8000
-    }
-
-    foreach ($port in $requiredPorts) {
-        Write-Host "[adb]  Forwarding device tcp:$port -> PC tcp:$port" -ForegroundColor Cyan
-
-        & $adbExe -s $Device reverse "tcp:$port" "tcp:$port" | Out-Null
-
-        if ($LASTEXITCODE -ne 0) {
-            throw "ADB reverse forwarding failed for port $port on $Device."
-        }
-    }
-
-    Write-Host "[ok]   Android port forwarding configured: $($requiredPorts -join ', ')" -ForegroundColor Green
-
-    $flutterArguments = @(
-        'run',
-        '-d', $Device,
-        "--dart-define=SUPABASE_URL=$($backendEnvironment['SUPABASE_URL'])",
-        "--dart-define=SUPABASE_ANON_KEY=$($backendEnvironment['SUPABASE_ANON_KEY'])",
-        '--dart-define=BACKEND_URL=http://127.0.0.1:3000',
-        '--dart-define=AI_CHATBOT_URL=http://127.0.0.1:3001',
-        '--dart-define=COMMUNITY_API_URL=http://127.0.0.1:3002',
-        '--dart-define=VERIFICATION_API_URL=http://127.0.0.1:8000',
-        '--dart-define=NAVIGATION_SIMULATION=true',
-        "--dart-define=BYPASS_TRAVEL_GROUP_VERIFICATION=$($SkipVerification.IsPresent.ToString().ToLowerInvariant())"
+if (-not $UseExistingServices) {
+try {
+    $launcherLockStream = [IO.File]::Open(
+        $launcherLockPath,
+        [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None
     )
+} catch [IO.IOException] {
+    throw 'Another OhMY launcher is already running. Stop it with q before launching a second device.'
+}
+} else {
+    Write-Host '[shared] Keep the first launcher running; it owns the backend services.' -ForegroundColor Yellow
+}
+if (-not (Test-Path -LiteralPath $adbExe)) {
+    throw "adb was not found at $adbExe. Install Android SDK Platform-Tools."
+}
+if (-not (Test-Path -LiteralPath $emulatorExe)) {
+    throw "Android Emulator was not found at $emulatorExe."
+}
 
-    Write-Host '[go]   Launching Flutter. Press q to stop the app and launcher-owned services.' `
-        -ForegroundColor Magenta
-    $previousMapsApiKey = [Environment]::GetEnvironmentVariable('MAPS_API_KEY')
-    [Environment]::SetEnvironmentVariable('MAPS_API_KEY', $androidMapsKey)
+$flutterExe = Resolve-CommandPath 'flutter'
+$nodeExe = Resolve-CommandPath 'node'
+$npmExe = Resolve-CommandPath 'npm.cmd'
+
+if (-not (Test-Path -LiteralPath $backendEnvFile)) {
+    Copy-Item (Join-Path $backendRoot '.env.example') $backendEnvFile
+    throw "Created $backendEnvFile. Add the required keys, then run this script again."
+}
+if (-not (Test-Path -LiteralPath $androidLocalProperties)) {
+    Copy-Item `
+        (Join-Path $flutterApp 'android\local.properties.example') `
+        $androidLocalProperties
+    throw "Created $androidLocalProperties. Add MAPS_API_KEY and SDK paths, then run again."
+}
+
+$backendEnvironment = Read-EnvFile $backendEnvFile
+$androidProperties = Read-EnvFile $androidLocalProperties
+Assert-ConfiguredValues $backendEnvironment @(
+    'GOOGLE_PLACES_API_KEY',
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'GROQ_API_KEY_1',
+    'GROQ_MODEL'
+) 'CD\backend\.env'
+$androidMapsKey = $androidProperties['MAPS_API_KEY']
+if (-not (Test-ConfiguredValue "$androidMapsKey")) {
+    $androidMapsKey = $backendEnvironment['MAPS_API_KEY']
+}
+if (-not (Test-ConfiguredValue "$androidMapsKey")) {
+    throw 'MAPS_API_KEY is missing from both Android local.properties and backend .env.'
+}
+
+Install-NodeDependencies 'recommendation backend' $backendRoot $npmExe
+Install-NodeDependencies 'AI chatbot' $chatbotRoot $npmExe
+Install-NodeDependencies 'Community validation service' $communityRoot $npmExe
+if ($InstallDependencies -or
+    -not (Test-Path -LiteralPath (Join-Path $communityRoot 'dist\index.js'))) {
+    Write-Host '[setup] Building Community validation service' -ForegroundColor Cyan
+    Push-Location $communityRoot
+    try { & $npmExe run build } finally { Pop-Location }
+}
+if ($InstallDependencies -or
+    -not (Test-Path -LiteralPath (Join-Path $flutterApp '.dart_tool\package_config.json'))) {
+    Write-Host '[setup] Installing Flutter dependencies' -ForegroundColor Cyan
     Push-Location $flutterApp
-    try {
-        if ($AdditionalDevice) {
-            if ($AdditionalDevice -eq $Device) {
-                throw '-AdditionalDevice must be different from -Device.'
-            }
-            if ((Get-AdbDeviceState $AdditionalDevice) -ne 'device') {
-                throw "Additional device $AdditionalDevice is not connected/authorized. Check adb devices."
-            }
-            foreach ($port in @(3000, 3001, 3002, 8000)) {
-                & $adbExe -s $AdditionalDevice reverse "tcp:$port" "tcp:$port" | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "Port forwarding failed for $AdditionalDevice." }
-            }
-            $buildArguments = @('build', 'apk', '--debug') + @(
-                $flutterArguments | Where-Object { $_ -like '--dart-define=*' }
-            )
-            & $flutterExe @buildArguments
-            if ($LASTEXITCODE -ne 0) { throw 'Building the additional-device APK failed.' }
-            $debugApk = Join-Path $flutterApp 'build/app/outputs/flutter-apk/app-debug.apk'
-            & $adbExe -s $AdditionalDevice install -r $debugApk
-            if ($LASTEXITCODE -ne 0) { throw "Installing OhMY on $AdditionalDevice failed." }
-            & $adbExe -s $AdditionalDevice shell am start -n 'com.example.flutter_app/.MainActivity'
-            if ($LASTEXITCODE -ne 0) { throw "Starting OhMY on $AdditionalDevice failed." }
-            Write-Host "[ok] OhMY running on $AdditionalDevice; shared services stay alive while this launcher runs." -ForegroundColor Green
-        }
-        & $flutterExe @flutterArguments
+    try { & $flutterExe pub get } finally { Pop-Location }
+}
+
+Write-Host '=== ohMY launcher ===' -ForegroundColor Magenta
+
+$isEmulator = $Device -like 'emulator-*'
+if ($isEmulator) {
+    $deviceState = Get-AdbDeviceState $Device
+    if ($ColdBoot -and $deviceState -eq 'device') {
+        Write-Host "[boot] Stopping $Device for a cold boot" -ForegroundColor Cyan
+        & $adbExe -s $Device emu kill | Out-Null
+        Start-Sleep -Seconds 3
+        $deviceState = ''
     }
-    finally {
-        Pop-Location
-        [Environment]::SetEnvironmentVariable('MAPS_API_KEY', $previousMapsApiKey)
+
+    if ($deviceState -ne 'device') {
+        $availableAvds = @(& $emulatorExe -list-avds)
+        if ($Emulator -notin $availableAvds) {
+            throw "AVD '$Emulator' was not found. Available: $($availableAvds -join ', ')"
+        }
+        $emulatorArguments = @('-avd', $Emulator)
+        if ($ColdBoot) { $emulatorArguments += '-no-snapshot-load' }
+        Write-Host "[boot] Launching $Emulator" -ForegroundColor Cyan
+        Start-Process -FilePath $emulatorExe -ArgumentList $emulatorArguments
+    } else {
+        Write-Host "[ok]   $Device is already running" -ForegroundColor Green
     }
 }
-finally {
+
+Write-Host "[wait] Waiting for $Device to finish booting" -ForegroundColor Cyan
+if (-not (Wait-AndroidBoot $Device)) {
+    throw "$Device did not become ready within 180 seconds."
+}
+Write-Host "[ok]   $Device is ready" -ForegroundColor Green
+if ($isEmulator) {
+    & $adbExe -s $Device emu geo fix $EmulatorLongitude $EmulatorLatitude | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not set the emulator test location."
+    }
+    Write-Host '[ok]   Emulator GPS set to Setia Alam' -ForegroundColor Green
+}
+
+Start-BackgroundService `
+    'Recommendation and Maps backend' 3000 $nodeExe @('server.js') `
+    $backendRoot
+
+$chatbotEnvironment = @{}
+foreach ($key in @(
+    'PORT',
+    'GROQ_API_KEY_1',
+    'GROQ_API_KEY_2',
+    'GROQ_MODEL',
+    'WHISPER_PROMPT',
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY'
+)) {
+    if ($backendEnvironment.ContainsKey($key)) {
+        $chatbotEnvironment[$key] = $backendEnvironment[$key]
+    }
+}
+$chatbotEnvironment['PORT'] = '3001'
+if (Test-Path -LiteralPath $chatbotEnvFile) {
+    foreach ($entry in (Read-EnvFile $chatbotEnvFile).GetEnumerator()) {
+        $chatbotEnvironment[$entry.Key] = $entry.Value
+    }
+}
+Start-BackgroundService `
+    'Nova AI chatbot and voice transcription' 3001 $nodeExe @('server.js') `
+    $chatbotRoot $chatbotEnvironment
+
+$communityEnvironment = @{
+    'PORT' = '3002'
+    'SUPABASE_URL' = $backendEnvironment['SUPABASE_URL']
+    'SUPABASE_SERVICE_ROLE_KEY' = $backendEnvironment['SUPABASE_SERVICE_ROLE_KEY']
+}
+if ($backendEnvironment.ContainsKey('GOOGLE_PLACES_API_KEY')) {
+    $communityEnvironment['GOOGLE_PLACES_API_KEY'] =
+        $backendEnvironment['GOOGLE_PLACES_API_KEY']
+}
+Start-BackgroundService `
+    'Community validation service' 3002 $nodeExe @('dist/index.js') `
+    $communityRoot $communityEnvironment
+
+$verificationStarted = $false
+if ($true) {
+    $venvPython = Join-Path $verifiedRoot '.venv\Scripts\python.exe'
+    if ($InstallDependencies -and -not (Test-Path -LiteralPath $venvPython)) {
+        Write-Host '[setup] Creating Verified Traveller Python environment' `
+            -ForegroundColor Cyan
+        $pythonLauncher = Resolve-CommandPath 'python'
+        & $pythonLauncher -m venv (Join-Path $verifiedRoot '.venv')
+        & $venvPython -m pip install -r (Join-Path $verifiedRoot 'requirements.txt')
+        & $venvPython (Join-Path $verifiedRoot 'setup_models.py')
+    }
+
+    if (Test-Path -LiteralPath $venvPython) {
+        if (-not (Test-Path -LiteralPath $verificationSecretFile)) {
+            $secretBytes = New-Object byte[] 48
+            $randomNumberGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+            $randomNumberGenerator.GetBytes($secretBytes)
+            $randomNumberGenerator.Dispose()
+            [IO.File]::WriteAllText(
+                $verificationSecretFile,
+                [Convert]::ToBase64String($secretBytes)
+            )
+        }
+        $verificationEnvironment = @{
+            'SUPABASE_URL' = $backendEnvironment['SUPABASE_URL']
+            'SUPABASE_ANON_KEY' = $backendEnvironment['SUPABASE_ANON_KEY']
+            'SUPABASE_SERVICE_ROLE_KEY' = $backendEnvironment['SUPABASE_SERVICE_ROLE_KEY']
+            'DOCUMENT_HMAC_SECRET' = (Get-Content $verificationSecretFile -Raw).Trim()
+        }
+        $verificationSettings = Read-EnvFile $verifiedEnvFile
+        $tesseractCommand = $verificationSettings['TESSERACT_CMD']
+        if (-not $tesseractCommand) {
+            $installedTesseract = Get-Command 'tesseract' -ErrorAction SilentlyContinue
+            if ($installedTesseract) {
+                $tesseractCommand = $installedTesseract.Source
+            } elseif (Test-Path -LiteralPath 'C:\Program Files\Tesseract-OCR\tesseract.exe') {
+                $tesseractCommand = 'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            } else {
+                $localTesseract = Join-Path $projectRoot '.local-tools\Tesseract-OCR\tesseract.exe'
+                if (Test-Path -LiteralPath $localTesseract) {
+                    $tesseractCommand = $localTesseract
+                }
+            }
+        }
+        if ($tesseractCommand -and (Test-Path -LiteralPath $tesseractCommand)) {
+            $verificationEnvironment['TESSERACT_CMD'] = $tesseractCommand
+        } else {
+            Write-Warning 'Tesseract OCR is missing. Identity verification cannot process documents.'
+        }
+        Start-BackgroundService `
+            'Verified Traveller backend' 8000 $venvPython `
+            @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', '8000') `
+            $verifiedRoot $verificationEnvironment
+        $verificationStarted = $true
+    } else {
+        Write-Host `
+            '[skip] Verified Traveller is not installed. Run again with -InstallDependencies.' `
+            -ForegroundColor DarkYellow
+    }
+}
+
+foreach ($port in @(3000, 3001, 3002)) {
+    & $adbExe -s $Device reverse "tcp:$port" "tcp:$port" | Out-Null
+}
+if ($verificationStarted -or (Test-PortListening 8000)) {
+    & $adbExe -s $Device reverse tcp:8000 tcp:8000 | Out-Null
+}
+Write-Host '[ok]   Android port forwarding configured' -ForegroundColor Green
+
+$flutterArguments = @(
+    'run',
+    '-d', $Device,
+    "--dart-define=SUPABASE_URL=$($backendEnvironment['SUPABASE_URL'])",
+    "--dart-define=SUPABASE_ANON_KEY=$($backendEnvironment['SUPABASE_ANON_KEY'])",
+    '--dart-define=BACKEND_URL=http://127.0.0.1:3000',
+    '--dart-define=AI_CHATBOT_URL=http://127.0.0.1:3001',
+    '--dart-define=COMMUNITY_API_URL=http://127.0.0.1:3002',
+    '--dart-define=VERIFICATION_API_URL=http://127.0.0.1:8000',
+    '--dart-define=NAVIGATION_SIMULATION=true',
+    "--dart-define=BYPASS_TRAVEL_GROUP_VERIFICATION=$($SkipVerification.IsPresent.ToString().ToLowerInvariant())"
+)
+
+Write-Host '[go]   Launching Flutter. Press q to stop the app and launcher-owned services.' `
+    -ForegroundColor Magenta
+$previousMapsApiKey = [Environment]::GetEnvironmentVariable('MAPS_API_KEY')
+[Environment]::SetEnvironmentVariable('MAPS_API_KEY', $androidMapsKey)
+Push-Location $flutterApp
+try {
+    if ($AdditionalDevice) {
+        if ($AdditionalDevice -eq $Device) {
+            throw '-AdditionalDevice must be different from -Device.'
+        }
+        if ((Get-AdbDeviceState $AdditionalDevice) -ne 'device') {
+            throw "Additional device $AdditionalDevice is not connected/authorized. Check adb devices."
+        }
+        foreach ($port in @(3000, 3001, 3002, 8000)) {
+            & $adbExe -s $AdditionalDevice reverse "tcp:$port" "tcp:$port" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Port forwarding failed for $AdditionalDevice." }
+        }
+        $buildArguments = @('build', 'apk', '--debug') + @(
+            $flutterArguments | Where-Object { $_ -like '--dart-define=*' }
+        )
+        & $flutterExe @buildArguments
+        if ($LASTEXITCODE -ne 0) { throw 'Building the additional-device APK failed.' }
+        $debugApk = Join-Path $flutterApp 'build/app/outputs/flutter-apk/app-debug.apk'
+        & $adbExe -s $AdditionalDevice install -r $debugApk
+        if ($LASTEXITCODE -ne 0) { throw "Installing OhMY on $AdditionalDevice failed." }
+        & $adbExe -s $AdditionalDevice shell am start -n 'com.example.flutter_app/.MainActivity'
+        if ($LASTEXITCODE -ne 0) { throw "Starting OhMY on $AdditionalDevice failed." }
+        Write-Host "[ok] OhMY running on $AdditionalDevice; shared services stay alive while this launcher runs." -ForegroundColor Green
+    }
+    & $flutterExe @flutterArguments
+} finally {
+    Pop-Location
+    [Environment]::SetEnvironmentVariable('MAPS_API_KEY', $previousMapsApiKey)
+}
+} finally {
     if ($null -ne $launcherLockStream) {
         $launcherLockStream.Dispose()
     }
     Stop-StartedServices
 }
-
-
-

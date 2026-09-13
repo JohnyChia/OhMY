@@ -1,14 +1,34 @@
-// The recommender owns this taxonomy. Nova consumes it directly so additions,
-// removals, and spelling changes cannot drift into a second hard-coded list.
-const {
-  GENERAL_TAGS,
-  CULTURAL_TAGS,
-} = require('../../../preference_recommender/tagging-service');
-
-const ATTRACTION_TAGS = Object.freeze([
-  ...GENERAL_TAGS,
-  ...CULTURAL_TAGS,
-]);
+/**
+ * Canonical Attraction Tags
+ * Shared taxonomy for AI Chatbot and Personalised Recommender.
+ * Do not manually add random tags. Only these 21 tags are allowed.
+ */
+const ATTRACTION_TAGS = [
+  // General (12)
+  "Restaurant",
+  "Cafe",
+  "Museum",
+  "Market",
+  "Landmark",
+  "Shopping",
+  "Park",
+  "Nature",
+  "Adventure",
+  "Educational",
+  "Entertainment",
+  "International Cuisine",
+  
+  // Cultural (9)
+  "Heritage",
+  "Cultural Learning",
+  "Historical Landmark",
+  "Traditional Architecture",
+  "Traditional Craft",
+  "Religious Heritage",
+  "Cultural Festival",
+  "Local Cuisine",
+  "Cultural Experience"
+];
 
 module.exports = {
   ATTRACTION_TAGS

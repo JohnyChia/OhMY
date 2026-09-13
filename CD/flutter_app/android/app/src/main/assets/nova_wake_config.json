@@ -1,6 +1,0 @@
-{
-  "modelAsset": "nova_hey_nova.onnx",
-  "wakePhrases": ["hi nova", "hey nova"],
-  "threshold": 0.5,
-  "cooldownMs": 2000
-}

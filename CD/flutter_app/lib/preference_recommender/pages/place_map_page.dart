@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_tts/flutter_tts.dart';
 
 import '../features/routes/route_feature.dart';
 import '../features/routes/navigation_sensor.dart';
@@ -20,7 +19,6 @@ import 'package:community_discovery/community_discovery.dart'
     show SupabaseConfig;
 import '../../shared/services/recommendation_sound.dart';
 import '../../shared/utils/place_description.dart';
-import '../../ai_chatbot/services/nova_voice_controller.dart';
 
 const blue = Color(0xff3266cc),
     ink = Color(0xff14213d),
@@ -33,16 +31,10 @@ class PlaceMapPage extends StatefulWidget {
     this.autofocusSearch = false,
     this.initialRecommendation,
     this.initialSearchQuery,
-    this.initialRecommendations,
-    this.initialRecommendationTitle,
-    this.showInitialMatchScores = true,
   });
   final bool autofocusSearch;
   final Map<String, dynamic>? initialRecommendation;
   final String? initialSearchQuery;
-  final List<Map<String, dynamic>>? initialRecommendations;
-  final String? initialRecommendationTitle;
-  final bool showInitialMatchScores;
   @override
   State<PlaceMapPage> createState() => _PlaceMapPageState();
 }
@@ -77,15 +69,10 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   String? highlightedRecommendationId;
   final Set<String> bookmarkedRecommendations = {};
   bool initialRecommendationApplied = false;
-  bool initialRecommendationsApplied = false;
-  final FlutterTts _mapNarrator = FlutterTts();
-  int _narrationGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_mapNarrator.awaitSpeakCompletion(true));
-    NovaVoiceController.state.addListener(_interruptNarrationForNova);
     completedJourneyLocation.addListener(_resumeAtCompletedJourneyLocation);
     currentTravelerPreferences.addListener(_onPreferencesChanged);
     savedLocationService.changes.addListener(_onSavedLocationsChanged);
@@ -213,114 +200,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     await choose(selectedItem, true);
   }
 
-  Future<void> _applyInitialRecommendations() async {
-    final supplied = widget.initialRecommendations;
-    if (initialRecommendationsApplied || supplied == null || controller == null) return;
-    initialRecommendationsApplied = true;
-    final icon = await recommendationMarkerIcon();
-    final items = <Map<String, dynamic>>[];
-    final markerValues = <Marker>{};
-    final points = <LatLng>[];
-    final origin = currentPosition ?? await position();
-    for (final raw in supplied) {
-      var suppliedPlace = raw['place'];
-      var enriched = raw;
-      final candidateId = raw['id']?.toString() ?? '';
-      if (suppliedPlace is! Map && candidateId.isNotEmpty) {
-        try {
-          enriched = await post('/api/places/analyze', {'placeId': candidateId});
-          suppliedPlace = enriched['place'];
-        } catch (_) {
-          try {
-            enriched = await post('/api/places/details', {'placeId': candidateId});
-            suppliedPlace = enriched['place'];
-          } catch (_) {
-            // Keep the verified search result when enrichment is unavailable.
-          }
-        }
-      }
-      final place = suppliedPlace is Map
-          ? Map<String, dynamic>.from(suppliedPlace)
-          : <String, dynamic>{
-              'id': raw['id']?.toString() ?? '',
-              'displayName': {'text': raw['name']?.toString() ?? ''},
-              'formattedAddress': raw['address']?.toString() ?? '',
-              'googleMapsUri': raw['mapsUrl']?.toString() ?? '',
-              'types': List<String>.from(raw['types'] as List? ?? const []),
-              'location': raw['location'],
-              'rating': raw['rating'],
-              'userRatingCount': raw['ratingCount'],
-              if (raw['distanceMeters'] is num)
-                'distanceKm': (raw['distanceMeters'] as num).toDouble() / 1000,
-            };
-      final location = place['location'];
-      if (location is! Map || location['latitude'] is! num || location['longitude'] is! num) continue;
-      if (origin != null) await _applyDrivingMetrics(place, origin);
-      final item = <String, dynamic>{
-        'place': place,
-        'analysis': Map<String, dynamic>.from(
-          enriched['analysis'] as Map? ?? <String, dynamic>{
-            'generalTags': List<String>.from(place['types'] as List? ?? const []),
-            'culturalTags': <String>[],
-          },
-        ),
-        'ranking': Map<String, dynamic>.from(enriched['ranking'] as Map? ?? const {}),
-        if (enriched['rank'] != null) 'rank': enriched['rank'],
-        if (raw['matchedPreferences'] is List)
-          'matchedPreferences': List<dynamic>.from(raw['matchedPreferences']),
-      };
-      items.add(item);
-      final point = LatLng(
-        (location['latitude'] as num).toDouble(),
-        (location['longitude'] as num).toDouble(),
-      );
-      points.add(point);
-      markerValues.add(Marker(
-        markerId: MarkerId(place['id'].toString()),
-        position: point,
-        icon: icon,
-        anchor: const Offset(.5, 1),
-        onTap: () => _selectTaggedMarker(item),
-      ));
-    }
-    if (!mounted) return;
-    setState(() {
-      recommendations = items;
-      markers = markerValues;
-      recommendationTitle = widget.initialRecommendationTitle ?? 'Nova recommendations';
-      showCarousel = items.isNotEmpty;
-      message = items.isEmpty ? 'No matching places found.' : null;
-    });
-    if (points.isNotEmpty) {
-      await Future<void>.delayed(const Duration(milliseconds: 180));
-      await _showNearbyArea(points);
-      unawaited(_narrateVisiblePlaces(items));
-    }
-  }
-
-  Future<void> _narrateVisiblePlaces(List<Map<String, dynamic>> items) async {
-    final generation = ++_narrationGeneration;
-    for (var index = 0; index < items.length; index++) {
-      if (!mounted || generation != _narrationGeneration) return;
-      _selectCarouselPlace(index);
-      final place = items[index]['place'] as Map? ?? const {};
-      final title = name(place);
-      final address = place['formattedAddress']?.toString() ?? '';
-      final spoken = address.isEmpty ? title : '$title. $address';
-      await _mapNarrator.speak(spoken);
-    }
-  }
-
-  void _interruptNarrationForNova() {
-    final phase = NovaVoiceController.state.value.phase;
-    if (phase == NovaVoicePhase.listening ||
-        phase == NovaVoicePhase.processing ||
-        phase == NovaVoicePhase.thinking) {
-      _narrationGeneration++;
-      unawaited(_mapNarrator.stop());
-    }
-  }
-
   String name(Map p) =>
       p['displayName']?['text']?.toString() ?? 'Selected place';
   String? description(Map p) {
@@ -356,9 +235,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   }
 
   Future<BitmapDescriptor> recommendationMarkerIcon() {
-    recommendationMarkerFuture ??= Future.value(
-      BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-    );
+    recommendationMarkerFuture ??= _buildHibiscusMarker();
     return recommendationMarkerFuture!;
   }
 
@@ -805,8 +682,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   }
 
   void _selectTaggedMarker(Map<String, dynamic> item) {
-    _narrationGeneration++;
-    unawaited(_mapNarrator.stop());
     final placeId = item['place']?['id'];
     final index = recommendations.indexWhere(
       (candidate) => candidate['place']?['id'] == placeId,
@@ -956,29 +831,12 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
     );
   }
 
-  Future<void> details(Map<String, dynamic> item) async {
-    final placeId = item['place']?['id']?.toString() ?? '';
-    var detailedItem = item;
-    if (placeId.isNotEmpty) {
-      try {
-        detailedItem = await post('/api/places/analyze', {'placeId': placeId});
-      } catch (_) {
-        try {
-          detailedItem = await post('/api/places/details', {'placeId': placeId});
-          detailedItem['analysis'] = item['analysis'] ?? const <String, dynamic>{};
-        } catch (_) {
-          // The verified summary remains usable when detail enrichment fails.
-        }
-      }
-    }
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PlaceDetailPage(item: detailedItem, backend: backend),
-      ),
-    );
-  }
+  void details(Map<String, dynamic> item) => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => PlaceDetailPage(item: item, backend: backend),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -1006,7 +864,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               }
             });
             unawaited(_applyInitialRecommendation());
-            unawaited(_applyInitialRecommendations());
           },
           onTap: (_) => dismissSearchResults(),
           markers: markers,
@@ -1501,10 +1358,9 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
                     children: [
                       _overlayPill('#${item['rank'] ?? 1}'),
                       const Spacer(),
-                      if (widget.showInitialMatchScores)
-                        _overlayPill(
-                          '${ranking['similarityPercentage'] ?? 0}% match',
-                        ),
+                      _overlayPill(
+                        '${ranking['similarityPercentage'] ?? 0}% match',
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -1667,9 +1523,6 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
   );
   @override
   void dispose() {
-    NovaVoiceController.state.removeListener(_interruptNarrationForNova);
-    _narrationGeneration++;
-    unawaited(_mapNarrator.stop());
     completedJourneyLocation.removeListener(_resumeAtCompletedJourneyLocation);
     currentTravelerPreferences.removeListener(_onPreferencesChanged);
     savedLocationService.changes.removeListener(_onSavedLocationsChanged);
@@ -1747,7 +1600,6 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
           ...List<String>.from(a['culturalTags'] ?? []),
         ],
         photos = List<Map<String, dynamic>>.from(p['photos'] ?? []),
-        reviews = List<Map<String, dynamic>>.from(p['reviews'] ?? []),
         n = p['displayName']?['text'] ?? 'Place details';
     final placeDescription =
         usablePlaceDescription(p['description']) ??
@@ -1890,28 +1742,6 @@ class _PlaceDetailPageState extends State<PlaceDetailPage> {
                 )
                 .toList(),
           ),
-          if (reviews.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            const Text('Traveller reviews', style: TextStyle(fontWeight: FontWeight.w700)),
-            const SizedBox(height: 10),
-            ...reviews.take(5).map((review) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: soft,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Text(
-                  review['text']?['text']?.toString() ??
-                      review['text']?.toString() ??
-                      '',
-                  style: const TextStyle(color: muted, height: 1.45),
-                ),
-              ),
-            )),
-          ],
         ],
       ),
     );

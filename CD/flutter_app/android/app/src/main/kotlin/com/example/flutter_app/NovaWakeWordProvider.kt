@@ -48,7 +48,6 @@ class OpenWakeWordProvider(
     companion object {
         const val MODEL_ASSET = "nova_hey_nova.onnx"
         const val CONFIG_ASSET = "nova_wake_config.json"
-        private val REQUIRED_WAKE_PHRASES = setOf("hi nova", "hey nova")
     }
 
     private var started = false
@@ -127,19 +126,9 @@ class OpenWakeWordProvider(
         val json = context.assets.open(CONFIG_ASSET).bufferedReader().use { it.readText() }
         val objectValue = JSONObject(json)
         val modelName = objectValue.optString("modelAsset")
-        val phraseValues = objectValue.optJSONArray("wakePhrases")
-        val wakePhrases = buildSet {
-            if (phraseValues != null) {
-                for (index in 0 until phraseValues.length()) {
-                    val phrase = phraseValues.optString(index).trim().lowercase()
-                    if (phrase.isNotEmpty()) add(phrase)
-                }
-            }
-        }
         val threshold = objectValue.optDouble("threshold", Double.NaN).toFloat()
         val cooldownMs = objectValue.optLong("cooldownMs", -1L)
-        if (modelName != MODEL_ASSET || wakePhrases != REQUIRED_WAKE_PHRASES ||
-            !threshold.isFinite() || threshold <= 0f ||
+        if (modelName != MODEL_ASSET || !threshold.isFinite() || threshold <= 0f ||
             threshold >= 1f || cooldownMs < 0L
         ) {
             null

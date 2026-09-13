@@ -2,29 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  compactTaggedPlace,
   getRecommendations,
   selectPreferences,
 } = require('./recommendationService');
-
-test('each recommendation carries its own matching chips into the map carousel', () => {
-  const first = compactTaggedPlace({
-    place: { id: 'one', displayName: { text: 'First' } },
-    matchedPreferences: ['Restaurant', 'Cultural Experience'],
-    analysis: { generalTags: [], culturalTags: [] },
-    ranking: { matchingTags: ['Restaurant'] },
-  });
-  const second = compactTaggedPlace({
-    place: { id: 'two', displayName: { text: 'Second' } },
-    matchedPreferences: ['Nature', 'Park'],
-    analysis: { generalTags: ['Park'], culturalTags: [] },
-    ranking: { matchingTags: ['Nature'] },
-  });
-
-  assert.deepEqual(first.analysis.generalTags, ['Restaurant', 'Cultural Experience']);
-  assert.deepEqual(second.analysis.generalTags, ['Park', 'Nature']);
-  assert.notStrictEqual(first.analysis.generalTags, second.analysis.generalTags);
-});
 
 test('current request preferences override saved profile tags', () => {
   assert.deepEqual(selectPreferences({

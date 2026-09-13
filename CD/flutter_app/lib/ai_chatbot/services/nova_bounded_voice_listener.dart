@@ -119,10 +119,7 @@ class NovaBoundedVoiceListener {
         await onSilence?.call();
         return;
       }
-      NovaVoiceController.update(
-        phase: NovaVoicePhase.processing,
-        message: 'Processing your voice…',
-      );
+      NovaVoiceController.update(phase: NovaVoicePhase.thinking);
       final transcript = await VoiceTextPipeline.processAudio(
         path,
         context: context,

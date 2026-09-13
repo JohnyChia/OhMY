@@ -2,9 +2,6 @@ const recommendationService = require("../services/recommendationService");
 
 async function get(params, userProfile = {}, context = {}) {
   const requestedDestination = String(params.destination || "").trim();
-  const latitude = Number(params.latitude ?? context?.current_location?.latitude);
-  const longitude = Number(params.longitude ?? context?.current_location?.longitude);
-  const hasCurrentLocation = Number.isFinite(latitude) && Number.isFinite(longitude);
   let destination = requestedDestination;
   if (requestedDestination) {
     const geoResolver = require('../utils/geoResolver');
@@ -22,11 +19,6 @@ async function get(params, userProfile = {}, context = {}) {
       };
     }
     destination = resolution.canonical;
-    if (Number.isFinite(Number(resolution.latitude)) &&
-        Number.isFinite(Number(resolution.longitude))) {
-      params.latitude = Number(resolution.latitude);
-      params.longitude = Number(resolution.longitude);
-    }
   }
   const requirements = [
     ...(Array.isArray(params.requirements) ? params.requirements : []),
@@ -46,8 +38,6 @@ async function get(params, userProfile = {}, context = {}) {
     requirements,
     excludedRequirements: excluded,
     profile: userProfile,
-    latitude: Number.isFinite(Number(params.latitude)) ? Number(params.latitude) : (hasCurrentLocation ? latitude : undefined),
-    longitude: Number.isFinite(Number(params.longitude)) ? Number(params.longitude) : (hasCurrentLocation ? longitude : undefined),
   });
   return {
     ...data,

@@ -59,6 +59,7 @@ async function getGoogleWeatherForLocation(location, travelDate, displayLocation
     // a region-level request into a nearby provider locality.
     location: requestedLocationLabel(displayLocation, overview.locationName || location),
     display_location: displayLocation,
+    canonical_location: overview.locationName || location,
     date: travelDate,
     weather: `${current.temperatureC}°C - ${current.description}`,
     observed_at: String(current.timestamp || ''),
@@ -128,6 +129,7 @@ async function get(params) {
       success: true,
       location: requestedLocationLabel(displayLocation, place.name),
       display_location: displayLocation,
+      canonical_location: place.name,
       date: travelDate,
       weather: `${current.temperature}°C - ${weatherLabels[current.weathercode] || "Unknown conditions"}`,
       observed_at: current.time

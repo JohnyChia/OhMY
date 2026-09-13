@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 
 enum NovaVoicePhase {
   idle,
@@ -103,27 +102,6 @@ class NovaVoiceController {
   static NovaVoiceInvocation? _pendingInvocation;
   static int _sessionSequence = 0;
   static Timer? _autoResetTimer;
-  static bool _globalInteractionInstalled = false;
-
-  static void _ensureGlobalInteractionListener() {
-    if (_globalInteractionInstalled) return;
-    _globalInteractionInstalled = true;
-    GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointer);
-  }
-
-  static void _onGlobalPointer(PointerEvent event) {
-    if (event is PointerDownEvent &&
-        (state.value.phase == NovaVoicePhase.speaking ||
-            state.value.phase == NovaVoicePhase.prompting)) {
-      // Any deliberate touch, including a map swipe, gives control back to
-      // the traveller. Consumers stop their own TTS when this phase changes.
-      update(
-        phase: NovaVoicePhase.interrupted,
-        message: 'Speech stopped.',
-        clearResponse: true,
-      );
-    }
-  }
 
   static void requestVoiceSession({
     String? wakePhrase,
@@ -173,7 +151,6 @@ class NovaVoiceController {
     bool clearMessage = false,
     bool clearResponse = false,
   }) {
-    _ensureGlobalInteractionListener();
     _autoResetTimer?.cancel();
     state.value = state.value.copyWith(
       phase: phase,

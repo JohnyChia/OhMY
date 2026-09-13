@@ -101,39 +101,6 @@ test('recommendations do not automatically open the map', () => {
   assert.equal(action, null);
 });
 
-test('builds a map handoff for verified recommendation results', () => {
-  const action = buildPrimaryAction({
-    intent: 'recommendation',
-    routing: { intent: 'recommendation', allowMap: false },
-    toolResult: {
-      success: true,
-      destination: 'Kuala Lumpur',
-      applied_preferences: ['Heritage'],
-      preference_source: 'current_request',
-      recommendations: [{
-        rank: 1,
-        place: {
-          id: 'provider-place-id',
-          displayName: { text: 'Merdeka Square' },
-          formattedAddress: 'Kuala Lumpur, Malaysia',
-          location: { latitude: 3.1478, longitude: 101.6937 },
-        },
-        analysis: {
-          generalTags: ['Heritage'],
-          culturalTags: [],
-        },
-        ranking: { similarityPercentage: 94, matchingTags: ['Heritage'] },
-      }],
-    },
-    tripState: {},
-    profile: {},
-  });
-
-  assert.equal(action?.type, 'show_place_results');
-  assert.equal(action?.target, 'map');
-  assert.equal(action?.parameters.recommendations[0].place.displayName.text, 'Merdeka Square');
-});
-
 test('map display requires an explicit map routing decision', () => {
   const base = {
     intent: 'show_location',

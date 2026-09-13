@@ -246,24 +246,6 @@ class _OhMyShellState extends State<OhMyShell> {
         );
       }
       final query = action.parameters['destination']?.toString().trim() ?? '';
-      final suppliedRecommendations = (action.parameters['recommendations'] as List?)
-          ?.whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
-      final suppliedPlaces = (action.parameters['places'] as List?)
-          ?.whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList();
-      final mapItems = suppliedRecommendations?.isNotEmpty == true
-          ? suppliedRecommendations
-          : suppliedPlaces;
-      final preferenceSource = action.parameters['preference_source']?.toString();
-      final resultPipeline = action.parameters['result_pipeline']?.toString();
-      final interests = (action.parameters['interests'] as List?)
-              ?.map((item) => item.toString())
-              .where((item) => item.isNotEmpty)
-              .toList() ??
-          const <String>[];
       if (_selectedIndex != 2) setState(() => _selectedIndex = 2);
       await Future<void>.delayed(Duration.zero);
       if (!mounted || _navigatorKeys[2].currentState == null) {
@@ -277,18 +259,7 @@ class _OhMyShellState extends State<OhMyShell> {
         _navigatorKeys[2].currentState!.push<void>(
           MaterialPageRoute(
             settings: const RouteSettings(name: '/start-trip/solo-map'),
-            builder: (_) => PlaceMapPage(
-              initialSearchQuery: mapItems?.isNotEmpty == true ? null : query,
-              initialRecommendations: mapItems,
-              initialRecommendationTitle: resultPipeline == 'navigation'
-                  ? 'Place results'
-                  : interests.isNotEmpty
-                  ? (preferenceSource == 'current_request'
-                        ? 'Matches your requirements'
-                        : 'Based on your preferences')
-                  : 'Nova recommendations',
-              showInitialMatchScores: resultPipeline != 'navigation',
-            ),
+            builder: (_) => PlaceMapPage(initialSearchQuery: query),
           ),
         ),
       );
@@ -444,8 +415,7 @@ class _OhMyShellState extends State<OhMyShell> {
                         ),
                 ),
               ),
-            if (_selectedIndex != 1 &&
-                _selectedIndex != 2 &&
+            if (_selectedIndex != 2 &&
                 _travelGroupController.ongoingMemberGroup != null)
               Positioned(
                 right: 14,
@@ -1563,7 +1533,7 @@ class _TripModeCard extends StatelessWidget {
   }
 }
 
-class CommunityModulePage extends StatefulWidget {
+class CommunityModulePage extends StatelessWidget {
   const CommunityModulePage({
     super.key,
     required this.controller,
@@ -1574,31 +1544,15 @@ class CommunityModulePage extends StatefulWidget {
   final StartJourneyCallback onStartJourney;
 
   @override
-  State<CommunityModulePage> createState() => _CommunityModulePageState();
-}
-
-class _CommunityModulePageState extends State<CommunityModulePage> {
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() => _ready = true);
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (!_ready) return const SizedBox.expand();
     return ValueListenableBuilder<List<String>>(
       valueListenable: currentTravelerPreferences,
       builder: (context, preferences, _) => CommunityFeedScreen(
-        controller: widget.controller,
+        controller: controller,
         showBottomNavigation: false,
         preferredTagNames: preferences,
         integrationCallbacks: CommunityIntegrationCallbacks(
-          onStartJourney: widget.onStartJourney,
+          onStartJourney: onStartJourney,
         ),
       ),
     );

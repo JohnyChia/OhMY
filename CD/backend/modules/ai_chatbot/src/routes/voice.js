@@ -34,43 +34,6 @@ function chooseTranscript(completed) {
     .sort((a, b) => transcriptQuality(b.text, b.provider) - transcriptQuality(a.text, a.provider))[0] || null;
 }
 
-async function chooseTranscriptSemantically(completed, contextHint = '') {
-  const candidates = completed.filter((item) => item.text);
-  if (candidates.length < 2) return candidates[0] || null;
-  const messages = [{
-    role: 'system',
-    content: [
-      'Select the most faithful transcription of one Malaysian travel request.',
-      'The speaker may mix Mandarin, Bahasa Malaysia, English, rojak, or Manglish.',
-      'Prefer preservation of acoustically plausible travel intent, place category, location, constraints, negation, names, dates and numbers.',
-      'Context may disambiguate sound-alike words but cannot add a destination or requirement.',
-      'Return JSON only as {"index":0}.',
-    ].join(' '),
-  }, {
-    role: 'user',
-    content: JSON.stringify({ context: contextHint, candidates: candidates.map((item, index) => ({ index, text: item.text, language: item.languageCode })) }),
-  }];
-  try {
-    let raw = '';
-    if (process.env.GEMINI_API_KEY) {
-      raw = await generateGeminiText({
-        messages, temperature: 0, maxOutputTokens: 40,
-        responseMimeType: 'application/json', timeoutMs: 2500,
-      });
-    } else if (openai.isConfigured) {
-      const response = await within(openai.chat.completions.create({
-        model: process.env.GROQ_MODEL, temperature: 0, max_tokens: 40, messages,
-      }), 2500, 'Transcript candidate selection');
-      raw = response.choices?.[0]?.message?.content || '';
-    }
-    const parsed = JSON.parse(String(raw).match(/\{[\s\S]*\}/)?.[0] || '{}');
-    if (Number.isInteger(parsed.index) && candidates[parsed.index]) return candidates[parsed.index];
-  } catch (error) {
-    console.warn('[VOICE-BACKEND] Semantic transcript selection unavailable:', error.message);
-  }
-  return chooseTranscript(candidates);
-}
-
 function normalizeProviderLanguage(value) {
   const language = String(value || '').trim().toLocaleLowerCase();
   if (/^(zh|zho|chi|chinese|mandarin)(-|$)/u.test(language)) return 'zh-CN';
@@ -318,16 +281,19 @@ router.post('/transcribe', requireNovaUser, uploadAudio, async (req, res) => {
     const completed = await collectTranscriptCandidates(attempts);
     // Prefer the candidate that preserves actual Mandarin/Malay/rojak signal;
     // do not blindly choose a provider that may have translated it to English.
-    const preferred = await chooseTranscriptSemantically(completed, contextHint);
+    const preferred = chooseTranscript(completed);
     const rawText = preferred?.text || '';
     const transcriptionProvider = preferred?.provider || '';
     // This remains a provider hint only. The shared chat pipeline performs
     // final semantic language and style classification for speech and text.
     const languageCode = preferred?.languageCode || null;
     if (!rawText) throw new Error('Nova could not detect speech in that recording.');
-    // Apply the conservative multilingual correction pass on every turn. Its
-    // safety guard retains the original whenever meaning-bearing text changes.
-    const correction = await polishTranscript(rawText);
+    // Grammar polish is optional because it adds another remote model round
+    // trip and can alter code-switched speech. The Agent can understand the
+    // preserved raw transcript; enable polish explicitly when required.
+    const correction = process.env.VOICE_TRANSCRIPT_POLISH === 'true'
+      ? await polishTranscript(rawText)
+      : { text: rawText, accepted: false, reason: 'fast_path_preserved' };
     const text = correction.text;
     console.log(
       `[VOICE-BACKEND] transcript rawLength=${rawText.length} ` +

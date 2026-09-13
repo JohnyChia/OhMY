@@ -19,25 +19,12 @@ function safeHttpsUrl(value) {
   }
 }
 
-function firstHttpsUrl(value) {
-  const matches = String(value || '').match(/https:\/\/[^\s<>"']+/giu) || [];
-  for (const candidate of matches) {
-    const url = safeHttpsUrl(candidate.replace(/[),.;!?]+$/u, ''));
-    if (url) return url;
-  }
-  return null;
-}
-
 function canonicalItem(parameters = {}, context = {}) {
   const attachment = context.attachment?.analysisStatus === 'ready'
     ? context.attachment
     : null;
   const analysis = attachment?.analysis || {};
-  // Intent selection remains semantic and must be explicit. Once the Agent
-  // has selected the save tool, recover the URL from the current turn so a
-  // model omission cannot silently save an empty "message" record.
-  const requestedUrl = safeHttpsUrl(parameters.source_url) ||
-    firstHttpsUrl(context.current_message);
+  const requestedUrl = safeHttpsUrl(parameters.source_url);
   const sourceType = attachment
     ? (analysis.type === 'image' ? 'image' : 'file')
     : requestedUrl
@@ -82,15 +69,10 @@ function canonicalItem(parameters = {}, context = {}) {
 }
 
 async function save(userId, parameters, context) {
-  const recoveredUrl = safeHttpsUrl(parameters?.source_url) ||
-    firstHttpsUrl(context?.current_message);
-  let enriched = {
-    ...parameters,
-    ...(recoveredUrl ? { source_url: recoveredUrl } : {}),
-  };
-  if (recoveredUrl) {
+  let enriched = { ...parameters };
+  if (parameters?.source_url) {
     try {
-      const link = await linkAnalysisService.analyze(recoveredUrl);
+      const link = await linkAnalysisService.analyze(parameters.source_url);
       enriched = {
         ...enriched,
         source_url: link.url,
@@ -102,7 +84,7 @@ async function save(userId, parameters, context) {
       // temporarily unavailable. It can be analysed again when recalled.
       enriched = {
         ...enriched,
-        summary: clean(enriched.summary || `Saved link: ${recoveredUrl}`, 4000),
+        summary: clean(enriched.summary || `Saved link: ${parameters.source_url}`, 4000),
       };
     }
   }
@@ -180,4 +162,4 @@ function relevant(items, query, limit = 5) {
     .map(({ item }) => item);
 }
 
-module.exports = { canonicalItem, firstHttpsUrl, save, list, remove, relevant };
+module.exports = { canonicalItem, save, list, remove, relevant };
