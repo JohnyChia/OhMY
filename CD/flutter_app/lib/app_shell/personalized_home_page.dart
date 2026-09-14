@@ -282,7 +282,7 @@ class _PersonalizedHomePageState extends State<PersonalizedHomePage>
     final nearby = _places;
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFD),
-      body: RefreshIndicator(
+      body: WauRefreshIndicator(
         onRefresh: () async {
           await Future.wait([
             _loadPlaces(),
@@ -556,7 +556,7 @@ class _InlineHomeSearchState extends State<_InlineHomeSearch> {
               child: Column(
                 children: [
                   if (_searching || _selecting)
-                    const LinearProgressIndicator(minHeight: 2),
+                    const Center(child: WauLoadingIndicator(size: 24)),
                   if (_message != null)
                     Expanded(
                       child: Center(

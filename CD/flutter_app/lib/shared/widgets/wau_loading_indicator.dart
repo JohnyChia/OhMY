@@ -1,5 +1,49 @@
 import 'package:flutter/material.dart';
 
+/// Pull-to-refresh with the same Wau artwork as all other loading states.
+class WauRefreshIndicator extends StatefulWidget {
+  const WauRefreshIndicator({
+    super.key,
+    required this.child,
+    required this.onRefresh,
+  });
+
+  final Widget child;
+  final RefreshCallback onRefresh;
+
+  @override
+  State<WauRefreshIndicator> createState() => _WauRefreshIndicatorState();
+}
+
+class _WauRefreshIndicatorState extends State<WauRefreshIndicator> {
+  RefreshIndicatorStatus? _status;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      RefreshIndicator.noSpinner(
+        onRefresh: widget.onRefresh,
+        onStatusChange: (status) {
+          if (mounted) setState(() => _status = status);
+        },
+        child: widget.child,
+      ),
+      if (_status == RefreshIndicatorStatus.drag ||
+          _status == RefreshIndicatorStatus.armed ||
+          _status == RefreshIndicatorStatus.snap ||
+          _status == RefreshIndicatorStatus.refresh)
+        const Positioned(
+          top: 12,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: Center(child: WauLoadingIndicator(size: 32)),
+          ),
+        ),
+    ],
+  );
+}
+
 /// The application-wide loading indicator.
 ///
 /// Use a small [size] inside buttons and a larger size for page-level loading.

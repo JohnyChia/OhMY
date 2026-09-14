@@ -31,6 +31,7 @@ import '../user_management/screens/auth/auth_gate.dart';
 import '../user_management/screens/profile_screen.dart';
 import '../user_management/services/traveler_profile_service.dart';
 import '../shared/widgets/wau_loading_indicator.dart';
+import '../travel_group/features/travel_group/screens/verification_required_screen.dart';
 import '../shared/widgets/ohmy_snack_bar.dart';
 import '../shared/utils/place_description.dart';
 import 'ohmy_bottom_navigation_bar.dart';
@@ -1499,7 +1500,15 @@ class StartTripHubPage extends StatelessWidget {
   Future<void> _returnToTravelGroup(BuildContext context) async {
     final group = controller.ongoingMemberGroup;
     if (group == null) return;
-    await controller.openGroup(group.id);
+    try {
+      await controller.openGroup(group.id);
+    } on TravelGroupException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(OhMySnackBar(content: Text(error.message)));
+      return;
+    }
     if (!context.mounted) return;
     final navigator = Navigator.of(context);
     navigator.push<void>(
@@ -1684,7 +1693,12 @@ class TravelGroupModulePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TravelGroupDiscoveryScreen(controller: controller);
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) => controller.currentUser.isVerified
+          ? TravelGroupDiscoveryScreen(controller: controller)
+          : VerificationRequiredScreen(controller: controller),
+    );
   }
 }
 

@@ -60,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return AuthPageLayout(
       title: 'Welcome back!',
+      useProfileBackdrop: true,
       subtitle: 'Sign in to continue planning your journeys',
       illustrationAsset: 'assets/images/auth/travel_mark.svg',
       glowAsset: 'assets/images/auth/login_glow.svg',

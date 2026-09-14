@@ -84,6 +84,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget build(BuildContext context) {
     return AuthPageLayout(
       title: 'Create account',
+      useProfileBackdrop: true,
       subtitle: 'Create your profile and start exploring',
       glowAsset: 'assets/images/auth/register_glow.svg',
       topSpacing: 78,

@@ -734,7 +734,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
                         padding: EdgeInsets.all(14),
                         child: SizedBox.square(
                           dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: WauLoadingIndicator(size: 22),
                         ),
                       )
                     : null,
@@ -854,7 +854,7 @@ class _AreaPickerSheetState extends State<_AreaPickerSheet> {
             if (_resolving)
               const Padding(
                 padding: EdgeInsets.only(top: 12),
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(child: WauLoadingIndicator(size: 58)),
               ),
           ],
         ),

@@ -8,15 +8,15 @@ const TAGGER_VERSION =
 
 const RECOMMENDATION_RESULTS_PER_TYPE = positiveInteger(
     process.env.RECOMMENDATION_RESULTS_PER_TYPE,
-    7
+    15
 );
 const RECOMMENDATION_CANDIDATE_LIMIT = positiveInteger(
     process.env.RECOMMENDATION_CANDIDATE_LIMIT,
-    40
+    80
 );
 const RECOMMENDATION_DISCOVERY_LIMIT = positiveInteger(
     process.env.RECOMMENDATION_DISCOVERY_LIMIT,
-    65
+    130
 );
 const RECOMMENDATION_DETAILS_CONCURRENCY = positiveInteger(
     process.env.RECOMMENDATION_DETAILS_CONCURRENCY,
@@ -28,7 +28,7 @@ const RECOMMENDATION_MAXIMUM_SEARCH_TYPES = positiveInteger(
 );
 const RECOMMENDATION_DISPLAY_LIMIT = positiveInteger(
     process.env.RECOMMENDATION_DISPLAY_LIMIT,
-    20
+    30
 );
 
 module.exports = {

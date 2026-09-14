@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../data/community_repository.dart';
@@ -114,7 +115,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       future: _trips,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: WauLoadingIndicator(size: 58));
         }
         if (snapshot.hasError) {
           return _CenteredMessage(
@@ -243,7 +244,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               icon: _publishing
                   ? const SizedBox.square(
                       dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: WauLoadingIndicator(size: 22),
                     )
                   : const Icon(Icons.publish),
               label: Text(_publishing ? 'Publishing…' : 'Publish post'),

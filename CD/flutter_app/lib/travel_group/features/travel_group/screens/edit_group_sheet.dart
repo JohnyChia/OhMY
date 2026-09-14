@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../controllers/travel_group_controller.dart';
@@ -225,7 +226,7 @@ class _EditGroupSheetState extends State<EditGroupSheet> {
                     padding: EdgeInsets.all(14),
                     child: SizedBox.square(
                       dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: WauLoadingIndicator(size: 22),
                     ),
                   )
                 : _destination != null

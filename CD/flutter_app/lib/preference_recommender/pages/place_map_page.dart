@@ -1232,7 +1232,7 @@ class _PlaceMapPageState extends State<PlaceMapPage> {
               child: weatherLoading
                   ? const Padding(
                       padding: EdgeInsets.all(15),
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                      child: WauLoadingIndicator(size: 22),
                     )
                   : Column(
                       mainAxisAlignment: MainAxisAlignment.center,

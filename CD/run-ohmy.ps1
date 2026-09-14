@@ -30,8 +30,9 @@ param(
     [string]$AdditionalDevice = '',
     [switch]$UseExistingServices,
     [string]$Emulator = 'Pixel_9_API_34',
-    [double]$EmulatorLatitude = 3.1094685,
-    [double]$EmulatorLongitude = 101.4602178,
+    # Setapak Central Mall presentation location; emulator devices only.
+    [double]$EmulatorLatitude = 3.2030556,
+    [double]$EmulatorLongitude = 101.7225,
     [switch]$ColdBoot,
     [switch]$InstallDependencies,
     [switch]$SkipVerification
@@ -364,7 +365,7 @@ if ($isEmulator) {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not set the emulator test location."
     }
-    Write-Host '[ok]   Emulator GPS set to Setia Alam' -ForegroundColor Green
+    Write-Host "[ok]   Emulator GPS set to $EmulatorLatitude, $EmulatorLongitude (default: Setapak Central Mall)" -ForegroundColor Green
 }
 
 Start-BackgroundService `

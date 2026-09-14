@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../state/community_controller.dart';
 import '../theme/community_theme.dart';
@@ -52,7 +53,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
       final state = widget.controller;
       return Scaffold(
         body: SafeArea(
-          child: RefreshIndicator(
+          child: WauRefreshIndicator(
             onRefresh: state.loadPosts,
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -114,7 +115,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
                 if (state.isLoading)
                   const SliverFillRemaining(
                     hasScrollBody: false,
-                    child: Center(child: CircularProgressIndicator()),
+                    child: Center(child: WauLoadingIndicator(size: 58)),
                   )
                 else if (state.error != null)
                   SliverFillRemaining(

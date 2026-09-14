@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:record/record.dart';
 
@@ -61,7 +62,7 @@ class _PermissionSettingsScreenState extends State<PermissionSettingsScreen>
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('App permissions')),
     body: loading
-        ? const Center(child: CircularProgressIndicator())
+        ? const Center(child: WauLoadingIndicator(size: 58))
         : ListView(
             padding: const EdgeInsets.all(16),
             children: [

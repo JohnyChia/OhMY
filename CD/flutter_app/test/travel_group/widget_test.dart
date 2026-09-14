@@ -7,6 +7,7 @@ import 'package:flutter_app/travel_group/features/travel_group/controllers/trave
 import 'package:flutter_app/travel_group/features/travel_group/models/travel_group_models.dart';
 import 'package:flutter_app/travel_group/features/travel_group/repositories/mock_travel_group_repository.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/travel_group_discovery_screen.dart';
+import 'package:flutter_app/travel_group/features/travel_group/screens/verification_required_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/active_itinerary_map_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/group_lobby_screen.dart';
 import 'package:flutter_app/travel_group/features/travel_group/screens/group_details_screen.dart';
@@ -85,6 +86,25 @@ void main() {
     expect(find.byType(GroupLobbyScreen), findsOneWidget);
     expect(find.text(controller.activeGroup!.name), findsWidgets);
   });
+
+  testWidgets(
+    'unverified user sees verification gate when opening Group trip',
+    (tester) async {
+      controller.currentUser.isVerified = false;
+      await tester.pumpWidget(
+        MaterialApp(home: StartTripHubPage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Group trip'));
+      await tester.tap(find.text('Group trip'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(VerificationRequiredScreen), findsOneWidget);
+      expect(find.byType(TravelGroupDiscoveryScreen), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
 
   testWidgets(
     'creator cannot confirm from the lobby until another traveller joins',

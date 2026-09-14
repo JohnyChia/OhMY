@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -343,7 +344,9 @@ class _NearbySuggestionsSheetState extends State<_NearbySuggestionsSheet> {
             ),
             const SizedBox(height: 8),
             if (_loading)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
+              const Expanded(
+                child: Center(child: WauLoadingIndicator(size: 58)),
+              )
             else if (_error != null)
               Expanded(
                 child: Column(

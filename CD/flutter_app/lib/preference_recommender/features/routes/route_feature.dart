@@ -2669,7 +2669,7 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
               child: navigationWeatherLoading
                   ? const Padding(
                       padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                      child: WauLoadingIndicator(size: 22),
                     )
                   : Column(
                       mainAxisAlignment: MainAxisAlignment.center,

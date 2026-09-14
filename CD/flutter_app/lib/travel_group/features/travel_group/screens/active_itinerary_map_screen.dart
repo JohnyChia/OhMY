@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../../../preference_recommender/features/routes/native_navigation_map.dart';
 import '../../../core/theme/app_theme.dart';
@@ -260,7 +261,7 @@ class _ActiveItineraryMapScreenState extends State<ActiveItineraryMapScreen> {
             else
               const ColoredBox(
                 color: Color(0xffeef3fb),
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(child: WauLoadingIndicator(size: 58)),
               ),
             Positioned(
               top: MediaQuery.paddingOf(context).top + 150,

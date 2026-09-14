@@ -66,7 +66,7 @@ class _TravelHistoryScreenState extends State<TravelHistoryScreen> {
 
             final trips = snapshot.data ?? const [];
             if (trips.isEmpty) {
-              return RefreshIndicator(
+              return WauRefreshIndicator(
                 onRefresh: _refresh,
                 child: const CustomScrollView(
                   physics: AlwaysScrollableScrollPhysics(),
@@ -96,7 +96,7 @@ class _TravelHistoryScreenState extends State<TravelHistoryScreen> {
                 })
                 .toList(growable: false);
 
-            return RefreshIndicator(
+            return WauRefreshIndicator(
               onRefresh: _refresh,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -292,7 +292,7 @@ class _CommunityPostActionState extends State<_CommunityPostAction> {
       if (snapshot.connectionState != ConnectionState.done) {
         return const SizedBox(
           height: 42,
-          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          child: Center(child: WauLoadingIndicator(size: 22)),
         );
       }
       if (snapshot.hasError) {

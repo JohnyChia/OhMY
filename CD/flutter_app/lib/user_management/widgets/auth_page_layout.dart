@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'profile_tab_background.dart';
 
 class AuthPageLayout extends StatelessWidget {
   const AuthPageLayout({
@@ -11,6 +12,7 @@ class AuthPageLayout extends StatelessWidget {
     this.illustrationAsset,
     this.glowAsset,
     this.glowOnRight = false,
+    this.useProfileBackdrop = false,
     this.topSpacing = 56,
     this.titleSpacing = 34,
     this.formSpacing = 34,
@@ -26,6 +28,7 @@ class AuthPageLayout extends StatelessWidget {
   final String? illustrationAsset;
   final String? glowAsset;
   final bool glowOnRight;
+  final bool useProfileBackdrop;
   final double topSpacing;
   final double titleSpacing;
   final double formSpacing;
@@ -34,10 +37,16 @@ class AuthPageLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: useProfileBackdrop ? const Color(0xFFFFFBF5) : Colors.white,
       body: Stack(
         children: [
-          if (glowAsset != null)
+          if (useProfileBackdrop)
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: ProfileTabBackground(child: SizedBox.shrink()),
+              ),
+            ),
+          if (!useProfileBackdrop && glowAsset != null)
             Positioned(
               top: 22,
               left: glowOnRight ? null : -92,

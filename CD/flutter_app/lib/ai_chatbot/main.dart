@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../shared/widgets/wau_loading_indicator.dart';
 import 'package:flutter/services.dart';
 
 import 'package:record/record.dart';
@@ -1057,12 +1058,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 else
                   // Input Area
                   Container(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      8,
-                      widget.composerRightInset,
-                      14,
-                    ),
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 76),
                     color: Colors.transparent,
                     child: Container(
                       decoration: BoxDecoration(
@@ -1176,19 +1172,22 @@ class _ChatScreenState extends State<ChatScreen> {
                                               ? Colors.transparent
                                               : Colors.blue.shade100),
                                   ),
-                                  child: Icon(
-                                    _isSending
-                                        ? Icons.hourglass_top_rounded
-                                        : canSend
-                                        ? Icons.arrow_upward
-                                        : Icons.mic_none,
-                                    color: _isSending || canSend || _isRecording
-                                        ? Colors.white
-                                        : _messages.isEmpty
-                                        ? const Color(0xFF123778)
-                                        : Colors.blueAccent,
-                                    size: 20,
-                                  ),
+                                  child: _isSending
+                                      ? const WauLoadingIndicator(size: 20)
+                                      : Icon(
+                                          canSend
+                                              ? Icons.arrow_upward
+                                              : Icons.mic_none,
+                                          color:
+                                              _isSending ||
+                                                  canSend ||
+                                                  _isRecording
+                                              ? Colors.white
+                                              : _messages.isEmpty
+                                              ? const Color(0xFF123778)
+                                              : Colors.blueAccent,
+                                          size: 20,
+                                        ),
                                 ),
                               );
                             },

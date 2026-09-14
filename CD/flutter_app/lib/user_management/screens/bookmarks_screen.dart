@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:community_discovery/community_discovery.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_app/shared/widgets/wau_loading_indicator.dart';
 
 import '../../preference_recommender/pages/place_map_page.dart';
 import '../../shared/widgets/ohmy_snack_bar.dart';
@@ -144,7 +145,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
 
   Widget _locationContent() {
     if (_loadingLocations) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: WauLoadingIndicator(size: 58));
     }
     if (_locationError != null) {
       return Center(
@@ -167,7 +168,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
       );
     }
     if (_locations.isEmpty) {
-      return RefreshIndicator(
+      return WauRefreshIndicator(
         onRefresh: _loadLocations,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -180,7 +181,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
         ),
       );
     }
-    return RefreshIndicator(
+    return WauRefreshIndicator(
       onRefresh: _loadLocations,
       child: GridView.builder(
         padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
