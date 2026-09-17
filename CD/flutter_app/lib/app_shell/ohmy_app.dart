@@ -169,7 +169,10 @@ class _OhMyShellState extends State<OhMyShell> {
               : 32,
         ),
       ),
-      (context) => StartTripHubPage(controller: _travelGroupController),
+      (context) => StartTripHubPage(
+        controller: _travelGroupController,
+        onOpenProfile: () => _selectTab(4),
+      ),
       (context) => _communityController == null
           ? const ModuleSetupPage(
               icon: Icons.groups_outlined,
@@ -381,13 +384,9 @@ class _OhMyShellState extends State<OhMyShell> {
         );
       }
       navigator.popUntil((route) => route.isFirst);
-      navigator.push<void>(
-        MaterialPageRoute<void>(
-          settings: const RouteSettings(name: travelGroupDiscoveryRouteName),
-          builder: (_) =>
-              TravelGroupModulePage(controller: _travelGroupController),
-        ),
-      );
+      // Let the root route settle after clearing any stale Group Trip pages.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
       await navigator.push<void>(
         MaterialPageRoute<void>(
           settings: RouteSettings(name: '/travel-group/${group.id}'),
@@ -493,7 +492,7 @@ class _OhMyShellState extends State<OhMyShell> {
                 ),
               ),
             ),
-            if (_selectedIndex != 1)
+            if (_selectedIndex != 1 && _selectedIndex != 2)
               Positioned(
                 left: 20,
                 right: 20,
@@ -1355,9 +1354,14 @@ class _GroupPreviewCard extends StatelessWidget {
 }
 
 class StartTripHubPage extends StatelessWidget {
-  const StartTripHubPage({super.key, required this.controller});
+  const StartTripHubPage({
+    super.key,
+    required this.controller,
+    this.onOpenProfile,
+  });
 
   final TravelGroupController controller;
+  final VoidCallback? onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -1441,8 +1445,10 @@ class StartTripHubPage extends StatelessWidget {
                       settings: const RouteSettings(
                         name: travelGroupDiscoveryRouteName,
                       ),
-                      builder: (_) =>
-                          TravelGroupModulePage(controller: controller),
+                      builder: (_) => TravelGroupModulePage(
+                        controller: controller,
+                        onOpenProfile: onOpenProfile,
+                      ),
                     ),
                   ),
                 ),
@@ -1510,15 +1516,9 @@ class StartTripHubPage extends StatelessWidget {
       return;
     }
     if (!context.mounted) return;
-    final navigator = Navigator.of(context);
-    navigator.push<void>(
+    await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        settings: const RouteSettings(name: travelGroupDiscoveryRouteName),
-        builder: (_) => TravelGroupModulePage(controller: controller),
-      ),
-    );
-    await navigator.push<void>(
-      MaterialPageRoute<void>(
+        settings: RouteSettings(name: '/travel-group/${group.id}'),
         builder: (_) => GroupLobbyScreen(controller: controller),
       ),
     );
@@ -1687,9 +1687,14 @@ class CommunityModulePage extends StatelessWidget {
 }
 
 class TravelGroupModulePage extends StatelessWidget {
-  const TravelGroupModulePage({super.key, required this.controller});
+  const TravelGroupModulePage({
+    super.key,
+    required this.controller,
+    this.onOpenProfile,
+  });
 
   final TravelGroupController controller;
+  final VoidCallback? onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -1697,7 +1702,10 @@ class TravelGroupModulePage extends StatelessWidget {
       animation: controller,
       builder: (context, _) => controller.currentUser.isVerified
           ? TravelGroupDiscoveryScreen(controller: controller)
-          : VerificationRequiredScreen(controller: controller),
+          : VerificationRequiredScreen(
+              controller: controller,
+              onOpenProfile: onOpenProfile,
+            ),
     );
   }
 }

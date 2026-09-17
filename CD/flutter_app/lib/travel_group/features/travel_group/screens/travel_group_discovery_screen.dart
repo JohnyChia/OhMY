@@ -40,8 +40,11 @@ class _TravelGroupDiscoveryScreenState
     super.initState();
     _ownsPlaceSearch = widget.placeSearchService == null;
     _placeSearch = widget.placeSearchService ?? TravelPlaceSearchService();
-    controller.loadGroups();
-    _resolveDefaultArea();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      controller.loadGroups();
+      _resolveDefaultArea();
+    });
   }
 
   Future<void> _resolveDefaultArea() async {

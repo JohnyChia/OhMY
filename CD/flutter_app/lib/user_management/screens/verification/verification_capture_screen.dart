@@ -41,7 +41,9 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
 
   Future<void> _openCamera() async {
     try {
-      final cameras = await availableCameras();
+      final cameras = await availableCameras().timeout(
+        const Duration(seconds: 10),
+      );
       if (cameras.isEmpty) throw CameraException('none', 'No camera');
       final rear = cameras.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.back,
@@ -52,13 +54,14 @@ class _VerificationCaptureScreenState extends State<VerificationCaptureScreen> {
         ResolutionPreset.high,
         enableAudio: false,
       );
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 12));
       if (!mounted) {
         await controller.dispose();
         return;
       }
       setState(() => _camera = controller);
-    } on CameraException {
+    } on Object catch (error) {
+      debugPrint('Document camera initialization failed: $error');
       if (mounted) {
         setState(() {
           _cameraError =
@@ -320,7 +323,10 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
 
   Future<void> _openCamera() async {
     try {
-      final cameras = await availableCameras();
+      final cameras = await availableCameras().timeout(
+        const Duration(seconds: 10),
+      );
+      if (cameras.isEmpty) throw CameraException('none', 'No camera');
       final front = cameras.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.front,
         orElse: () => cameras.first,
@@ -330,10 +336,11 @@ class _SelfieVerificationScreenState extends State<_SelfieVerificationScreen> {
         ResolutionPreset.high,
         enableAudio: false,
       );
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 12));
       if (!mounted) return controller.dispose();
       setState(() => _camera = controller);
-    } on CameraException {
+    } on Object catch (error) {
+      debugPrint('Selfie camera initialization failed: $error');
       if (mounted) {
         setState(() {
           _cameraError =
@@ -507,7 +514,7 @@ class _VerificationResultScreen extends StatelessWidget {
               ),
               const SizedBox(height: 28),
               Text(
-                verified ? 'Identity verified' : 'We couldn’t verify you',
+                verified ? 'Identity verified' : result.failureTitle,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Color(0xFF17243D), fontSize: 28),
               ),
@@ -521,10 +528,32 @@ class _VerificationResultScreen extends StatelessWidget {
                   height: 1.5,
                 ),
               ),
+              if (!verified) ...[
+                const SizedBox(height: 18),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF4E8),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFFC47A)),
+                  ),
+                  child: Text(
+                    'What to do: ${result.retryGuidance}',
+                    textAlign: TextAlign.left,
+                    style: const TextStyle(
+                      color: Color(0xFF704214),
+                      fontSize: 13,
+                      height: 1.4,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 36),
               ElevatedButton(
                 onPressed: () => Navigator.of(context).pop(verified),
-                child: Text(verified ? 'Return to profile' : 'Try again'),
+                child: Text(verified ? 'Return to profile' : 'Retake photos'),
               ),
             ],
           ),

@@ -50,5 +50,34 @@ void main() {
       expect(result.message, 'Verification successful.');
       expect(result.faceMatchScore, 0.91);
     });
+
+    test('preserves a failure code and provides targeted retry guidance', () {
+      final result = VerificationService.parseResponse(
+        http.Response(
+          '{"verified":false,"code":"selfie_face_not_found",'
+          '"message":"No clear face was found in your selfie."}',
+          200,
+        ),
+      );
+
+      expect(result.code, 'selfie_face_not_found');
+      expect(result.failureTitle, 'Selfie face not detected');
+      expect(result.retryGuidance, contains('selfie'));
+      expect(result.retryGuidance, contains('one face'));
+    });
+
+    test('explains when MyKad text recognition failed', () {
+      final result = VerificationService.parseResponse(
+        http.Response(
+          '{"verified":false,"code":"invalid_mykad",'
+          '"message":"This does not look like a Malaysian MyKad."}',
+          200,
+        ),
+      );
+
+      expect(result.failureTitle, 'MyKad details not recognised');
+      expect(result.retryGuidance, contains('MALAYSIA'));
+      expect(result.retryGuidance, contains('12-digit'));
+    });
   });
 }

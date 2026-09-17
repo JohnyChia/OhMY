@@ -6,9 +6,14 @@ import '../widgets/travel_group_scaffold.dart';
 import '../widgets/travel_group_widgets.dart';
 
 class VerificationRequiredScreen extends StatelessWidget {
-  const VerificationRequiredScreen({super.key, required this.controller});
+  const VerificationRequiredScreen({
+    super.key,
+    required this.controller,
+    this.onOpenProfile,
+  });
 
   final TravelGroupController controller;
+  final VoidCallback? onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -17,10 +22,24 @@ class VerificationRequiredScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 22, 16, 24),
         children: [
-          Text('Group Trip', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 4),
-          const Text('Meet safely with verified travellers'),
-          const SizedBox(height: 22),
+          const Text(
+            'Group Trip',
+            style: TextStyle(
+              color: Color(0xFF123A78),
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Meet safely with verified travellers',
+            style: TextStyle(
+              color: Color(0xFF536A8E),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 18),
           AppPanel(
             color: AppColors.paleBlue,
             child: Padding(
@@ -71,13 +90,17 @@ class VerificationRequiredScreen extends StatelessWidget {
                             context,
                             'Demo verification completed.',
                           );
-                        } else {
-                          showTravelGroupMessage(
-                            context,
-                            'Open Profile and complete identity verification.',
-                          );
+                          Navigator.pop(context);
+                          return;
                         }
-                        Navigator.pop(context);
+                        if (onOpenProfile != null) {
+                          Navigator.of(
+                            context,
+                          ).popUntil((route) => route.isFirst);
+                          onOpenProfile!();
+                        } else {
+                          Navigator.pop(context);
+                        }
                       },
                       child: Text(
                         controller.allowDemoVerification

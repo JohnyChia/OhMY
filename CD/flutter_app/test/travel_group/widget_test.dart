@@ -88,23 +88,54 @@ void main() {
   });
 
   testWidgets(
-    'unverified user sees verification gate when opening Group trip',
+    'verified Group module does not notify its parent while building',
     (tester) async {
-      controller.currentUser.isVerified = false;
       await tester.pumpWidget(
-        MaterialApp(home: StartTripHubPage(controller: controller)),
+        MaterialApp(home: TravelGroupModulePage(controller: controller)),
       );
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Group trip'));
-      await tester.tap(find.text('Group trip'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(find.byType(VerificationRequiredScreen), findsOneWidget);
-      expect(find.byType(TravelGroupDiscoveryScreen), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-      controller.dispose();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(TravelGroupDiscoveryScreen), findsOneWidget);
     },
   );
+
+  testWidgets('unverified user can leave the nested Group gate for Profile', (
+    tester,
+  ) async {
+    final gateController = TravelGroupController(
+      repository: repository,
+      currentUser: PrototypeUser(
+        id: 'UNVERIFIED_USER',
+        name: 'Unverified traveller',
+        isVerified: false,
+      ),
+      allowDemoVerification: false,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: _NestedTravelGroupGateHarness(controller: gateController),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Group trip'));
+    await tester.tap(find.text('Group trip'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(VerificationRequiredScreen), findsOneWidget);
+    expect(find.byType(TravelGroupDiscoveryScreen), findsNothing);
+    final heading = tester.widget<Text>(find.text('Group Trip'));
+    expect(heading.style?.color, const Color(0xFF123A78));
+    expect(heading.style?.fontSize, 26);
+    expect(heading.style?.fontWeight, FontWeight.w700);
+    await tester.tap(find.text('Return and open Profile'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Profile destination'), findsOneWidget);
+    expect(find.byType(VerificationRequiredScreen), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    gateController.dispose();
+  });
 
   testWidgets(
     'creator cannot confirm from the lobby until another traveller joins',
@@ -297,7 +328,7 @@ void main() {
     await tester.pumpWidget(app());
     await tester.pumpAndSettle();
 
-    expect(find.text('Group Trips'), findsOneWidget);
+    expect(find.text('Group Trip'), findsOneWidget);
     expect(find.text('Petaling Street'), findsOneWidget);
     expect(find.text('Petaling Street Food Hunt'), findsOneWidget);
     expect(find.textContaining('km away'), findsNothing);
@@ -940,6 +971,37 @@ void main() {
       ),
     );
   });
+}
+
+class _NestedTravelGroupGateHarness extends StatefulWidget {
+  const _NestedTravelGroupGateHarness({required this.controller});
+
+  final TravelGroupController controller;
+
+  @override
+  State<_NestedTravelGroupGateHarness> createState() =>
+      _NestedTravelGroupGateHarnessState();
+}
+
+class _NestedTravelGroupGateHarnessState
+    extends State<_NestedTravelGroupGateHarness> {
+  var _selectedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) => IndexedStack(
+    index: _selectedIndex,
+    children: [
+      Navigator(
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => StartTripHubPage(
+            controller: widget.controller,
+            onOpenProfile: () => setState(() => _selectedIndex = 1),
+          ),
+        ),
+      ),
+      const Scaffold(body: Text('Profile destination')),
+    ],
+  );
 }
 
 class _FakePlaceSearchService extends TravelPlaceSearchService {

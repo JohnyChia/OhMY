@@ -61,19 +61,28 @@ class FaceEngine:
         self.recognizer = cv2.FaceRecognizerSF.create(str(recognizer_path), "")
         self.threshold = settings.face_match_threshold
 
-    def detect_one(self, image: np.ndarray) -> np.ndarray:
+    def detect_one(
+        self,
+        image: np.ndarray,
+        failure_code: str = "face_count",
+        failure_message: str = "Make sure exactly one clear face is visible in the photo.",
+    ) -> np.ndarray:
         height, width = image.shape[:2]
         self.detector.setInputSize((width, height))
         _, faces = self.detector.detect(image)
         if faces is None or len(faces) != 1:
             raise CheckFailure(
-                "face_count",
-                "Make sure exactly one clear face is visible in the photo.",
+                failure_code,
+                failure_message,
             )
         return faces[0]
 
     def crop_portrait(self, image: np.ndarray) -> np.ndarray:
-        face = self.detect_one(image)
+        face = self.detect_one(
+            image,
+            "document_face_not_found",
+            "We could not find exactly one clear portrait on the ID front.",
+        )
         x, y, width, height = face[:4].astype(int)
         margin_x, margin_y = int(width * 0.35), int(height * 0.35)
         return image[
@@ -82,8 +91,16 @@ class FaceEngine:
         ]
 
     def similarity(self, document_face: np.ndarray, selfie: np.ndarray) -> float:
-        doc_face = self.detect_one(document_face)
-        selfie_face = self.detect_one(selfie)
+        doc_face = self.detect_one(
+            document_face,
+            "document_face_not_found",
+            "We could not find exactly one clear portrait on the ID front.",
+        )
+        selfie_face = self.detect_one(
+            selfie,
+            "selfie_face_not_found",
+            "We could not find exactly one clear face in the selfie.",
+        )
         doc_aligned = self.recognizer.alignCrop(document_face, doc_face)
         selfie_aligned = self.recognizer.alignCrop(selfie, selfie_face)
         doc_feature = self.recognizer.feature(doc_aligned)

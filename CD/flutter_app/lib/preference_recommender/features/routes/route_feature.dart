@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../../../ai_chatbot/widgets/nova_solo_voice_button.dart';
+import '../../../ai_chatbot/widgets/nova_solo_voice_status.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -2419,6 +2420,12 @@ class _ActiveNavigationPageState extends State<ActiveNavigationPage> {
                   ),
                 ),
               ),
+            Positioned(
+              left: 20,
+              right: 20,
+              top: MediaQuery.paddingOf(context).top + 6,
+              child: const NovaSoloVoiceStatus(),
+            ),
             if (navigationSimulationEnabled && locationError == null)
               Positioned(
                 top: MediaQuery.paddingOf(context).top + 132,

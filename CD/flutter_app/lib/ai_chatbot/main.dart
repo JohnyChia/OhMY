@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'services/nova_silence_cutoff.dart';
 import '../shared/widgets/wau_loading_indicator.dart';
 import 'package:flutter/services.dart';
 
@@ -78,7 +79,7 @@ class _ChatScreenState extends State<ChatScreen> {
   late final FlutterTts _flutterTts;
   String? _recordingPath;
   StreamSubscription<Amplitude>? _amplitudeSubscription;
-  Timer? _silenceTimer;
+  NovaSilenceCutoff? _silenceTimer;
   Timer? _maximumRecordingTimer;
   bool _speechDetected = false;
   DateTime? _recordingStartedAt;
@@ -360,7 +361,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     : (_noiseFloorDb! * 0.7) + (amplitude.current * 0.3);
               }
               final calibratedFloor = _noiseFloorDb ?? -55.0;
-              final speechThreshold = (calibratedFloor + 7).clamp(-58.0, -20.0);
+              final speechThreshold = (calibratedFloor + 7).clamp(-58.0, -8.0);
               // Huawei and other Android vendors expose different amplitude
               // scales. Calibrate against the quiet opening of each turn,
               // then finish quickly after the speaker pauses.
@@ -368,11 +369,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   recordingAge > const Duration(milliseconds: 220)) {
                 _speechDetected = true;
                 _silenceTimer?.cancel();
-                _silenceTimer = Timer(const Duration(milliseconds: 900), () {
-                  if (_isRecording && _speechDetected) {
-                    unawaited(_stopRecording());
-                  }
-                });
+                _silenceTimer?.arm();
               }
             });
 
@@ -380,6 +377,14 @@ class _ChatScreenState extends State<ChatScreen> {
           _isRecording = true;
           _voiceTurnActive = true;
         });
+        _silenceTimer = NovaSilenceCutoff(() {
+          if (!_isRecording || sessionGeneration != _voiceGeneration) return;
+          if (_speechDetected) {
+            unawaited(_stopRecording());
+          } else {
+            unawaited(_finishSilentRecording());
+          }
+        })..arm();
         NovaVoiceController.update(
           phase: NovaVoicePhase.listening,
           message: 'I’m listening. What can I help you with?',
@@ -426,7 +431,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _isStoppingRecording = true;
     final requestGeneration = _requestGeneration;
     try {
-      final path = await _audioRecorder.stop();
+      final path = await _audioRecorder.stop().timeout(
+        const Duration(seconds: 5),
+      );
       await _amplitudeSubscription?.cancel();
       _amplitudeSubscription = null;
       _silenceTimer?.cancel();
@@ -457,7 +464,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   .whereType<String>()
                   .where((value) => value.trim().isNotEmpty)
                   .join(' | '),
-        );
+        ).timeout(const Duration(seconds: 30));
         if (!mounted || requestGeneration != _requestGeneration) return;
         if (await NovaVoiceChoiceController.consume(transcript.correctedText)) {
           if (!mounted || requestGeneration != _requestGeneration) return;
@@ -485,6 +492,17 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } catch (e) {
       debugPrint('Failed to stop recording: $e');
+      _silenceTimer?.cancel();
+      _maximumRecordingTimer?.cancel();
+      await _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = null;
+      if (mounted) {
+        setState(() {
+          _isRecording = false;
+          _voiceTurnActive = false;
+        });
+      }
+      unawaited(_audioRecorder.cancel());
       final errorMessage = _friendlyNovaError(
         e,
         fallback: "I didn't catch that. Try again?",
@@ -704,6 +722,7 @@ class _ChatScreenState extends State<ChatScreen> {
             // then opens a fresh hands-free confirmation session. Speaking
             // the chat handoff here would overlap that route narration.
             _voiceTurnActive = false;
+            NovaVoiceController.reset();
           } else if (isVoice && data['reply'] != null) {
             if (!kIsWeb && Platform.isWindows) {
               debugPrint(
@@ -1260,16 +1279,26 @@ class _NovaLanding extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: compact ? 12 : 20),
-                Text(
-                  'Tap Nova to talk. I can plan trips,\n'
-                  'find local gems, check weather, routes\n'
-                  'and itineraries.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: compact ? 14 : 16,
-                    height: 1.45,
-                    fontWeight: FontWeight.w400,
-                    color: const Color(0xFF71809C),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .76),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    'Tap Nova to talk. I can plan trips,\n'
+                    'find local gems, check weather, routes\n'
+                    'and itineraries.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: compact ? 14 : 16,
+                      height: 1.42,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF29496F),
+                    ),
                   ),
                 ),
               ],
