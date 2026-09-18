@@ -1,9 +1,10 @@
 # Supabase integration
 
 The standalone prototype still runs without Supabase. For the shared team
-database, run `docs/SUPABASE_TRAVEL_GROUP_SETUP.sql`. It is additive: it keeps
-the existing personal `itineraries`, `trip_states`, AI chat tables, places and
-tag tables unchanged.
+database, apply the versioned SQL files in `supabase/migrations` in filename
+order. The migrations preserve the existing personal `itineraries`,
+`trip_states`, AI chat tables, places and tag tables unless a later migration
+explicitly changes them.
 
 Then add `supabase_flutter`, make a concrete
 `SupabaseTravelGroupRepository`, and pass it to `TravelGroupController` in
@@ -35,7 +36,5 @@ Use Row Level Security so only verified users can create/join, only members can
 read a lobby and vote, and only the creator can accept requests or mutate the
 itinerary.
 
-The unified migration also creates the active-map session, participant and
+The migration chain also creates the active-map session, participant and
 live-location tables, their RLS policies, and Realtime publication entries.
-`docs/SUPABASE_LIVE_TRIP_SETUP.sql` remains available only for teams that
-already have their own group/planning tables; do not run both migrations.

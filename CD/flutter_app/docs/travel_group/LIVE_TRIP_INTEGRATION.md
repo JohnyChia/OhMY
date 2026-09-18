@@ -12,9 +12,9 @@ publish the emulator/device GPS position.
 
 ## Tables to create now
 
-For the current team database, run `docs/SUPABASE_TRAVEL_GROUP_SETUP.sql` in
-the Supabase SQL editor. It creates the collaborative planning tables and these
-three live-map tables:
+For the current team database, apply the versioned SQL files in
+`supabase/migrations` in filename order. They create the collaborative planning
+tables and these three live-map tables:
 
 1. `travel_group_trip_sessions` — one shared active session, route and current
    stop for the whole group.
@@ -27,10 +27,6 @@ The migration is additive and leaves the existing personal itinerary, AI chat,
 place and preference tables unchanged. Its trip sessions already reference the
 new `travel_groups` table, and accepted `travel_group_members` should be copied
 into trip participants by the start-trip transaction or RPC.
-
-The smaller `SUPABASE_LIVE_TRIP_SETUP.sql` is retained only for a database that
-already owns equivalent group, suggestion and itinerary tables. Do not run both
-setup files.
 
 ## Runtime sequence
 
